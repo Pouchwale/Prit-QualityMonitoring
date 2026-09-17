@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "Quality Worker",
+    "slug": "quality-worker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Quality Monitoring App requires access to the camera to verify physical manufacturing quality parameters."
+      },
+      "bundleIdentifier": "com.pouchwale.qualityworker"
+    },
+    "android": {
+      "permissions": [
+        "CAMERA",
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "android.permission.CAMERA"
+      ],
+      "package": "com.pouchwale.qualityworker",
+      "versionCode": 1
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "The camera is used to take photos and videos for quality checks.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      "expo-asset",
+      "expo-secure-store",
+      "expo-video",
+      [
+        "expo-notifications",
+        {
+          "color": "#1E40AF",
+          "defaultChannel": "due-checks"
+        }
+      ]
+    ],
+    "scheme": "qualityworker",
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "Quality Worker",
+      "shortName": "Quality Worker",
+      "themeColor": "#1E40AF",
+      "backgroundColor": "#F8F9FA"
+    },
+    "experiments": {
+      "baseUrl": "/app"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e50c616c-4751-4692-a391-569587f90018"
+      }
+    },
+    "owner": "prit1177"
+  }
+}

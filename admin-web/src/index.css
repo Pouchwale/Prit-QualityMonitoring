@@ -1,0 +1,204 @@
+@import "tailwindcss";
+
+/* Shared design tokens — keep in sync with worker-mobile/tailwind.config.js */
+@theme {
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  --color-canvas: #F8F9FA;
+  --color-surface: #FFFFFF;
+  --color-subtle: #F1F5F9;
+  --color-line: #E2E8F0;
+  --color-line-strong: #CBD5E1;
+
+  --color-ink: #0F172A;
+  --color-ink-secondary: #475569;
+  --color-ink-muted: #64748B;
+  --color-ink-faint: #94A3B8;
+
+  --color-accent: #1E40AF;
+
+  --color-success: #15803D;
+  --color-success-bg: #F0FDF4;
+  --color-success-line: #BBF7D0;
+
+  --color-due: #0369A1;
+  --color-due-bg: #F0F9FF;
+  --color-due-line: #BAE6FD;
+
+  --color-missed: #B91C1C;
+  --color-missed-bg: #FEF2F2;
+  --color-missed-line: #FECACA;
+
+  --color-exception: #B45309;
+  --color-exception-bg: #FFFBEB;
+  --color-exception-line: #FDE68A;
+
+  --color-failed: #DC2626;
+  --color-failed-bg: #FEF2F2;
+  --color-failed-line: #FCA5A5;
+}
+
+@layer base {
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 13.5px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /*
+   * Phones and tablets: a 16px root so rem-based text and spacing scale up for reading and
+   * tapping (text-xs becomes 12px instead of 10px). Desktop (lg, 1024px+) keeps 13.5px.
+   */
+  @media screen and (max-width: 1023.98px) {
+    html {
+      font-size: 16px;
+    }
+  }
+
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Scrollbar pseudo-elements cannot be styled with utilities */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-subtle);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-faint);
+  }
+}
+
+/*
+ * Responsive tables. These rules sit outside any @layer on purpose: unlayered CSS wins over
+ * Tailwind's utilities, so they can override the cells' padding, alignment and nowrap on phones.
+ */
+
+/* List tables: one card per row below md. Labels come from lib/responsiveTables.ts. */
+@media screen and (max-width: 767.98px) {
+  table.stack-sm,
+  table.stack-sm tbody {
+    display: block;
+    width: 100%;
+  }
+  table.stack-sm thead {
+    display: none;
+  }
+  table.stack-sm tr {
+    display: block;
+    padding: 10px 12px;
+  }
+  /*
+   * Label floated on the left (::before), value right-aligned beside it. flow-root makes the
+   * row grow to whichever is taller, so a two-line label never runs into the next row.
+   */
+  table.stack-sm td {
+    display: flow-root;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    padding: 4px 0;
+    text-align: right;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  table.stack-sm td::before {
+    content: attr(data-label);
+    float: left;
+    width: 34%;
+    margin-right: 10px;
+    padding-top: 1px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    white-space: normal;
+    overflow-wrap: normal;
+    color: var(--color-ink-muted);
+    font-family: var(--font-sans);
+  }
+  table.stack-sm td > .flex,
+  table.stack-sm td > .inline-flex {
+    justify-content: flex-end;
+  }
+  table.stack-sm td > .flex {
+    flex-wrap: wrap;
+  }
+  /* Cells with no column name (row actions, expand toggles) sit on the right without a label */
+  table.stack-sm td[data-label='']::before {
+    content: none;
+  }
+  /* A cell showing only a dash carries no information; leave it out of the card */
+  table.stack-sm td[data-empty] {
+    display: none;
+  }
+  /* Full-width cells: empty states and expanded detail rows */
+  table.stack-sm td[colspan] {
+    text-align: left;
+  }
+  table.stack-sm td > * {
+    min-width: 0;
+  }
+}
+
+/* Numeric comparison tables keep their columns and scroll sideways, with the name column pinned. */
+@media screen and (max-width: 1023.98px) {
+  table.pin-first th:first-child,
+  table.pin-first td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background-color: var(--color-surface);
+    box-shadow: inset -1px 0 0 var(--color-line);
+  }
+}
+
+/* Print styles for printable quality inspection sheets */
+@media print {
+  body {
+    background-color: #FFFFFF !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  /* On screen the shell is one viewport tall with its own scroll area; on paper it must grow
+     to the full page content, otherwise only the first screenful is printed. */
+  html,
+  body,
+  #root,
+  .app-shell {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  .app-shell {
+    display: block !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .printable-card {
+    border: 1px solid #000 !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+  }
+}

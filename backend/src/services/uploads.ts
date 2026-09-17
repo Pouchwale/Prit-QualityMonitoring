@@ -1,0 +1,134 @@
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import path from 'node:path'
+import { createHash } from 'node:crypto'
+import multer from 'multer'
+import { inArray } from 'drizzle-orm'
+import { config } from '../config'
+import { db } from '../db/client'
+import { media } from '../db/schema'
+import { HttpError, badRequest, conflict } from '../lib/http'
+import { MINUTE } from '../lib/time'
+import { storage } from '../storage'
+import type { StorageCategory } from '../storage/StorageService'
+
+/** Accepts one `photo` (image/*) and one `video` (video/*) field. */
+export const evidenceUpload = multer({
+  dest: path.join(config.uploadDir, '.tmp'),
+  limits: { fileSize: config.maxVideoBytes, files: 2 },
+  fileFilter: (_req, file, cb) => {
+    if (file.fieldname === 'photo' && file.mimetype.startsWith('image/')) return cb(null, true)
+    if (file.fieldname === 'video' && file.mimetype.startsWith('video/')) return cb(null, true)
+    cb(new HttpError(400, `Unsupported file for "${file.fieldname}"`))
+  }
+}).fields([
+  { name: 'photo', maxCount: 1 },
+  { name: 'video', maxCount: 1 }
+])
+
+export type UploadedFiles = Partial<Record<'photo' | 'video', Express.Multer.File[]>>
+
+function sha256(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256')
+    fs.createReadStream(filePath)
+      .on('data', (chunk) => hash.update(chunk))
+      .on('end', () => resolve(hash.digest('hex')))
+      .on('error', reject)
+  })
+}
+
+/**
+ * Server-side checks for live evidence. The app only offers the camera, but the backend
+ * still requires a fresh capture time and rejects files that were uploaded before.
+ */
+function parseCapturedAt(raw: unknown, label: string): Date {
+  const date = typeof raw === 'string' ? new Date(raw) : new Date(NaN)
+  if (Number.isNaN(date.getTime())) throw badRequest(`${label} capture time is missing`)
+  const now = Date.now()
+  if (date.getTime() > now + 5 * MINUTE) throw badRequest(`${label} capture time is in the future. Check the phone clock.`)
+  if (date.getTime() < now - config.captureFreshnessMinutes * MINUTE) {
+    throw badRequest(`${label} is too old. Please take a new one.`)
+  }
+  return date
+}
+
+export interface EvidenceInput {
+  file: Express.Multer.File
+  kind: 'PHOTO' | 'VIDEO'
+  capturedAt: unknown
+  durationSeconds?: number
+}
+
+export interface StoredEvidence {
+  kind: 'PHOTO' | 'VIDEO'
+  path: string
+  mimeType: string
+  sizeBytes: number
+  sha256: string
+  capturedAt: Date
+  durationSeconds: number | null
+}
+
+const extensionFor = (file: Express.Multer.File) =>
+  path.extname(file.originalname).slice(1) || file.mimetype.split('/')[1] || 'bin'
+
+/** Validates and moves evidence into storage. Returns rows ready to insert into `media`. */
+export async function storeEvidence(items: EvidenceInput[], category: StorageCategory): Promise<StoredEvidence[]> {
+  const prepared = await Promise.all(
+    items.map(async (item) => {
+      const label = item.kind === 'PHOTO' ? 'Photo' : 'Video'
+      if (item.kind === 'PHOTO' && item.file.size > config.maxPhotoBytes) throw badRequest('Photo is too large')
+      if (item.file.size === 0) throw badRequest(`${label} is empty. Please try again.`)
+      if (item.kind === 'VIDEO' && item.durationSeconds != null && item.durationSeconds > config.maxVideoSeconds + 2) {
+        throw badRequest(`Video must be ${config.maxVideoSeconds} seconds or shorter`)
+      }
+      return {
+        item,
+        label,
+        capturedAt: parseCapturedAt(item.capturedAt, label),
+        hash: await sha256(item.file.path)
+      }
+    })
+  )
+
+  if (prepared.length) {
+    const reused = await db
+      .select({ kind: media.kind })
+      .from(media)
+      .where(inArray(media.sha256, prepared.map((p) => p.hash)))
+    if (reused.length) {
+      throw conflict(`This ${reused[0].kind === 'VIDEO' ? 'video' : 'photo'} was already used. Please take a new one.`)
+    }
+  }
+
+  const stored: StoredEvidence[] = []
+  try {
+    for (const p of prepared) {
+      const saved = await storage.save(p.item.file.path, { category, extension: extensionFor(p.item.file) })
+      stored.push({
+        kind: p.item.kind,
+        path: saved.path,
+        mimeType: p.item.file.mimetype,
+        sizeBytes: p.item.file.size,
+        sha256: p.hash,
+        capturedAt: p.capturedAt,
+        durationSeconds: p.item.durationSeconds ?? null
+      })
+    }
+  } catch (err) {
+    await removeStored(stored)
+    throw err
+  }
+  return stored
+}
+
+export async function removeStored(stored: StoredEvidence[]) {
+  await Promise.all(stored.map((s) => storage.remove(s.path).catch(() => undefined)))
+}
+
+/** Deletes any multer temp files that were not moved into storage. */
+export async function cleanupTemp(files: UploadedFiles | undefined) {
+  const all = [...(files?.photo ?? []), ...(files?.video ?? [])]
+  await Promise.all(all.map((f) => fsp.rm(f.path, { force: true })))
+}
