@@ -49,6 +49,15 @@ export type QualityCheckStatus = 'PENDING' | 'DUE' | 'IN_PROGRESS' | 'COMPLETED'
 export type ExceptionStatus = 'UNDER_REVIEW' | 'ACKNOWLEDGED' | 'ACTION_TAKEN' | 'RESOLVED'
 export type ValueResult = 'PASS' | 'FAIL' | 'NA'
 
+/** When a parameter is asked for: always, or only while a job is running on the machine. */
+export type AppliesWhen = 'ALWAYS' | 'JOB_RUNNING'
+/** How a schedule produces checks: on its interval, or only while a job runs. */
+export type ScheduleMode = 'INTERVAL' | 'JOB'
+/** A check type's monitoring mode on a machine. MANUAL = linked with no schedule. */
+export type MonitoringMode = ScheduleMode | 'MANUAL'
+/** Who started the check: the scheduler (notification) or the worker (manual). */
+export type SubmissionType = 'NOTIFICATION' | 'MANUAL'
+
 /** Overall result of a check (backend/src/lib/result.ts). Null while the check is still open. */
 export type CheckResult = 'COMPLETED' | 'MISSED' | 'EXCEPTION'
 
@@ -123,6 +132,13 @@ export interface ActivityParameter {
   sortOrder: number
   isRequired: boolean
   isEnabled: boolean
+  /** The worker must attach a live photo for this parameter. */
+  requirePhoto: boolean
+  /** The worker must record a video for this parameter. */
+  requireVideo: boolean
+  /** The worker may mark this parameter Not Applicable with a reason. */
+  allowNa: boolean
+  appliesWhen: AppliesWhen
   name: string
   code: string
   type: ParameterType
@@ -138,9 +154,13 @@ export interface Activity {
   departmentId: string | null
   departmentName: string | null
   description: string | null
+  /** Overall check photo, on top of the per-parameter evidence. */
   requirePhoto: boolean
+  /** Overall check video, on top of the per-parameter evidence. */
   requireVideo: boolean
   requireJobNo: boolean
+  /** Workers may start this check themselves, without waiting for a notification. */
+  allowManual: boolean
   isActive: boolean
   parameters: ActivityParameter[]
   machineIds: string[]
@@ -153,6 +173,8 @@ export interface Schedule {
   shiftId: string
   workerId: string | null
   intervalMinutes: number
+  /** INTERVAL: a check every `intervalMinutes`. JOB: only while a job runs on the machine. */
+  mode: ScheduleMode
   startTime: string | null
   endTime: string | null
   isActive: boolean
@@ -165,6 +187,9 @@ export interface Schedule {
   workerEmployeeId: string | null
   /** Workers who get this schedule's checks. Empty: no worker on this machine and shift, so no checks. */
   checkWorkers: { id: string; name: string; employeeId: string }[]
+  /** Stored monitoring timer (schedule_timers), when the server sends it. */
+  nextDueAt?: string | null
+  lastSubmittedAt?: string | null
 }
 
 /** A schedule that creates no checks because its machine has no worker on that shift. */
@@ -198,6 +223,8 @@ export interface User {
 export interface MediaFile {
   id: string
   kind: 'PHOTO' | 'VIDEO'
+  /** The parameter this evidence belongs to; null for overall (or legacy) check evidence. */
+  parameterId: string | null
   /** Relative URL, use mediaUrl() from lib/api. */
   url: string
   mimeType: string
@@ -216,6 +243,11 @@ export interface CheckValue {
   rule: string | null
   value: string | null
   result: ValueResult
+  /** Marked Not Applicable by the worker (or because no job was running). Never counts as a failure. */
+  notApplicable: boolean
+  naReason: string | null
+  naRemark: string | null
+  appliesWhen: AppliesWhen | null
 }
 
 export interface CheckException {
@@ -249,7 +281,13 @@ export interface QualityCheck {
   windowEndsAt: string
   status: QualityCheckStatus
   result: CheckResult | null
+  itemCode?: string | null
   jobNo: string | null
+  /** MANUAL when the worker started the check, NOTIFICATION when the scheduler did. */
+  submissionType: SubmissionType | null
+  jobId: string | null
+  /** When the next check of this schedule became due, worked out at submission. */
+  nextDueAt: string | null
   submittedAt: string | null
   submittedById: string | null
   submittedByName: string | null
@@ -258,6 +296,101 @@ export interface QualityCheck {
   values: CheckValue[]
   media: MediaFile[]
   exception: CheckException | null
+  /** The job this check belongs to, on the single-check endpoint. */
+  job?: Job | null
+}
+
+/** A configurable "Not Applicable" reason offered to workers (GET /api/monitoring-reasons). */
+export interface MonitoringReason {
+  id: string
+  label: string
+  /** The worker must type a remark when choosing this reason. */
+  requiresRemark: boolean
+  isActive: boolean
+  sortOrder: number
+}
+
+/** A production job on a machine. Job-based checks only run while one is open (GET /api/jobs). */
+export interface Job {
+  id: string
+  machineId: string
+  machineName?: string | null
+  machineCode?: string | null
+  itemCode?: string | null
+  jobNo: string
+  startedAt: string
+  startedById: string | null
+  startedByName: string | null
+  endedAt: string | null
+  endedById?: string | null
+  endedByName?: string | null
+  /** Checks submitted against this job. */
+  checkCount?: number
+  /** Minutes from start to end, or to now while the job runs. */
+  durationMinutes?: number | null
+}
+
+/** One parameter's evidence rules inside a check type (GET /api/monitoring-overview). */
+export interface OverviewParameter {
+  parameterId: string
+  name: string
+  code: string
+  type: ParameterType
+  unit: string | null
+  rule: string | null
+  isRequired: boolean
+  isEnabled: boolean
+  requirePhoto: boolean
+  requireVideo: boolean
+  allowNa: boolean
+  appliesWhen: AppliesWhen
+  sortOrder: number
+}
+
+/** A schedule of a check type on a machine, with its stored monitoring timer. */
+export interface OverviewSchedule {
+  id: string
+  shiftId: string
+  shiftName: string
+  intervalMinutes: number
+  mode: ScheduleMode
+  startTime: string | null
+  endTime: string | null
+  isActive: boolean
+  workerId: string | null
+  workerName: string | null
+  nextDueAt: string | null
+  lastSubmittedAt: string | null
+}
+
+export interface OverviewCheckType {
+  activityId: string
+  activityName: string
+  activityCode: string
+  isActive: boolean
+  allowManual: boolean
+  requireJobNo: boolean
+  requirePhoto: boolean
+  requireVideo: boolean
+  /** JOB if any schedule is job-based, INTERVAL if it has interval schedules, else MANUAL. */
+  mode: MonitoringMode
+  schedules: OverviewSchedule[]
+  parameters: OverviewParameter[]
+}
+
+export interface OverviewMachine {
+  id: string
+  name: string
+  code: string
+  status: MachineStatus
+  departmentName: string | null
+  runningJob: Job | null
+  checkTypes: OverviewCheckType[]
+}
+
+/** Machine-centric view of how monitoring is configured (GET /api/monitoring-overview). */
+export interface MonitoringOverview {
+  machines: OverviewMachine[]
 }
 
 export interface ExceptionRecord extends CheckException {
@@ -314,12 +447,84 @@ export interface DashboardData {
   byMachine: MachineSummary[]
   recent: QualityCheck[]
   /** Set when the plant is closed on the chosen day (Plant Calendar). */
-  closure: { id: string; date: string; type: ClosureType; label: string; reason: string | null } | null
+  closure: { id: string | null; date: string; type: ClosureType; label: string; reason: string | null; weeklyOff?: boolean } | null
   workerGaps: WorkerGap[]
 }
 
-/** Plant Calendar: how a closed day is labelled. */
-export type ClosureType = 'CLOSED' | 'HOLIDAY' | 'SHUTDOWN'
+/** Plant Calendar entry type. WORKING is an adjustment working day: the plant runs normally. */
+export type ClosureType = 'CLOSED' | 'HOLIDAY' | 'SHUTDOWN' | 'WORKING'
+
+/** Whether the plant is open on a date, and why (GET /api/plant-closures/days). */
+export interface DayState {
+  date: string
+  closed: boolean
+  source: 'ENTRY' | 'WEEKLY' | 'OPEN'
+  /** The weekly closure falls on this date (an entry may override it). */
+  weeklyClosed: boolean
+  entry: { id: string; type: ClosureType; reason: string | null; calendarYearId: string | null } | null
+  label: string | null
+}
+
+/** A recurring weekly closure from 2027 onwards (inclusive dates; no end date = open-ended). */
+export interface WeeklyRule {
+  id: string
+  weekday: number
+  effectiveFrom: string
+  effectiveTo: string | null
+  note: string | null
+  updatedAt: string
+}
+
+export type CalendarYearStatus = 'DRAFT' | 'APPROVED'
+
+export interface CalendarYear {
+  id: string
+  year: number
+  status: CalendarYearStatus
+  pendingChanges: boolean
+  sourceFileName: string | null
+  sourceMimeType: string | null
+  extractionMethod: 'EXCEL' | 'PDF_TEXT' | 'OCR' | 'MANUAL' | null
+  extractionNote: string | null
+  hasDocument: boolean
+  approvedAt: string | null
+  updatedAt: string
+}
+
+export interface CalendarYearSummary extends CalendarYear {
+  holidays: number
+  workingDays: number
+  openIssues: number
+}
+
+export interface CalendarYearItem {
+  id: string
+  type: ClosureType
+  date: string | null
+  name: string | null
+  forHolidayDate: string | null
+  printedWeekday: string | null
+  sourceText: string | null
+  sourceRow: number | null
+  uncertainFields: string[]
+  confirmed: boolean
+  position: number
+}
+
+export interface CalendarIssue {
+  code: string
+  severity: 'BLOCKING' | 'CHECK' | 'INFO'
+  message: string
+  itemId: string | null
+}
+
+export interface CalendarYearDetail {
+  year: CalendarYear
+  items: CalendarYearItem[]
+  issues: CalendarIssue[]
+  canApprove: boolean
+  publishedCount: number
+}
 
 /** A date the plant is closed. No checks, alerts or Missed checks on that date. */
 export interface PlantClosure {

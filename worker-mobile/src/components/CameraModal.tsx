@@ -6,8 +6,8 @@ import { VideoView, useVideoPlayer } from 'expo-video'
 import { cssInterop } from 'nativewind'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Capture } from '../types'
-import { formatDuration } from '../utils/format'
 import { Button } from './ui/Button'
+import { CameraTopBar, ReviewBar, Shutter, ShutterCaption } from './CameraControls'
 
 cssInterop(CameraView, { className: 'style' })
 cssInterop(VideoView, { className: 'style' })
@@ -124,9 +124,8 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
         ) : (
           <VideoReview uri={result.uri} />
         )}
-        <View className="flex-row gap-3 px-5 pt-4" style={{ paddingBottom: insets.bottom + 16 }}>
-          <Button label={isPhoto ? 'Retake' : 'Record Again'} variant="secondary" onPress={() => setResult(null)} className="flex-1" />
-          <Button label={isPhoto ? 'Use Photo' : 'Use Video'} onPress={() => onDone(result)} className="flex-1" />
+        <View style={{ paddingBottom: insets.bottom + 16 }}>
+          <ReviewBar isPhoto={isPhoto} onRetake={() => setResult(null)} onUse={() => onDone(result)} />
         </View>
       </View>
     )
@@ -143,58 +142,29 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
           onCameraReady={() => setReady(true)}
         />
 
-        {/* Top bar */}
-        <View className="absolute left-0 right-0 top-0 flex-row items-center justify-between px-2" style={{ paddingTop: insets.top + 4 }}>
-          <Pressable onPress={cancel} accessibilityRole="button" className="h-12 min-w-[88px] justify-center px-3 active:opacity-50">
-            <Text className="text-[17px] font-medium text-white">Cancel</Text>
-          </Pressable>
-          {recording ? (
-            <View className="flex-row items-center rounded-full bg-black/60 px-3 py-1.5">
-              <View className="mr-2 h-2.5 w-2.5 rounded-full bg-failed" />
-              <Text className="text-[16px] font-semibold text-white">
-                {formatDuration(elapsed)} / {formatDuration(maxVideoSeconds)}
-              </Text>
-            </View>
-          ) : (
-            <Text className="text-[17px] font-semibold text-white">{isPhoto ? 'Take Photo' : 'Record Video'}</Text>
-          )}
-          <View className="min-w-[88px]" />
+        {/* Top bar over the preview */}
+        <View className="absolute left-0 right-0 top-0 bg-black/40" style={{ paddingTop: insets.top }}>
+          <CameraTopBar
+            title={isPhoto ? 'Take Photo' : 'Record Video'}
+            recording={recording}
+            elapsed={elapsed}
+            maxSeconds={maxVideoSeconds}
+            onCancel={cancel}
+          />
         </View>
 
-        {/* Main action */}
-        <View className="absolute bottom-0 left-0 right-0 items-center px-8" style={{ paddingBottom: insets.bottom + 28 }}>
+        {/* Shutter */}
+        <View className="absolute bottom-0 left-0 right-0 items-center bg-black/40 pt-5" style={{ paddingBottom: insets.bottom + 20 }}>
           {isPhoto ? (
-            <Pressable
-              onPress={takePhoto}
-              disabled={!ready || busy}
-              accessibilityRole="button"
-              className={`h-16 w-full items-center justify-center rounded-full bg-white active:opacity-80 ${!ready || busy ? 'opacity-50' : ''}`}
-            >
-              <Text className="text-[19px] font-semibold text-ink">{busy ? 'Taking photo…' : 'Capture Photo'}</Text>
-            </Pressable>
+            <Shutter kind="photo" label="Capture Photo" onPress={takePhoto} disabled={!ready || busy} />
           ) : recording ? (
-            <Pressable
-              onPress={stopRecording}
-              accessibilityRole="button"
-              className="h-16 w-full flex-row items-center justify-center rounded-full bg-failed active:opacity-80"
-            >
-              <View className="mr-3 h-4 w-4 rounded-sm bg-white" />
-              <Text className="text-[19px] font-semibold text-white">Stop</Text>
-            </Pressable>
+            <Shutter kind="stop" label="Stop" onPress={stopRecording} />
           ) : (
-            <Pressable
-              onPress={startRecording}
-              disabled={!ready}
-              accessibilityRole="button"
-              className={`h-16 w-full flex-row items-center justify-center rounded-full bg-white active:opacity-80 ${!ready ? 'opacity-50' : ''}`}
-            >
-              <View className="mr-3 h-4 w-4 rounded-full bg-failed" />
-              <Text className="text-[19px] font-semibold text-ink">Record Video</Text>
-            </Pressable>
+            <Shutter kind="record" label="Record Video" onPress={startRecording} disabled={!ready} />
           )}
-          {!isPhoto && !recording ? (
-            <Text className="mt-3 text-[15px] text-white/80">Up to {maxVideoSeconds} seconds</Text>
-          ) : null}
+          <ShutterCaption
+            text={isPhoto ? (busy ? 'Taking photo…' : 'Photo') : recording ? 'Tap to stop' : `Up to ${maxVideoSeconds} seconds`}
+          />
         </View>
       </View>
     )

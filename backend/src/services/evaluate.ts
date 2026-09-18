@@ -37,6 +37,24 @@ export function isEmpty(raw: unknown) {
   return raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')
 }
 
+/**
+ * A parameter the worker marked "Not Applicable", with the reason. It is recorded as a value
+ * with result NA: N/A never counts as a failed reading and never makes the check FAIL.
+ */
+export function notApplicableValue(reason: string | null, remark: string | null) {
+  return { value: null, result: 'NA' as const, notApplicable: true, naReason: reason, naRemark: remark ?? null }
+}
+
+/** A real reading: validated, then PASS / FAIL / NA against the parameter's limits. */
+export function readingValue(p: ParameterConfig, raw: unknown) {
+  return { ...evaluateValue(p, raw), notApplicable: false, naReason: null, naRemark: null }
+}
+
+/** An optional parameter left empty: stored without a result, and never a failure. */
+export function emptyValue() {
+  return { value: null, result: 'NA' as const, notApplicable: false, naReason: null, naRemark: null }
+}
+
 /** Validates a submitted value and works out PASS / FAIL / NA. Throws 400 on invalid input. */
 export function evaluateValue(p: ParameterConfig, raw: unknown): { value: string; result: 'PASS' | 'FAIL' | 'NA' } {
   const text = String(raw).trim()

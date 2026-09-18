@@ -7,10 +7,7 @@ export const ActionBar: React.FC<{ children: React.ReactNode }> = ({ children })
   const insets = useSafeAreaInsets()
 
   return (
-    <View
-      className="border-t border-line bg-surface px-5 pt-3"
-      style={{ paddingBottom: Math.max(insets.bottom, 12) }}
-    >
+    <View className="border-t border-line bg-surface px-5 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 14) }}>
       {children}
     </View>
   )

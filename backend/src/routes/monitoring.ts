@@ -9,6 +9,7 @@ import {
   departments,
   machineActivities,
   machines,
+  monitoringReasons,
   qualityChecks,
   schedules,
   settings,
@@ -21,14 +22,22 @@ import { badRequest, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
 import { requireAnyView, requireModule } from '../lib/permissions'
 import { CHECK_RESULTS, RESULT_LABEL, RESULT_STATUSES, resultOf } from '../lib/result'
-import { addDays, parseDateKey, startOfDay } from '../lib/time'
+import { PLANT_TIMEZONE, addDays, parseDateKey, startOfDay } from '../lib/time'
 import { listChecks } from '../services/checks'
 import { buildQualityReport } from '../services/reportData'
 import { renderQualityReport } from '../services/reportPdf'
 import { config } from '../config'
 import { coverageGaps, eligibleWorkers, loadWorkers, shiftAt } from '../services/workerAssignment'
 import { closureOn } from '../services/plantCalendar'
-import { makeCheckCode, prepareChecks } from '../services/checkGenerator'
+import { invalidateCheckGeneration, makeCheckCode, prepareChecks } from '../services/checkGenerator'
+import { endJob, jobById } from '../services/jobs'
+import {
+  listJobs,
+  listMonitoringReasons,
+  monitoringOverview,
+  monitoringReasonById,
+  reasonDto
+} from '../services/monitoringConfig'
 
 export const monitoringRouter = Router()
 
@@ -46,7 +55,8 @@ async function gapDetails() {
     .orderBy(asc(machines.name), asc(shifts.startTime))
 }
 
-const formatDay = (d: Date) => d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+const formatDay = (d: Date) =>
+  d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: PLANT_TIMEZONE })
 
 /** The only statuses that can be filtered on or shown. Unfinished checks have no status yet. */
 const CHECK_STATUSES = ['COMPLETED', 'MISSED', 'EXCEPTION'] as const
@@ -348,6 +358,135 @@ monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports',
   res.setHeader('Content-Disposition', `attachment; filename="${report.meta.reportId}.pdf"`)
   res.setHeader('Content-Length', pdf.length)
   res.end(pdf)
+})
+
+/**
+ * Monitoring Setup — the reasons a worker may choose when marking a parameter "Not Applicable".
+ *
+ * Deleting is soft (isActive = false) so submitted checks keep the reason they recorded. There is
+ * deliberately no "keep at least one active" rule: an admin may disable every reason. The worker
+ * app still works in that case — it simply offers no reason list, so a parameter cannot be marked
+ * Not Applicable by hand. A JOB_RUNNING parameter is still skipped automatically with its own
+ * built-in reason (routes/worker.ts), which never comes from this table.
+ */
+const reasonInput = z.object({
+  label: z.string().trim().min(1, 'Enter the reason').max(120),
+  requiresRemark: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+  sortOrder: z.coerce.number().int().min(0).max(9999).optional()
+})
+
+// Read by the Monitoring Setup page, the check detail (to explain an N/A) and the reports.
+monitoringRouter.get('/monitoring-reasons', requireAnyView('activities', 'checks', 'exceptions'), async (_req, res) => {
+  res.json(await listMonitoringReasons())
+})
+
+monitoringRouter.post('/monitoring-reasons', requireModule('activities', 'manage'), async (req, res) => {
+  const body = reasonInput.parse(req.body)
+  const [row] = await db
+    .insert(monitoringReasons)
+    .values({
+      label: body.label,
+      requiresRemark: body.requiresRemark ?? false,
+      isActive: body.isActive ?? true,
+      sortOrder: body.sortOrder ?? 0
+    })
+    .returning()
+  await audit(req, 'CREATE', 'MonitoringReason', row.id, { newValue: reasonDto(row) })
+  res.status(201).json(reasonDto(row))
+})
+
+monitoringRouter.put('/monitoring-reasons/:id', requireModule('activities', 'manage'), async (req, res) => {
+  const id = idParam(req)
+  const body = reasonInput.parse(req.body)
+  const before = await monitoringReasonById(id)
+  if (!before) throw notFound('Reason')
+  // Fields the caller did not send keep their stored value.
+  const [row] = await db
+    .update(monitoringReasons)
+    .set({
+      label: body.label,
+      requiresRemark: body.requiresRemark ?? before.requiresRemark,
+      isActive: body.isActive ?? before.isActive,
+      sortOrder: body.sortOrder ?? before.sortOrder,
+      updatedAt: new Date()
+    })
+    .where(eq(monitoringReasons.id, id))
+    .returning()
+  await audit(req, 'UPDATE', 'MonitoringReason', id, { oldValue: reasonDto(before), newValue: reasonDto(row) })
+  res.json(reasonDto(row))
+})
+
+monitoringRouter.delete('/monitoring-reasons/:id', requireModule('activities', 'manage'), async (req, res) => {
+  const id = idParam(req)
+  const before = await monitoringReasonById(id)
+  if (!before) throw notFound('Reason')
+  const [row] = await db
+    .update(monitoringReasons)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(eq(monitoringReasons.id, id))
+    .returning()
+  await audit(req, 'DELETE', 'MonitoringReason', id, { oldValue: reasonDto(before), newValue: reasonDto(row) })
+  res.json({ result: 'disabled', ...reasonDto(row) })
+})
+
+/** Optional from/to day filter. Unlike the checks list this does not default to today. */
+function optionalRange(q: { from?: string; to?: string }) {
+  try {
+    const from = q.from ? parseDateKey(q.from) : undefined
+    const to = q.to ? addDays(parseDateKey(q.to), 1) : undefined
+    if (from && to && to <= from) throw badRequest('"to" date must be on or after "from" date')
+    return { from, to }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Invalid date')) throw badRequest(err.message)
+    throw err
+  }
+}
+
+/** The production jobs log. Same data the worker app records when it starts and ends a job. */
+monitoringRouter.get('/jobs', requireModule('checks', 'view'), async (req, res) => {
+  const q = z
+    .object({
+      from: z.string().optional(),
+      to: z.string().optional(),
+      machineId: z.uuid().optional(),
+      running: z
+        .enum(['true', 'false'])
+        .optional()
+        .transform((v) => (v === undefined ? undefined : v === 'true'))
+    })
+    .parse(req.query)
+  res.json(await listJobs({ ...optionalRange(q), machineId: q.machineId, running: q.running }))
+})
+
+/**
+ * Ends a job from the admin panel, e.g. when a worker left it running. Exactly like the worker
+ * endpoint: the JOB-schedule checks nobody was told about are removed, so nothing is counted as
+ * Missed on a machine that is not running (services/jobs.ts → removePendingJobChecks).
+ */
+monitoringRouter.post('/jobs/:id/end', requireModule('checks', 'manage'), async (req, res) => {
+  const id = idParam(req)
+  const job = await jobById(id)
+  if (!job) throw notFound('Job')
+  if (job.endedAt) throw badRequest('This job is already finished')
+  const ended = await endJob(id, req.user!.id)
+  // The generator must forget its plan: a JOB schedule stops producing checks from here.
+  invalidateCheckGeneration()
+  await audit(req, 'END_JOB', 'Job', id, {
+    oldValue: { jobNo: job.jobNo, startedAt: job.startedAt },
+    newValue: { endedAt: ended.job.endedAt, removedChecks: ended.removedChecks }
+  })
+  // Answer with the same shape the jobs list uses, so the screen can refresh one row.
+  const row = (await listJobs({ machineId: job.machineId })).find((r) => r.id === id)
+  res.json(row ?? ended.job)
+})
+
+/**
+ * Machine-wise monitoring configuration for the admin Monitoring Setup screen: the check types on
+ * each machine with their mode, schedules (including the live rolling timer) and parameters.
+ */
+monitoringRouter.get('/monitoring-overview', requireAnyView('activities', 'schedules'), async (_req, res) => {
+  res.json({ machines: await monitoringOverview() })
 })
 
 monitoringRouter.get('/audit-logs', requireModule('audit_logs', 'view'), async (req, res) => {

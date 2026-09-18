@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import path from 'node:path'
+import { PLANT_TIMEZONE } from './lib/time'
 
 function required(name: string): string {
   const value = process.env[name]
@@ -12,6 +13,12 @@ function required(name: string): string {
 export const config = {
   databaseUrl: required('DATABASE_URL'),
   port: Number(process.env.PORT ?? 4000),
+  /**
+   * The plant's timezone (IANA name, e.g. Asia/Kolkata), set with PLANT_TIMEZONE. Shift times,
+   * "today" and the Plant Calendar dates are read in this zone, so the schedule is right even
+   * when the server's own clock runs in another timezone (lib/time.ts).
+   */
+  plantTimezone: PLANT_TIMEZONE,
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret',
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh-secret',
   accessTokenTtl: '12h' as const,

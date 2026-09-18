@@ -15,11 +15,13 @@ import { parametersRouter } from './routes/parameters'
 import { activitiesRouter } from './routes/activities'
 import { schedulesRouter } from './routes/schedules'
 import { plantCalendarRouter } from './routes/plantCalendar'
+import { calendarYearsRouter, weeklyRulesRouter } from './routes/calendarYears'
 import { usersRouter } from './routes/users'
 import { monitoringRouter } from './routes/monitoring'
 import { workerRouter } from './routes/worker'
 import { accessRouter } from './routes/access'
 import { HttpError } from './lib/http'
+import { serveSignedMedia } from './lib/mediaLinks'
 
 export function createApp() {
   const app = express()
@@ -40,8 +42,8 @@ export function createApp() {
     res.json({ ok: true })
   })
 
-  // Evidence files. Names are random UUIDs.
-  app.use('/uploads', express.static(config.uploadDir, { index: false, dotfiles: 'ignore' }))
+  // Evidence files: only through signed, short-lived links handed out by permission-checked APIs.
+  serveSignedMedia(app)
 
   serveWorkerWebApp(app)
 
@@ -64,6 +66,8 @@ export function createApp() {
   admin.use('/activities', masterData('activities', ['machines', 'schedules', 'checks', 'exceptions', 'reports']), activitiesRouter)
   admin.use('/schedules', masterData('schedules', ['assignments']), schedulesRouter)
   admin.use('/plant-closures', plantCalendarRouter)
+  admin.use('/calendar-years', calendarYearsRouter)
+  admin.use('/weekly-rules', weeklyRulesRouter)
   admin.use('/users', usersRouter)
   admin.use('/access', accessRouter)
   admin.use('/', monitoringRouter)

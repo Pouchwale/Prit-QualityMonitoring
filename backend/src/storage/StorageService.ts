@@ -12,7 +12,5 @@ export interface StoredFile {
 export interface StorageService {
   /** Moves a temporary upload into permanent storage. */
   save(tempFilePath: string, options: { category: StorageCategory; extension: string }): Promise<StoredFile>
-  /** URL path clients can use to fetch the file. */
-  publicUrl(path: string): string
   remove(path: string): Promise<void>
 }

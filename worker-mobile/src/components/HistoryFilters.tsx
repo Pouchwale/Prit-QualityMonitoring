@@ -7,6 +7,7 @@ import { Button } from './ui/Button'
 import { DatePicker } from './DatePicker'
 import { SectionHeader } from './ui/SectionHeader'
 import { ListGroup } from './ui/ListGroup'
+import { Icon } from './ui/Icon'
 
 interface Props {
   visible: boolean
@@ -37,12 +38,13 @@ const Row: React.FC<{ label: string; selected: boolean; onPress: () => void }> =
     onPress={onPress}
     accessibilityRole="radio"
     accessibilityState={{ checked: selected }}
+    accessibilityLabel={label}
     className="h-14 flex-row items-center justify-between px-4 active:bg-subtle"
   >
-    <Text className={`flex-1 text-[17px] text-ink ${selected ? 'font-semibold' : ''}`} numberOfLines={1}>
+    <Text className={`flex-1 text-[17px] ${selected ? 'font-semibold text-accent' : 'text-ink'}`} numberOfLines={1}>
       {label}
     </Text>
-    {selected ? <Text className="ml-3 text-[20px] font-bold text-accent">✓</Text> : null}
+    {selected ? <Icon name="checkmark" size={22} color="accent" /> : null}
   </Pressable>
 )
 
@@ -50,11 +52,12 @@ const Chip: React.FC<{ label: string; selected: boolean; onPress: () => void }> 
   <Pressable
     onPress={onPress}
     accessibilityRole="button"
-    className={`h-11 items-center justify-center rounded-xl border px-4 ${
-      selected ? 'border-accent bg-accent' : 'border-line-strong bg-surface active:bg-subtle'
+    accessibilityState={{ selected }}
+    className={`h-11 items-center justify-center rounded-full border px-4 ${
+      selected ? 'border-accent bg-accent-soft' : 'border-transparent bg-surface active:opacity-60'
     }`}
   >
-    <Text className={`text-[16px] font-medium ${selected ? 'text-white' : 'text-ink'}`}>{label}</Text>
+    <Text className={`text-[16px] ${selected ? 'font-semibold text-accent' : 'font-medium text-ink'}`}>{label}</Text>
   </Pressable>
 )
 
@@ -92,13 +95,14 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View className="flex-1 bg-canvas">
-        <View className="h-14 flex-row items-center justify-between border-b border-line px-2">
-          <Pressable onPress={onClose} className="h-12 min-w-[88px] justify-center px-3 active:opacity-50">
+        <View className="h-14 flex-row items-center justify-between border-b border-line px-2" style={{ marginTop: insets.top }}>
+          <Pressable onPress={onClose} accessibilityRole="button" className="h-12 min-w-[88px] justify-center px-3 active:opacity-50">
             <Text className="text-[17px] text-accent">Close</Text>
           </Pressable>
           <Text className="text-[17px] font-semibold text-ink">Filters</Text>
           <Pressable
             onPress={() => onApply({ kind: draft.kind })}
+            accessibilityRole="button"
             className="h-12 min-w-[88px] items-end justify-center px-3 active:opacity-50"
           >
             <Text className="text-[17px] text-accent">Clear</Text>
@@ -152,7 +156,7 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
                   </ListGroup>
 
                   {picker ? (
-                    <View className="mt-3 items-center rounded-xl border border-line bg-surface py-2">
+                    <View className="mt-3 items-center rounded-2xl bg-surface px-4 py-3">
                       <DatePicker
                         value={parseDateKey((picker === 'from' ? draft.from : draft.to) ?? dateKey(new Date()))}
                         maximumDate={new Date()}

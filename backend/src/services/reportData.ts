@@ -1,6 +1,7 @@
 import { db } from '../db/client'
+import { mediaPathFromUrl } from '../lib/mediaLinks'
 import { parameters, settings, shifts } from '../db/schema'
-import { dateKey } from '../lib/time'
+import { PLANT_TIMEZONE, dateKey, formatLocalDate, formatLocalTime, localParts } from '../lib/time'
 import { listChecks, type CheckDto } from '../services/checks'
 import type { CheckFilters } from '../services/checks'
 import { RESULT_LABEL, resultOf } from '../lib/result'
@@ -93,6 +94,14 @@ export interface ParameterRow {
   max: string
   /** The reading's own result against its limits (NA when the parameter has no limits). */
   result: 'PASS' | 'FAIL' | 'NA'
+  /**
+   * The parameter was recorded as Not Applicable: either the worker chose a reason, or it only
+   * applies while a job runs and none was running. An N/A is never a failed reading.
+   */
+  notApplicable: boolean
+  /** Reason label recorded with the N/A, and the worker's remark. */
+  naReason: string
+  naRemark: string
 }
 
 /** Recorded parameter readings in completed checks, counted separately from check Results. */
@@ -103,6 +112,32 @@ export interface ReadingSummary {
   /** Readings of parameters that have no acceptance limits. */
   noLimits: number
   checksWithOutside: number
+  /** Parameters recorded as Not Applicable. They carry no reading and never count as a failure. */
+  notApplicable: number
+}
+
+/** One parameter that was marked Not Applicable, with the reasons the workers gave. */
+export interface NotApplicableRow {
+  parameterId: string | null
+  name: string
+  count: number
+  /** How many of those N/A records used each reason. */
+  reasons: { reason: string; count: number }[]
+}
+
+/** Not Applicable records in the period, per parameter and per reason. */
+export interface NotApplicableSummary {
+  /** Parameters recorded as Not Applicable. */
+  total: number
+  /** Completed checks with at least one Not Applicable parameter. */
+  checks: number
+  byParameter: NotApplicableRow[]
+}
+
+/** How the completed checks were started: by a notification, or by the worker. */
+export interface SubmissionTypeCounts {
+  notification: number
+  manual: number
 }
 
 /** A completed check with at least one reading outside its limits. Its Result is still Completed. */
@@ -126,11 +161,16 @@ export interface CompletedDetail {
   workerName: string
   workerEmployeeId: string
   shiftName: string
+  itemCode: string
   jobNo: string
   status: CheckDto['status']
   parameters: ParameterRow[]
   photos: number
   videos: number
+  /** "Notification" or "Manual": how the worker came to this check. */
+  submissionType: string
+  /** Parameters recorded as Not Applicable in this check. */
+  notApplicable: number
 }
 
 export interface EvidenceItem {
@@ -142,6 +182,19 @@ export interface EvidenceItem {
   /** Absolute path on disk; the renderer embeds the image. */
   path: string
   kind: 'PHOTO' | 'VIDEO'
+  /** The parameter this evidence was captured for; null for overall (or legacy) check evidence. */
+  parameterId: string | null
+  /** The parameter's name, or "Overall check evidence" when it belongs to the whole check. */
+  parameterName: string
+}
+
+/** Evidence of one parameter. Media captured for the whole check forms its own group. */
+export interface EvidenceGroup {
+  parameterId: string | null
+  parameterName: string
+  photos: number
+  videos: number
+  items: EvidenceItem[]
 }
 
 export interface IssueRow {
@@ -197,8 +250,15 @@ export interface QualityReport {
     action: string
   }[]
   evidence: EvidenceItem[]
+  /** The same evidence, grouped per parameter, with the overall check evidence as its own group. */
+  evidenceGroups: EvidenceGroup[]
   issues: IssueRow[]
   readings: ReadingSummary
+  /** Per-parameter Not Applicable counts with the reasons given. */
+  notApplicable: NotApplicableSummary
+  /** Reason label → how many times it was used, most used first. */
+  naReasons: { reason: string; count: number }[]
+  submissionTypes: SubmissionTypeCounts
   outOfLimits: OutOfLimitsRow[]
   analysis: string[]
 }
@@ -267,20 +327,31 @@ const EXCEPTION_STATE: Record<string, string> = {
   RESOLVED: 'Resolved'
 }
 
+/** Label shown for a parameter the worker did not record a reading for. */
+export const NOT_APPLICABLE = 'Not Applicable'
+/** Evidence that belongs to the whole check rather than to one parameter. */
+export const OVERALL_EVIDENCE = 'Overall check evidence'
+
 function parameterRows(check: CheckDto, limits: Map<string, { min: number | null; max: number | null }>): ParameterRow[] {
   return check.values.map((v) => {
     const limit = v.parameterId ? limits.get(v.parameterId) : undefined
     return {
       name: v.parameterName,
-      value: v.value ?? DASH,
+      // An N/A parameter has no reading; the reason is printed next to it.
+      value: v.notApplicable ? NOT_APPLICABLE : (v.value ?? DASH),
       standard: v.rule ?? DASH,
       unit: v.unit ?? DASH,
       min: limit?.min != null ? String(limit.min) : DASH,
       max: limit?.max != null ? String(limit.max) : DASH,
-      result: v.result
+      result: v.result,
+      notApplicable: v.notApplicable,
+      naReason: v.naReason ?? (v.notApplicable ? NO_REASON : DASH),
+      naRemark: v.naRemark ?? DASH
     }
   })
 }
+
+const SUBMISSION_LABEL: Record<string, string> = { NOTIFICATION: 'Notification', MANUAL: 'Manual' }
 
 /** Builds the whole report for a date range. */
 export async function buildQualityReport(
@@ -291,7 +362,9 @@ export async function buildQualityReport(
     listChecks(filters, { order: 'asc' }),
     db.select().from(settings),
     db.select().from(shifts),
-    db.select({ id: parameters.id, minValue: parameters.minValue, maxValue: parameters.maxValue }).from(parameters)
+    db
+      .select({ id: parameters.id, name: parameters.name, minValue: parameters.minValue, maxValue: parameters.maxValue })
+      .from(parameters)
   ])
 
   const setting = (key: string) => {
@@ -303,6 +376,7 @@ export async function buildQualityReport(
   const department = (setting('company')?.department as string) ?? 'Quality / IPQC'
 
   const limits = new Map(allParameters.map((p) => [p.id, { min: p.minValue, max: p.maxValue }]))
+  const parameterNames = new Map(allParameters.map((p) => [p.id, p.name]))
   const generatedAt = new Date()
   const lastDay = new Date(filters.to.getTime() - 1)
 
@@ -343,7 +417,7 @@ export async function buildQualityReport(
       status: c.status,
       result: resultLabel(c),
       exception: c.exception?.reason ?? DASH,
-      remarks: c.jobNo ? `Job No. ${c.jobNo}` : DASH
+      remarks: [c.itemCode ? `Item Code ${c.itemCode}` : null, c.jobNo ? `Job No. ${c.jobNo}` : null].filter(Boolean).join(' · ') || DASH
     }
   })
 
@@ -361,11 +435,14 @@ export async function buildQualityReport(
         workerName: worker.name,
         workerEmployeeId: worker.employeeId,
         shiftName: c.shiftName ?? DASH,
+        itemCode: c.itemCode ?? DASH,
         jobNo: c.jobNo ?? DASH,
         status: c.status,
         parameters: parameterRows(c, limits),
         photos: c.media.filter((m) => m.kind === 'PHOTO').length,
-        videos: c.media.filter((m) => m.kind === 'VIDEO').length
+        videos: c.media.filter((m) => m.kind === 'VIDEO').length,
+        submissionType: c.submissionType ? (SUBMISSION_LABEL[c.submissionType] ?? c.submissionType) : NOT_AVAILABLE,
+        notApplicable: c.values.filter((v) => v.notApplicable).length
       }
     })
 
@@ -413,17 +490,43 @@ export async function buildQualityReport(
   for (const c of checks) {
     const worker = workerOf(c)
     for (const m of [...c.media, ...(c.exception?.media ?? [])]) {
+      // The parameter name comes from the check's own snapshot first, so it survives a rename.
+      const name = m.parameterId
+        ? (c.values.find((v) => v.parameterId === m.parameterId)?.parameterName ??
+          parameterNames.get(m.parameterId) ??
+          NOT_AVAILABLE)
+        : OVERALL_EVIDENCE
       evidence.push({
         code: c.code,
         machineName: `${c.machineName} (${c.machineCode})`,
         activityName: c.activityName,
         workerName: `${worker.name} (${worker.employeeId})`,
         capturedAt: m.capturedAt ? new Date(m.capturedAt) : null,
-        path: `${context.uploadDir}/${m.url.replace(/^\/uploads\//, '')}`,
-        kind: m.kind
+        path: `${context.uploadDir}/${mediaPathFromUrl(m.url) ?? ''}`,
+        kind: m.kind,
+        parameterId: m.parameterId,
+        parameterName: name
       })
     }
   }
+
+  // Grouped per parameter for the appendix; the overall (and legacy) evidence is its own group,
+  // kept last so the per-parameter evidence reads first.
+  const evidenceGroups: EvidenceGroup[] = []
+  for (const item of evidence) {
+    const key = item.parameterId ?? ''
+    let group = evidenceGroups.find((g) => (g.parameterId ?? '') === key)
+    if (!group) {
+      group = { parameterId: item.parameterId, parameterName: item.parameterName, photos: 0, videos: 0, items: [] }
+      evidenceGroups.push(group)
+    }
+    group.items.push(item)
+    if (item.kind === 'PHOTO') group.photos++
+    else group.videos++
+  }
+  evidenceGroups.sort((a, b) =>
+    a.parameterId === null ? 1 : b.parameterId === null ? -1 : a.parameterName.localeCompare(b.parameterName)
+  )
 
   // Parameter readings: separate recorded data, never part of a check's Result.
   const completedChecks = checks.filter((c) => c.result === 'COMPLETED')
@@ -433,7 +536,50 @@ export async function buildQualityReport(
     withinLimits: allReadings.filter((v) => v.result === 'PASS').length,
     outsideLimits: allReadings.filter((v) => v.result === 'FAIL').length,
     noLimits: allReadings.filter((v) => v.result === 'NA').length,
-    checksWithOutside: completedChecks.filter((c) => c.values.some((v) => v.result === 'FAIL')).length
+    checksWithOutside: completedChecks.filter((c) => c.values.some((v) => v.result === 'FAIL')).length,
+    notApplicable: completedChecks.flatMap((c) => c.values).filter((v) => v.notApplicable).length
+  }
+
+  // Not Applicable, per parameter and per reason. An N/A carries no reading, so it is counted
+  // here and never in `readings.recorded` — the reading totals stay reconcilable.
+  const naValues = completedChecks.flatMap((c) => c.values).filter((v) => v.notApplicable)
+  const naByParameter: NotApplicableRow[] = []
+  for (const v of naValues) {
+    const key = v.parameterId ?? v.parameterName
+    let row = naByParameter.find((r) => (r.parameterId ?? r.name) === key)
+    if (!row) {
+      row = { parameterId: v.parameterId, name: v.parameterName, count: 0, reasons: [] }
+      naByParameter.push(row)
+    }
+    row.count++
+    const reason = v.naReason ?? NO_REASON
+    const entry = row.reasons.find((r) => r.reason === reason)
+    if (entry) entry.count++
+    else row.reasons.push({ reason, count: 1 })
+  }
+  for (const row of naByParameter) row.reasons.sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason))
+  naByParameter.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+
+  const notApplicable: NotApplicableSummary = {
+    total: naValues.length,
+    checks: completedChecks.filter((c) => c.values.some((v) => v.notApplicable)).length,
+    byParameter: naByParameter
+  }
+
+  const naReasons: { reason: string; count: number }[] = []
+  for (const v of naValues) {
+    const reason = v.naReason ?? NO_REASON
+    const entry = naReasons.find((r) => r.reason === reason)
+    if (entry) entry.count++
+    else naReasons.push({ reason, count: 1 })
+  }
+  naReasons.sort((a, b) => b.count - a.count || a.reason.localeCompare(b.reason))
+
+  // How the workers came to the checks they submitted. Checks nobody submitted have no type.
+  const submitted = checks.filter((c) => c.submittedAt)
+  const submissionTypes: SubmissionTypeCounts = {
+    notification: submitted.filter((c) => c.submissionType !== 'MANUAL').length,
+    manual: submitted.filter((c) => c.submissionType === 'MANUAL').length
   }
   const outOfLimits: OutOfLimitsRow[] = completedChecks
     .filter((c) => c.values.some((v) => v.result === 'FAIL'))
@@ -506,7 +652,9 @@ export async function buildQualityReport(
     `Missed: ${counts.missed} scheduled check${counts.missed === 1 ? ' was' : 's were'} missed in this period.`,
     `Exception: ${counts.exception} scheduled check${counts.exception === 1 ? ' was' : 's were'} reported as an exception by the worker.`,
     `Open at time of generation: ${counts.open} check${counts.open === 1 ? '' : 's'} were not finished yet and have no status.`,
-    `Parameter readings (separate from the Result): ${readings.recorded} recorded in completed checks — ${readings.withinLimits} within limits, ${readings.outsideLimits} outside limits${readings.noLimits ? `, ${readings.noLimits} without limits` : ''}. ${readings.checksWithOutside} completed check${readings.checksWithOutside === 1 ? ' has' : 's have'} at least one reading outside limits.`
+    `Parameter readings (separate from the Result): ${readings.recorded} recorded in completed checks — ${readings.withinLimits} within limits, ${readings.outsideLimits} outside limits${readings.noLimits ? `, ${readings.noLimits} without limits` : ''}. ${readings.checksWithOutside} completed check${readings.checksWithOutside === 1 ? ' has' : 's have'} at least one reading outside limits.`,
+    `Not Applicable: ${notApplicable.total} parameter${notApplicable.total === 1 ? ' was' : 's were'} recorded as Not Applicable in ${notApplicable.checks} completed check${notApplicable.checks === 1 ? '' : 's'}${naReasons.length ? ` — ${naReasons.map((r) => `${r.reason} (${r.count})`).join(', ')}` : ''}. An N/A carries no reading and is never counted as a failure.`,
+    `Submission: ${submissionTypes.notification} completed check${submissionTypes.notification === 1 ? ' was' : 's were'} submitted after a notification and ${submissionTypes.manual} ${submissionTypes.manual === 1 ? 'was' : 'were'} started manually by the worker.`
   ]
 
   return {
@@ -517,7 +665,7 @@ export async function buildQualityReport(
       periodFrom: filters.from,
       periodTo: lastDay,
       generatedAt,
-      reportId: `QMR-${dateKey(filters.from).replace(/-/g, '')}-${dateKey(lastDay).replace(/-/g, '')}-${String(generatedAt.getHours()).padStart(2, '0')}${String(generatedAt.getMinutes()).padStart(2, '0')}`,
+      reportId: `QMR-${dateKey(filters.from).replace(/-/g, '')}-${dateKey(lastDay).replace(/-/g, '')}-${String(localParts(generatedAt).hour).padStart(2, '0')}${String(localParts(generatedAt).minute).padStart(2, '0')}`,
       preparedBy: context.preparedBy,
       status: 'System Generated',
       filters: context.filterLabels
@@ -545,7 +693,7 @@ export async function buildQualityReport(
       return {
         key: dateKey(day),
         label: formatDate(day),
-        sublabel: day.toLocaleDateString('en-GB', { weekday: 'short' }),
+        sublabel: day.toLocaleDateString('en-GB', { weekday: 'short', timeZone: PLANT_TIMEZONE }),
         sortKey: dateKey(day)
       }
     }),
@@ -554,8 +702,12 @@ export async function buildQualityReport(
     missed,
     exceptions,
     evidence,
+    evidenceGroups,
     issues,
     readings,
+    notApplicable,
+    naReasons,
+    submissionTypes,
     outOfLimits,
     analysis
   }
@@ -567,15 +719,11 @@ export function formatDateTime(date: Date | null): string {
 }
 
 export function formatDate(date: Date | null): string {
-  if (!date) return DASH
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`
+  return date ? formatLocalDate(date) : DASH
 }
 
 export function formatTime(date: Date | null): string {
-  if (!date) return DASH
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return date ? formatLocalTime(date) : DASH
 }
 
 export const percentText = (value: number | null) => (value === null ? DASH : `${value}%`)

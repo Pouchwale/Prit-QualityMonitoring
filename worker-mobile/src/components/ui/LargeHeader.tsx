@@ -5,14 +5,18 @@ interface Props {
   eyebrow?: string
   title: string
   subtitle?: string
+  /** Replaces the subtitle line, e.g. an icon plus text. */
+  children?: React.ReactNode
 }
 
-export const LargeHeader: React.FC<Props> = ({ eyebrow, title, subtitle }) => (
-  <View className="pb-7 pt-4">
-    {eyebrow ? (
-      <Text className="text-[12px] font-medium uppercase tracking-[0.6px] text-ink-muted">{eyebrow}</Text>
-    ) : null}
-    <Text className="mt-1 text-[32px] font-bold tracking-[-0.6px] text-ink">{title}</Text>
+/** Large title at the top of a tab screen. */
+export const LargeHeader: React.FC<Props> = ({ eyebrow, title, subtitle, children }) => (
+  <View className="pb-6 pt-5">
+    {eyebrow ? <Text className="text-[15px] font-medium text-ink-muted">{eyebrow}</Text> : null}
+    <Text className="mt-0.5 text-[32px] font-bold leading-[38px] tracking-[-0.6px] text-ink" accessibilityRole="header">
+      {title}
+    </Text>
     {subtitle ? <Text className="mt-1 text-[15px] text-ink-secondary">{subtitle}</Text> : null}
+    {children}
   </View>
 )

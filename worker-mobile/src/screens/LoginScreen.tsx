@@ -1,11 +1,12 @@
 import React, { useRef, useState } from 'react'
-import { View, Text, KeyboardAvoidingView, Platform, ScrollView, TextInput } from 'react-native'
+import { View, Text, Image, KeyboardAvoidingView, Platform, ScrollView, TextInput } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { API_URL, ApiError, login } from '../services/api'
 import { Profile } from '../types'
 import { Button } from '../components/ui/Button'
 import { FieldLabel } from '../components/ui/FieldLabel'
 import { TextField } from '../components/ui/TextField'
+import { Icon } from '../components/ui/Icon'
 
 interface Props {
   onSignedIn: (profile: Profile) => void
@@ -42,42 +43,71 @@ export const LoginScreen: React.FC<Props> = ({ onSignedIn }) => {
         contentContainerClassName="flex-grow justify-center px-6"
         keyboardShouldPersistTaps="handled"
       >
-        <View style={{ paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }}>
-        <Text className="text-[14px] font-semibold uppercase tracking-[0.8px] text-ink-muted">Pouchwale Quality</Text>
-        <Text className="mt-2 text-[34px] font-bold tracking-[-0.6px] text-ink">Sign in</Text>
-        <Text className="mt-2 text-[17px] text-ink-secondary">Use the employee ID and password given by your supervisor.</Text>
-
-        <View className="mt-10">
-          <FieldLabel label="Employee ID" />
-          <TextField
-            placeholder="e.g. EMP-104"
-            value={employeeId}
-            onChangeText={setEmployeeId}
-            autoCapitalize="characters"
-            autoCorrect={false}
-            returnKeyType="next"
-            onSubmitEditing={() => passwordRef.current?.focus()}
+        <View className="w-full max-w-[440px] self-center" style={{ paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 }}>
+          <Image
+            source={require('../../assets/icon.png')}
+            accessibilityIgnoresInvertColors
+            accessibilityLabel="Pouchwale Quality"
+            style={{ width: 72, height: 72, borderRadius: 18, marginBottom: 24 }}
           />
-        </View>
+          <Text className="text-[15px] font-medium text-ink-muted">Pouchwale Quality</Text>
+          <Text className="mt-0.5 text-[34px] font-bold leading-[40px] tracking-[-0.6px] text-ink" accessibilityRole="header">
+            Sign in
+          </Text>
+          <Text className="mt-2 text-[17px] leading-[22px] text-ink-secondary">
+            Use the employee ID and password given by your supervisor.
+          </Text>
 
-        <View className="mt-6">
-          <FieldLabel label="Password" />
-          <TextField
-            ref={passwordRef}
-            placeholder="Password"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            returnKeyType="go"
-            onSubmitEditing={submit}
-          />
-        </View>
+          <View className="mt-9 gap-5">
+            <View>
+              <FieldLabel label="Employee ID" />
+              <TextField
+                variant="outlined"
+                placeholder="e.g. EMP-104"
+                value={employeeId}
+                onChangeText={(text) => {
+                  setEmployeeId(text)
+                  setError(null)
+                }}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                autoComplete="username"
+                returnKeyType="next"
+                accessibilityLabel="Employee ID"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+              />
+            </View>
 
-        {error ? <Text className="mt-5 text-[16px] font-medium text-failed">{error}</Text> : null}
+            <View>
+              <FieldLabel label="Password" />
+              <TextField
+                ref={passwordRef}
+                variant="outlined"
+                placeholder="Password"
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text)
+                  setError(null)
+                }}
+                secureTextEntry
+                autoComplete="current-password"
+                returnKeyType="go"
+                accessibilityLabel="Password"
+                onSubmitEditing={submit}
+              />
+            </View>
+          </View>
 
-        <Button label="Sign In" onPress={submit} loading={loading} className="mt-8" />
+          {error ? (
+            <View className="mt-5 flex-row items-start rounded-xl bg-missed-bg px-3 py-2.5" accessibilityLiveRegion="polite">
+              <Icon name="alert-circle" size={18} color="missed" />
+              <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-missed">{error}</Text>
+            </View>
+          ) : null}
 
-        <Text className="mt-8 text-center text-[13px] text-ink-faint">Server: {API_URL}</Text>
+          <Button label="Sign In" onPress={submit} loading={loading} className="mt-8" />
+
+          <Text className="mt-8 text-center text-[13px] text-ink-muted">Server: {API_URL}</Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

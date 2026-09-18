@@ -19,6 +19,7 @@ import { DepartmentsPage } from './pages/admin/DepartmentsPage'
 import { ParametersPage } from './pages/admin/ParametersPage'
 import { ActivitiesPage } from './pages/admin/ActivitiesPage'
 import { SchedulesPage } from './pages/admin/SchedulesPage'
+import { MonitoringSetupPage } from './pages/admin/MonitoringSetupPage'
 import { WorkersPage } from './pages/admin/WorkersPage'
 import { AssignmentsPage } from './pages/admin/AssignmentsPage'
 import { ShiftsPage } from './pages/admin/ShiftsPage'
@@ -119,6 +120,9 @@ const Shell: React.FC = () => {
         break
       case 'schedules':
         page = <SchedulesPage />
+        break
+      case 'monitoring-setup':
+        page = <MonitoringSetupPage onNavigate={navigate} />
         break
       case 'workers':
         page = <WorkersPage />

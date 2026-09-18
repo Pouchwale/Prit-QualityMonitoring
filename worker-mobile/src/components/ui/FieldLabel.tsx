@@ -7,13 +7,13 @@ interface Props {
   hint?: string | null
 }
 
-/** Large, plain label for a form field. Optional fields say so; required ones stay quiet. */
+/** Plain label above a form field. Optional fields say so; required ones stay quiet. */
 export const FieldLabel: React.FC<Props> = ({ label, required = true, hint }) => (
-  <View className="mb-2.5">
+  <View className="mb-2">
     <View className="flex-row items-baseline">
-      <Text className="flex-1 text-[18px] font-semibold text-ink">{label}</Text>
-      {!required ? <Text className="text-[14px] text-ink-muted">Optional</Text> : null}
+      <Text className="flex-1 text-[15px] font-semibold text-ink-secondary">{label}</Text>
+      {!required ? <Text className="text-[13px] text-ink-muted">Optional</Text> : null}
     </View>
-    {hint ? <Text className="mt-0.5 text-[15px] text-ink-muted">{hint}</Text> : null}
+    {hint ? <Text className="mt-0.5 text-[13px] text-ink-muted">{hint}</Text> : null}
   </View>
 )

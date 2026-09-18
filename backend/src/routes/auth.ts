@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { eq, sql } from 'drizzle-orm'
 import { db } from '../db/client'
 import { departments, shifts, users } from '../db/schema'
-import { authenticate, passwordColumns, signTokens, verifyPassword, verifyRefreshToken } from '../lib/auth'
+import { MOBILE_ACCESS_OFF, authenticate, passwordColumns, signTokens, verifyPassword, verifyRefreshToken, type ClientApp } from '../lib/auth'
 import { HttpError, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
 import { loadPermissions } from '../lib/permissions'
@@ -37,7 +37,8 @@ authRouter.post('/login', async (req, res) => {
     .object({
       employeeId: z.string().trim().min(1, 'Enter your employee ID'),
       password: z.string().min(1, 'Enter your password'),
-      app: z.enum(['worker', 'admin'])
+      /** mobile: the app for every role. worker: older app versions (Workers only). admin: the web panel. */
+      app: z.enum(['mobile', 'worker', 'admin'])
     })
     .parse(req.body)
 
@@ -55,21 +56,26 @@ authRouter.post('/login', async (req, res) => {
   if (body.app === 'worker' && (user.role !== 'WORKER' || !user.appAccess)) {
     throw new HttpError(403, 'This account cannot use the worker app. Please contact your supervisor.')
   }
+  if (body.app === 'mobile' && !user.appAccess) {
+    throw new HttpError(403, MOBILE_ACCESS_OFF)
+  }
   if (body.app === 'admin' && user.role === 'WORKER') {
     throw new HttpError(403, 'This account cannot use the admin panel')
   }
 
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id))
+  const app: ClientApp = body.app === 'admin' ? 'web' : 'mobile'
   req.user = {
     id: user.id,
     name: user.name,
     employeeId: user.employeeId,
     role: user.role,
+    app,
     permissions: await loadPermissions(user.id, user.role)
   }
   await audit(req, 'LOGIN', 'User', user.id, { newValue: { app: body.app } })
 
-  res.json({ ...signTokens(user), user: await loadProfile(user.id) })
+  res.json({ ...signTokens(user, app), user: await loadProfile(user.id) })
 })
 
 authRouter.post('/refresh', async (req, res) => {
@@ -80,7 +86,9 @@ authRouter.post('/refresh', async (req, res) => {
   if (!user || !user.isActive || user.tokenVersion !== payload.ver) {
     throw new HttpError(401, 'Session expired. Please sign in again.')
   }
-  res.json(signTokens(user))
+  const app: ClientApp = payload.app ?? (user.role === 'WORKER' ? 'mobile' : 'web')
+  if (app === 'mobile' && !user.appAccess) throw new HttpError(401, MOBILE_ACCESS_OFF)
+  res.json(signTokens(user, app))
 })
 
 authRouter.get('/me', authenticate, async (req, res) => {
@@ -92,7 +100,15 @@ authRouter.post('/logout', authenticate, async (req, res) => {
   res.status(204).end()
 })
 
+/**
+ * Password management is Super Admin only: the Super Admin changes their own password here and
+ * sets other users' passwords on the Users screen. Every other role is refused, whatever the UI shows.
+ */
 authRouter.post('/change-password', authenticate, async (req, res) => {
+  if (req.user!.role !== 'SUPER_ADMIN') {
+    await audit(req, 'CHANGE_PASSWORD_DENIED', 'User', req.user!.id)
+    throw new HttpError(403, 'Only the Super Admin can change passwords')
+  }
   const body = z
     .object({
       currentPassword: z.string().min(1),
@@ -110,5 +126,5 @@ authRouter.post('/change-password', authenticate, async (req, res) => {
     .where(eq(users.id, user.id))
     .returning()
   await audit(req, 'CHANGE_PASSWORD', 'User', user.id)
-  res.json(signTokens(updated))
+  res.json(signTokens(updated, req.user!.app))
 })

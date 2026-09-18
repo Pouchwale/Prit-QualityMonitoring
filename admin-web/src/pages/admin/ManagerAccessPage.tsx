@@ -30,6 +30,8 @@ interface AccountForm {
   designation: string
   password: string
   isActive: boolean
+  /** Can sign in to the mobile app. */
+  appAccess: boolean
 }
 
 /**
@@ -100,7 +102,7 @@ export const ManagerAccessPage: React.FC = () => {
 
   const openNewManager = () => {
     setAccountError(null)
-    setAccount({ editing: 'new', form: { employeeId: '', name: '', designation: '', password: '', isActive: true } })
+    setAccount({ editing: 'new', form: { employeeId: '', name: '', designation: '', password: '', isActive: true, appAccess: false } })
   }
   const openEditManager = (m: ManagerAccess) => {
     const record = accountsApi.data?.find((u) => u.id === m.id)
@@ -108,7 +110,7 @@ export const ManagerAccessPage: React.FC = () => {
     setAccountError(null)
     setAccount({
       editing: record,
-      form: { employeeId: record.employeeId, name: record.name, designation: record.designation ?? '', password: '', isActive: record.isActive }
+      form: { employeeId: record.employeeId, name: record.name, designation: record.designation ?? '', password: '', isActive: record.isActive, appAccess: record.appAccess }
     })
   }
 
@@ -131,7 +133,7 @@ export const ManagerAccessPage: React.FC = () => {
       designation: form.designation.trim() || null,
       role: 'MANAGER',
       isActive: form.isActive,
-      appAccess: false,
+      appAccess: form.appAccess,
       machineIds: [],
       ...(form.password ? { password: form.password } : {})
     }
@@ -173,7 +175,7 @@ export const ManagerAccessPage: React.FC = () => {
           shiftId: record.shiftId,
           phone: record.phone,
           isActive: true,
-          appAccess: false,
+          appAccess: record.appAccess,
           machineIds: []
         })
         notify('success', 'Manager activated', `${toggling.name} can sign in again with the same access.`)
@@ -405,6 +407,12 @@ export const ManagerAccessPage: React.FC = () => {
               <p className="text-[11px] text-ink-muted">Only the Super Admin can change this manager's password.</p>
             )}
             <Toggle checked={account.form.isActive} onChange={(v) => setForm('isActive', v)} label="Active" description="Deactivated managers cannot sign in" />
+            <Toggle
+              checked={account.form.appAccess}
+              onChange={(v) => setForm('appAccess', v)}
+              label="Mobile app access"
+              description="Can sign in to the mobile app, with the same module access as on the web"
+            />
             {account.editing === 'new' && (
               <p className="text-[11px] text-ink-muted">A new manager has no access until you choose their modules and save.</p>
             )}

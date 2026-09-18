@@ -11,6 +11,7 @@ const STATUS: Partial<Record<QualityCheckStatus, { label: string; dot: string; t
 
 export const hasStatusLabel = (status: QualityCheckStatus) => STATUS[status] !== undefined
 
+/** Small coloured dot plus coloured text. */
 export const StatusLabel: React.FC<{ status: QualityCheckStatus }> = ({ status }) => {
   const s = STATUS[status]
   if (!s) return null
@@ -18,7 +19,7 @@ export const StatusLabel: React.FC<{ status: QualityCheckStatus }> = ({ status }
   return (
     <View className="flex-row items-center">
       <View className={`mr-1.5 h-2 w-2 rounded-full ${s.dot}`} />
-      <Text className={`text-[14px] font-semibold ${s.text}`}>{s.label}</Text>
+      <Text className={`text-[14px] font-medium ${s.text}`}>{s.label}</Text>
     </View>
   )
 }

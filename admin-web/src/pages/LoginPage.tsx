@@ -28,7 +28,7 @@ export const LoginPage: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-canvas px-4">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2.5 mb-6">
-          <div className="w-9 h-9 rounded bg-ink text-white flex items-center justify-center font-bold text-sm tracking-wider">QM</div>
+          <img src="/logo.png" alt="" className="w-10 h-10 rounded-[10px]" />
           <div>
             <div className="text-sm font-semibold text-ink leading-none">Quality Monitoring</div>
             <div className="text-[11px] text-ink-muted mt-1">Admin Panel</div>

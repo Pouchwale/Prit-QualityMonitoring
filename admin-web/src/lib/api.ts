@@ -3,7 +3,7 @@ import type { CurrentUser } from '../types'
 /** Backend address. Set VITE_API_URL to override; defaults to port 4000 on the same host. */
 export const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) || `${window.location.protocol}//${window.location.hostname}:4000`).replace(/\/$/, '')
 
-/** Turns a media path like /uploads/... into a full URL. */
+/** Turns a signed media link like /media/...?exp=&sig= into a full URL. */
 export const mediaUrl = (url: string) => (/^https?:\/\//.test(url) ? url : `${API_URL}${url}`)
 
 const ACCESS_KEY = 'quality.admin.accessToken'
@@ -137,6 +137,28 @@ export const api = {
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body ?? {}),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body ?? {}),
   del: <T = { result: 'deleted' | 'disabled' }>(path: string) => request<T>('DELETE', path)
+}
+
+/** Sends a file (multipart form) with the signed-in user's token and returns the JSON response. */
+export async function upload<T>(path: string, form: FormData, query?: Query, retry = true): Promise<T> {
+  const token = storage.get(ACCESS_KEY)
+  const res = await send(withQuery(path, query), {
+    method: 'POST',
+    headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: form
+  })
+  if (res.status === 401 && retry && (await refresh())) return upload<T>(path, form, query, false)
+  if (!res.ok) throw new ApiError(res.status, await errorMessage(res))
+  return (await res.json()) as T
+}
+
+/** Fetches a protected file (e.g. an uploaded document) as a blob for previewing. */
+export async function fetchBlob(path: string, retry = true): Promise<Blob> {
+  const token = storage.get(ACCESS_KEY)
+  const res = await send(path, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (res.status === 401 && retry && (await refresh())) return fetchBlob(path, false)
+  if (!res.ok) throw new ApiError(res.status, await errorMessage(res))
+  return res.blob()
 }
 
 /**

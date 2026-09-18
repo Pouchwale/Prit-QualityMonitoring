@@ -1,0 +1,1 @@
+ALTER TYPE "public"."closure_type" ADD VALUE 'WORKING';

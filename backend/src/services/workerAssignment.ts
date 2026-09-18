@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { db } from '../db/client'
 import { qualityChecks, schedules, shifts, users, workerMachines } from '../db/schema'
-import { parseHHMM } from '../lib/time'
+import { dateKey, minutesOfDay, parseHHMM } from '../lib/time'
 
 /**
  * Who does a quality check. Every check is stored with the worker responsible for it.
@@ -68,7 +68,7 @@ export function pickWorker(candidates: EligibleWorker[], load: Map<string, numbe
   return chosen
 }
 
-const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+const dayKey = (d: Date) => dateKey(d)
 
 /**
  * Makes every open check (not submitted, still pending or due) belong to the right worker:
@@ -84,6 +84,7 @@ export async function reassignOpenChecks() {
       workerId: qualityChecks.workerId,
       scheduleId: qualityChecks.scheduleId,
       scheduledAt: qualityChecks.scheduledAt,
+      submissionType: qualityChecks.submissionType,
       scheduleWorkerId: schedules.workerId
     })
     .from(qualityChecks)
@@ -100,6 +101,8 @@ type OpenCheck = {
   workerId: string | null
   scheduleId: string | null
   scheduledAt: Date
+  /** MANUAL: the worker started this check themselves, so it stays with them. */
+  submissionType?: 'NOTIFICATION' | 'MANUAL' | null
   scheduleWorkerId: string | null
 }
 
@@ -117,9 +120,11 @@ async function settle(checks: OpenCheck[], workers: EligibleWorker[]) {
   const pending: { check: OpenCheck; candidates: EligibleWorker[] }[] = []
 
   for (const check of checks) {
+    // A check the worker started by hand stays with that worker while the machine is theirs.
+    const manual = check.submissionType === 'MANUAL'
     // A one-off check keeps the worker the admin chose, if still eligible.
-    const preferred = check.scheduleId ? check.scheduleWorkerId : check.workerId
-    const candidates = eligibleWorkers(workers, check.machineId, check.shiftId, preferred)
+    const preferred = manual ? check.workerId : check.scheduleId ? check.scheduleWorkerId : check.workerId
+    const candidates = eligibleWorkers(workers, check.machineId, manual ? null : check.shiftId, preferred)
     if (candidates.length === 0) remove.push(check.id)
     else if (check.workerId && candidates.some((w) => w.id === check.workerId)) {
       const day = loadFor(check.scheduledAt)
@@ -164,6 +169,7 @@ export async function repairCheckWorkers() {
       workerId: qualityChecks.workerId,
       scheduleId: qualityChecks.scheduleId,
       scheduledAt: qualityChecks.scheduledAt,
+      submissionType: qualityChecks.submissionType,
       scheduleWorkerId: schedules.workerId
     })
     .from(qualityChecks)
@@ -193,7 +199,7 @@ function inShift(minutes: number, start: string, end: string) {
 
 /** The active shift running at a moment, used for one-off checks. */
 export async function shiftAt(moment: Date) {
-  const minutes = moment.getHours() * 60 + moment.getMinutes()
+  const minutes = minutesOfDay(moment)
   const rows = await db.select().from(shifts).where(eq(shifts.isActive, true))
   return rows.find((s) => inShift(minutes, s.startTime, s.endTime)) ?? null
 }

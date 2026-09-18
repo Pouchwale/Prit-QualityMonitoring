@@ -12,6 +12,7 @@ export class HttpError extends Error {
 
 export const badRequest = (message: string) => new HttpError(400, message)
 export const notFound = (what = 'Record') => new HttpError(404, `${what} not found`)
+export const forbidden = (message: string) => new HttpError(403, message)
 export const conflict = (message: string) => new HttpError(409, message)
 
 function pgCode(err: unknown): string | undefined {

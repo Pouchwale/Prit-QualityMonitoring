@@ -10,7 +10,7 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { Section } from '../../components/common/Section'
 import { useToast } from '../../components/common/Toast'
 
-/** The signed-in user's own account: who they are, what they may use, and their password. */
+/** The signed-in user's own account: who they are and what they may use. Only the Super Admin manages passwords. */
 export const AccountPage: React.FC = () => {
   const { user, isAdmin, refresh } = useAuth()
   const notify = useToast()
@@ -28,6 +28,8 @@ export const AccountPage: React.FC = () => {
   }, [refresh])
 
   if (!user) return null
+  // Password management is Super Admin only (enforced by the backend as well).
+  const canManagePasswords = user.role === 'SUPER_ADMIN'
 
   const savePassword = async (e: React.SyntheticEvent) => {
     e.preventDefault()
@@ -52,7 +54,7 @@ export const AccountPage: React.FC = () => {
 
   return (
     <div className="space-y-4 max-w-3xl">
-      <PageHeader title="My Account" description="Your profile, what you have access to, and your password" />
+      <PageHeader title="My Account" description={canManagePasswords ? 'Your profile, what you have access to, and your password' : 'Your profile and what you have access to'} />
 
       <Section icon={<UserRound className="w-4 h-4" />} title="Profile">
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
@@ -93,23 +95,25 @@ export const AccountPage: React.FC = () => {
         )}
       </Section>
 
-      <Section icon={<KeyRound className="w-4 h-4" />} title="Change my password" description={`Signed in as ${user.name} (${user.employeeId})`}>
-        <form onSubmit={savePassword} className="space-y-3 max-w-sm">
-          <FormError message={passwordError} />
-          <Field label="Current password" required>
-            <TextInput type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" />
-          </Field>
-          <Field label="New password" required hint="At least 6 characters">
-            <TextInput type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" />
-          </Field>
-          <Field label="Confirm new password" required>
-            <TextInput type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" />
-          </Field>
-          <Button size="sm" variant="primary" type="submit" loading={savingPassword} disabled={!currentPassword || !newPassword || !confirmPassword}>
-            Change password
-          </Button>
-        </form>
-      </Section>
+      {canManagePasswords && (
+        <Section icon={<KeyRound className="w-4 h-4" />} title="Change my password" description={`Signed in as ${user.name} (${user.employeeId})`}>
+          <form onSubmit={savePassword} className="space-y-3 max-w-sm">
+            <FormError message={passwordError} />
+            <Field label="Current password" required>
+              <TextInput type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} autoComplete="current-password" />
+            </Field>
+            <Field label="New password" required hint="At least 6 characters">
+              <TextInput type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password" />
+            </Field>
+            <Field label="Confirm new password" required>
+              <TextInput type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" />
+            </Field>
+            <Button size="sm" variant="primary" type="submit" loading={savingPassword} disabled={!currentPassword || !newPassword || !confirmPassword}>
+              Change password
+            </Button>
+          </form>
+        </Section>
+      )}
     </div>
   )
 }

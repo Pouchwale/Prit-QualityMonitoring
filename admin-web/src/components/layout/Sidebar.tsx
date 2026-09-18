@@ -7,6 +7,7 @@ import {
   SlidersHorizontal,
   CalendarClock,
   CalendarOff,
+  GaugeCircle,
   Users,
   Link2,
   Clock3,
@@ -33,6 +34,7 @@ export type NavTab =
   | 'parameters'
   | 'activities'
   | 'schedules'
+  | 'monitoring-setup'
   | 'calendar'
   | 'workers'
   | 'assignments'
@@ -52,6 +54,7 @@ export const NAV_LABEL: Record<NavTab, string> = {
   activities: 'Check Types',
   machines: 'Machines',
   schedules: 'Schedules',
+  'monitoring-setup': 'Monitoring Setup',
   calendar: 'Plant Calendar',
   workers: 'Workers & Users',
   assignments: 'Machine Assignment',
@@ -73,6 +76,8 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
   activities: 'activities',
   machines: 'machines',
   schedules: 'schedules',
+  // The overview reads check types and schedules; the entry shows with view on either (useCanOpen).
+  'monitoring-setup': 'activities',
   calendar: 'calendar',
   workers: 'workers',
   assignments: 'assignments',
@@ -84,7 +89,7 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
 
 /** Pages in menu order, used to find where to land when the current page is not allowed. */
 export const NAV_ORDER: NavTab[] = [
-  'dashboard', 'checks', 'exceptions', 'reports', 'parameters', 'activities', 'machines', 'schedules', 'calendar',
+  'dashboard', 'checks', 'exceptions', 'reports', 'parameters', 'activities', 'machines', 'schedules', 'monitoring-setup', 'calendar',
   'workers', 'assignments', 'departments', 'shifts', 'audit-logs', 'settings', 'access', 'account'
 ]
 
@@ -94,6 +99,7 @@ export function useCanOpen() {
   return (tab: NavTab) => {
     if (tab === 'account') return true
     if (tab === 'access') return isAdmin
+    if (tab === 'monitoring-setup') return can('activities') || can('schedules')
     const module = NAV_MODULE[tab]
     return module ? can(module) : false
   }
@@ -173,6 +179,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'activities', icon: <Workflow className="w-4 h-4" /> },
         { id: 'machines', icon: <Cpu className="w-4 h-4" /> },
         { id: 'schedules', icon: <CalendarClock className="w-4 h-4" /> },
+        { id: 'monitoring-setup', icon: <GaugeCircle className="w-4 h-4" /> },
         { id: 'calendar', icon: <CalendarOff className="w-4 h-4" /> },
         { id: 'workers', icon: <Users className="w-4 h-4" /> },
         { id: 'assignments', icon: <Link2 className="w-4 h-4" /> },
@@ -197,9 +204,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const brand = (
     <div className="flex items-center gap-2.5">
-      <div className="w-8 h-8 rounded bg-ink text-white flex items-center justify-center font-bold text-sm tracking-wider shadow-xs">
-        QM
-      </div>
+      <img src="/logo.png" alt="" className="w-8 h-8 rounded-lg shadow-xs" />
       <div>
         <div className="text-[13px] font-semibold tracking-tight text-ink leading-none">Quality Monitoring</div>
         <div className="text-[11px] text-ink-muted tracking-tight mt-1">Admin Panel</div>

@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm'
 import {
   pgTable,
   pgEnum,
@@ -11,6 +12,7 @@ import {
   primaryKey,
   unique,
   index,
+  uniqueIndex,
   date
 } from 'drizzle-orm/pg-core'
 
@@ -26,6 +28,12 @@ export const checkStatusEnum = pgEnum('check_status', [
   'EXCEPTION'
 ])
 export const valueResultEnum = pgEnum('value_result', ['PASS', 'FAIL', 'NA'])
+/** When a parameter has to be filled in: always, or only while a job is running on the machine. */
+export const appliesWhenEnum = pgEnum('applies_when', ['ALWAYS', 'JOB_RUNNING'])
+/** INTERVAL: due every interval inside the shift. JOB: due only while a job is running. */
+export const scheduleModeEnum = pgEnum('schedule_mode', ['INTERVAL', 'JOB'])
+/** How a check was submitted: after a due notification, or started by the worker. */
+export const submissionTypeEnum = pgEnum('submission_type', ['NOTIFICATION', 'MANUAL'])
 export const mediaKindEnum = pgEnum('media_kind', ['PHOTO', 'VIDEO'])
 export const exceptionStatusEnum = pgEnum('exception_status', [
   'UNDER_REVIEW',
@@ -142,9 +150,12 @@ export const activities = pgTable('activities', {
   code: text('code').notNull().unique(),
   departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
   description: text('description'),
+  /** "Overall check photo/video": one photo/video for the whole check, next to the per-parameter rules. */
   requirePhoto: boolean('require_photo').notNull().default(true),
   requireVideo: boolean('require_video').notNull().default(false),
   requireJobNo: boolean('require_job_no').notNull().default(true),
+  /** The worker may start this check from the machine screen without waiting for a notification. */
+  allowManual: boolean('allow_manual').notNull().default(true),
   isActive: boolean('is_active').notNull().default(true),
   ...timestamps
 })
@@ -156,7 +167,14 @@ export const activityParameters = pgTable(
     parameterId: uuid('parameter_id').notNull().references(() => parameters.id, { onDelete: 'cascade' }),
     sortOrder: integer('sort_order').notNull().default(0),
     isRequired: boolean('is_required').notNull().default(true),
-    isEnabled: boolean('is_enabled').notNull().default(true)
+    isEnabled: boolean('is_enabled').notNull().default(true),
+    /** Evidence the worker must capture for this parameter, on top of its reading. */
+    requirePhoto: boolean('require_photo').notNull().default(false),
+    requireVideo: boolean('require_video').notNull().default(false),
+    /** The worker may mark this parameter "Not Applicable" with one of the monitoring reasons. */
+    allowNa: boolean('allow_na').notNull().default(false),
+    /** JOB_RUNNING parameters are automatically Not Applicable when no job runs on the machine. */
+    appliesWhen: appliesWhenEnum('applies_when').notNull().default('ALWAYS')
   },
   (t) => [primaryKey({ columns: [t.activityId, t.parameterId] })]
 )
@@ -182,8 +200,63 @@ export const schedules = pgTable('schedules', {
   /** Optional window inside the shift (HH:MM). Defaults to the shift times. */
   startTime: text('start_time'),
   endTime: text('end_time'),
+  /** INTERVAL: checks all through the shift. JOB: only while a job runs on the machine. */
+  mode: scheduleModeEnum('mode').notNull().default('INTERVAL'),
   isActive: boolean('is_active').notNull().default(true),
   ...timestamps
+})
+
+/**
+ * A production job on a machine, started and ended by the worker. JOB schedules only create
+ * checks while a job is running, and every submission records the job it belongs to.
+ */
+export const jobs = pgTable(
+  'jobs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    machineId: uuid('machine_id').notNull().references(() => machines.id, { onDelete: 'restrict' }),
+    /** The item (product) being produced in this job, entered with the Job No. */
+    itemCode: text('item_code'),
+    jobNo: text('job_no').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    startedById: uuid('started_by_id').references(() => users.id, { onDelete: 'set null' }),
+    endedAt: timestamp('ended_at', { withTimezone: true }),
+    endedById: uuid('ended_by_id').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps
+  },
+  (t) => [
+    // At most one running job per machine.
+    uniqueIndex('jobs_running_per_machine_idx').on(t.machineId).where(sql`${t.endedAt} is null`),
+    index('jobs_machine_started_idx').on(t.machineId, t.startedAt)
+  ]
+)
+
+/**
+ * The reasons a worker can choose when marking a parameter "Not Applicable" (Monitoring Setup).
+ * Editable by admins; deleting is soft (isActive = false) so old submissions keep their reason.
+ */
+export const monitoringReasons = pgTable('monitoring_reasons', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  label: text('label').notNull(),
+  /** "Other" needs the worker to write what happened. */
+  requiresRemark: boolean('requires_remark').notNull().default(false),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  ...timestamps
+})
+
+/**
+ * The rolling timer of a schedule (machine + check type + shift): when the last check was
+ * submitted and when the next one is due. Every submission restarts it (services/monitoringTimer.ts).
+ */
+export const scheduleTimers = pgTable('schedule_timers', {
+  scheduleId: uuid('schedule_id')
+    .primaryKey()
+    .references(() => schedules.id, { onDelete: 'cascade' }),
+  lastSubmittedAt: timestamp('last_submitted_at', { withTimezone: true }),
+  lastCheckId: uuid('last_check_id').references(() => qualityChecks.id, { onDelete: 'set null' }),
+  nextDueAt: timestamp('next_due_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 })
 
 export const qualityChecks = pgTable(
@@ -200,7 +273,17 @@ export const qualityChecks = pgTable(
     windowEndsAt: timestamp('window_ends_at', { withTimezone: true }).notNull(),
     status: checkStatusEnum('status').notNull().default('PENDING'),
     overallResult: text('overall_result').$type<'PASS' | 'FAIL' | null>(),
+    itemCode: text('item_code'),
     jobNo: text('job_no'),
+    /**
+     * MANUAL for a check the worker started from the machine screen, NOTIFICATION for a check
+     * the scheduler created. Set when the check is started and kept on submission.
+     */
+    submissionType: submissionTypeEnum('submission_type'),
+    /** The job running on the machine when the check was started or submitted. */
+    jobId: uuid('job_id').references(() => jobs.id, { onDelete: 'set null' }),
+    /** When the next check of this schedule became due, worked out at submission (for audit). */
+    nextDueAt: timestamp('next_due_at', { withTimezone: true }),
     submittedAt: timestamp('submitted_at', { withTimezone: true }),
     submittedById: uuid('submitted_by_id').references(() => users.id, { onDelete: 'set null' }),
     deviceInfo: text('device_info'),
@@ -210,7 +293,14 @@ export const qualityChecks = pgTable(
   },
   (t) => [
     unique('quality_checks_schedule_slot').on(t.scheduleId, t.scheduledAt),
-    index('quality_checks_scheduled_at_idx').on(t.scheduledAt)
+    index('quality_checks_scheduled_at_idx').on(t.scheduledAt),
+    /**
+     * One open check per schedule: the rolling "next check" (services/checkGenerator.ts).
+     * Concurrent ticks and processes insert with onConflictDoNothing against this index.
+     */
+    uniqueIndex('quality_checks_one_open_per_schedule')
+      .on(t.scheduleId)
+      .where(sql`${t.status} in ('PENDING', 'DUE')`)
   ]
 )
 
@@ -225,6 +315,13 @@ export const qualityCheckValues = pgTable('quality_check_values', {
   rule: text('rule'),
   value: text('value'),
   result: valueResultEnum('result').notNull().default('NA'),
+  /** The worker marked this parameter Not Applicable; it is never counted as a failed reading. */
+  notApplicable: boolean('not_applicable').notNull().default(false),
+  /** Reason label snapshot (monitoring_reasons) and the worker's remark. */
+  naReason: text('na_reason'),
+  naRemark: text('na_remark'),
+  /** Applicability rule snapshot at submission time. */
+  appliesWhen: appliesWhenEnum('applies_when'),
   sortOrder: integer('sort_order').notNull().default(0)
 })
 
@@ -246,6 +343,8 @@ export const media = pgTable('media', {
   kind: mediaKindEnum('kind').notNull(),
   checkId: uuid('check_id').references(() => qualityChecks.id, { onDelete: 'cascade' }),
   exceptionId: uuid('exception_id').references(() => checkExceptions.id, { onDelete: 'cascade' }),
+  /** The parameter this evidence belongs to. Null means overall (or legacy) check evidence. */
+  parameterId: uuid('parameter_id').references(() => parameters.id, { onDelete: 'set null' }),
   /** Storage-relative path, e.g. quality-checks/2026-09-15/<uuid>.jpg */
   path: text('path').notNull(),
   mimeType: text('mime_type').notNull(),
@@ -304,19 +403,96 @@ export const auditLogs = pgTable('audit_logs', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 }, (t) => [index('audit_logs_created_at_idx').on(t.createdAt)])
 
-/** How a closed day is labelled in the Plant Calendar. */
-export const closureTypeEnum = pgEnum('closure_type', ['CLOSED', 'HOLIDAY', 'SHUTDOWN'])
+/**
+ * Plant Calendar entry type. CLOSED, HOLIDAY and SHUTDOWN close the plant; WORKING marks an
+ * adjustment working day, shown in the calendar while the plant runs normally.
+ */
+export const closureTypeEnum = pgEnum('closure_type', ['CLOSED', 'HOLIDAY', 'SHUTDOWN', 'WORKING'])
 
 /**
  * Days the plant is closed (Plant Calendar). One row per local date. On these dates no checks are
  * scheduled, no due alerts are sent and nothing is marked Missed (services/plantCalendar.ts).
  */
+export const calendarYearStatusEnum = pgEnum('calendar_year_status', ['DRAFT', 'APPROVED'])
+
+/**
+ * A company holiday calendar for one year (2027 onwards). Its dates are reviewed as
+ * calendar_year_items and only affect scheduling once approved, when they are published to
+ * plant_closures. Dates before 2027 keep the original Plant Calendar data and are not modelled here.
+ */
+export const calendarYears = pgTable('calendar_years', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  year: integer('year').notNull().unique(),
+  status: calendarYearStatusEnum('status').notNull().default('DRAFT'),
+  /** Approved year whose items were edited since: the published dates stay live until approved again. */
+  pendingChanges: boolean('pending_changes').notNull().default(false),
+  sourceFileName: text('source_file_name'),
+  /** Relative to the calendar documents folder; served only to signed-in admins. */
+  sourcePath: text('source_path'),
+  sourceMimeType: text('source_mime_type'),
+  /** EXCEL, PDF_TEXT, OCR or MANUAL. */
+  extractionMethod: text('extraction_method'),
+  extractionNote: text('extraction_note'),
+  approvedById: uuid('approved_by_id').references(() => users.id, { onDelete: 'set null' }),
+  approvedAt: timestamp('approved_at', { withTimezone: true }),
+  createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps
+})
+
+/** A date in a calendar year under review: as extracted from the company document, then edited by the admin. */
+export const calendarYearItems = pgTable(
+  'calendar_year_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    calendarYearId: uuid('calendar_year_id')
+      .notNull()
+      .references(() => calendarYears.id, { onDelete: 'cascade' }),
+    type: closureTypeEnum('type').notNull(),
+    /** Null when the date could not be read; the item then blocks approval. */
+    date: date('date', { mode: 'string' }),
+    /** Holiday name, or a note for an adjustment day. */
+    name: text('name'),
+    /** Adjustment Working Day: the holiday date it makes up for. */
+    forHolidayDate: date('for_holiday_date', { mode: 'string' }),
+    /** Weekday as printed on the document, for cross-checking the date. */
+    printedWeekday: text('printed_weekday'),
+    /** The original text read from the document, e.g. "૨૯/૦૧/૨૦૨૬". */
+    sourceText: text('source_text'),
+    sourceRow: integer('source_row'),
+    /** Values the extraction could not read with confidence. They never count as approved until confirmed. */
+    uncertainFields: jsonb('uncertain_fields').$type<string[]>().notNull().default([]),
+    /** The admin has checked this item against the document. */
+    confirmed: boolean('confirmed').notNull().default(false),
+    position: integer('position').notNull().default(0),
+    ...timestamps
+  },
+  (t) => [index('calendar_year_items_year_idx').on(t.calendarYearId)]
+)
+
+/**
+ * Recurring weekly closures from 2027 onwards, e.g. every Thursday. A rule applies between its
+ * effective dates (inclusive), so changing or ending a rule never rewrites earlier dates.
+ */
+export const plantWeeklyRules = pgTable('plant_weekly_rules', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** 0 = Sunday … 6 = Saturday. */
+  weekday: integer('weekday').notNull(),
+  effectiveFrom: date('effective_from', { mode: 'string' }).notNull(),
+  effectiveTo: date('effective_to', { mode: 'string' }),
+  note: text('note'),
+  createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+  updatedById: uuid('updated_by_id').references(() => users.id, { onDelete: 'set null' }),
+  ...timestamps
+})
+
 export const plantClosures = pgTable('plant_closures', {
   id: uuid('id').primaryKey().defaultRandom(),
   /** Local date, YYYY-MM-DD. */
   date: date('date', { mode: 'string' }).notNull().unique(),
   type: closureTypeEnum('type').notNull().default('CLOSED'),
   reason: text('reason'),
+  /** Set for dates published from an approved calendar year (2027 onwards). */
+  calendarYearId: uuid('calendar_year_id').references(() => calendarYears.id, { onDelete: 'set null' }),
   createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
   updatedById: uuid('updated_by_id').references(() => users.id, { onDelete: 'set null' }),
   ...timestamps

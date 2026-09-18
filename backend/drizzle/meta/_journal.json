@@ -50,6 +50,34 @@
       "when": 1789622094361,
       "tag": "0006_plant_calendar",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789628814902,
+      "tag": "0007_adjustment_working_days",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789640445729,
+      "tag": "0008_annual_calendars",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789666733929,
+      "tag": "0009_advanced_monitoring",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1789707396493,
+      "tag": "0010_item_code",
+      "breakpoints": true
     }
   ]
 }

@@ -41,6 +41,9 @@ function rangeError(range: DateRange) {
 const workerLabel = (c: QualityCheck) => c.submittedByName ?? c.workerName ?? '—'
 const keyDate = (key: string) => formatDate(new Date(`${key}T00:00:00`))
 
+/** How the check was started: by the worker, or from the due notification. */
+const SUBMISSION_LABEL = { MANUAL: 'Manual', NOTIFICATION: 'Notification' } as const
+
 /** Counts by overall result: Completed, Missed, Exception, plus checks with no result yet. */
 interface Totals {
   scheduled: number
@@ -48,9 +51,12 @@ interface Totals {
   missed: number
   exceptions: number
   open: number
+  /** How submitted checks were started: by the worker, or from a due notification. */
+  manual: number
+  notification: number
 }
 
-const emptyTotals = (): Totals => ({ scheduled: 0, completed: 0, missed: 0, exceptions: 0, open: 0 })
+const emptyTotals = (): Totals => ({ scheduled: 0, completed: 0, missed: 0, exceptions: 0, open: 0, manual: 0, notification: 0 })
 
 function addTo(t: Totals, c: QualityCheck) {
   t.scheduled++
@@ -58,6 +64,8 @@ function addTo(t: Totals, c: QualityCheck) {
   else if (c.result === 'MISSED') t.missed++
   else if (c.result === 'EXCEPTION') t.exceptions++
   else t.open++
+  if (c.submissionType === 'MANUAL') t.manual++
+  else if (c.submissionType === 'NOTIFICATION') t.notification++
 }
 
 /** Share of scheduled checks whose result is Completed, as on the dashboard. */
@@ -86,19 +94,37 @@ interface ParameterRow {
   readings: number
   within: number
   outside: number
+  /** Times the worker marked this parameter Not Applicable. Never counted as a failure. */
+  notApplicable: number
   /** Numeric readings only, for lowest / highest / average. */
   numbers: number[]
 }
 
-/** Readings recorded per parameter in completed checks. */
+const emptyParameterRow = (name: string, unit: string | null): ParameterRow => ({
+  name,
+  unit,
+  readings: 0,
+  within: 0,
+  outside: 0,
+  notApplicable: 0,
+  numbers: []
+})
+
+/** Readings recorded per parameter in completed checks, with the Not Applicable count. */
 function parameterResults(checks: QualityCheck[]) {
   const map = new Map<string, ParameterRow>()
   for (const c of checks) {
     if (c.result !== 'COMPLETED') continue
     for (const v of c.values) {
-      if (v.value === null || v.value === '') continue
       const key = v.parameterId ?? v.parameterName
-      const row = map.get(key) ?? { name: v.parameterName, unit: v.unit, readings: 0, within: 0, outside: 0, numbers: [] }
+      if (v.notApplicable) {
+        const naRow = map.get(key) ?? emptyParameterRow(v.parameterName, v.unit)
+        naRow.notApplicable++
+        map.set(key, naRow)
+        continue
+      }
+      if (v.value === null || v.value === '') continue
+      const row = map.get(key) ?? emptyParameterRow(v.parameterName, v.unit)
       row.readings++
       if (v.result === 'PASS') row.within++
       if (v.result === 'FAIL') row.outside++
@@ -108,6 +134,13 @@ function parameterResults(checks: QualityCheck[]) {
   }
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
+
+/** Parameters the worker marked Not Applicable, e.g. "Viscosity: Machine stopped". */
+const notApplicableText = (c: QualityCheck) =>
+  c.values
+    .filter((v) => v.notApplicable)
+    .map((v) => `${v.parameterName}: ${v.naReason ?? 'no reason'}${v.naRemark ? ` (${v.naRemark})` : ''}`)
+    .join('; ')
 
 /** Readings outside their limits, e.g. "Viscosity=19 sec; TEAP=FAIL". Separate from the Result. */
 const outsideLimitsText = (c: QualityCheck) =>
@@ -218,9 +251,12 @@ export const ReportsPage: React.FC = () => {
       'Employee ID',
       'Status',
       'Result',
+      'Submission type',
+      'Item Code',
       'Job No.',
       'Submitted at',
       'Parameters outside limits',
+      'N/A parameters',
       ...params.map((p) => (p.unit ? `${p.name} (${p.unit})` : p.name)),
       'Exception reason',
       'Exception remark',
@@ -248,11 +284,15 @@ export const ReportsPage: React.FC = () => {
         c.submittedByEmployeeId ?? c.workerEmployeeId,
         checkStatusLabel(c.status),
         c.result ? RESULT_LABEL[c.result] : '',
+        c.submissionType ? SUBMISSION_LABEL[c.submissionType] : '',
+        c.itemCode ?? c.job?.itemCode ?? '',
         c.jobNo,
         c.submittedAt ? formatDateTime(c.submittedAt) : '',
         outsideLimitsText(c),
+        notApplicableText(c),
         ...params.map((p) => {
           const v = c.values.find((x) => x.parameterName === p.name)
+          if (v?.notApplicable) return 'N/A'
           return v?.value ?? ''
         }),
         c.exception?.reason,
@@ -389,12 +429,17 @@ export const ReportsPage: React.FC = () => {
       </div>
 
       <DataState loading={loading} error={error} onRetry={reload} empty={data === null ? undefined : checks.length === 0} emptyText={hasOtherFilters ? 'No quality records found for the selected date range and filters.' : 'No quality records found for the selected date range.'}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 printable-card">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 printable-card">
           <Tile label="Scheduled" value={totals.scheduled} />
           <Tile label="Completed" value={totals.completed} tone="text-success" />
           <Tile label="Missed" value={totals.missed} tone="text-missed" />
           <Tile label="Exception" value={totals.exceptions} tone="text-exception" />
           <Tile label="Completion" value={`${completion(totals)}%`} tone="text-accent" hint={totals.open ? `${totals.open} still open` : undefined} />
+          <Tile
+            label="Started manually"
+            value={totals.manual}
+            hint={`${totals.notification} from a notification`}
+          />
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -513,7 +558,8 @@ const ParameterTable: React.FC<{ rows: ParameterRow[]; period: string }> = ({ ro
     <div className="px-4 py-2.5 border-b border-line bg-slate-50">
       <h2 className="text-sm font-bold text-ink">Quality parameter readings</h2>
       <p className="text-[11px] text-ink-muted">
-        Readings recorded in completed checks in {period}. Recorded separately — a reading outside limits does not change the check Result.
+        Readings recorded in completed checks in {period}, with the parameters workers marked Not Applicable. Recorded separately — a reading outside
+        limits does not change the check Result.
       </p>
     </div>
     {rows.length === 0 ? (
@@ -527,6 +573,9 @@ const ParameterTable: React.FC<{ rows: ParameterRow[]; period: string }> = ({ ro
               <th className="py-2 px-2 font-semibold text-right">Readings</th>
               <th className="py-2 px-2 font-semibold text-right">Within limits</th>
               <th className="py-2 px-2 font-semibold text-right">Outside limits</th>
+              <th className="py-2 px-2 font-semibold text-right" title="Marked Not Applicable by the worker; never counted as a failure">
+                Not applicable
+              </th>
               <th className="py-2 px-2 font-semibold text-right">Lowest</th>
               <th className="py-2 px-2 font-semibold text-right">Highest</th>
               <th className="py-2 px-3 font-semibold text-right">Average</th>
@@ -545,6 +594,7 @@ const ParameterTable: React.FC<{ rows: ParameterRow[]; period: string }> = ({ ro
                   <td className="py-1.5 px-2 text-right font-mono">{r.readings}</td>
                   <Count value={r.within} tone="text-success" />
                   <Count value={r.outside} tone="text-failed" />
+                  <Count value={r.notApplicable} tone="text-ink-secondary" />
                   <td className="py-1.5 px-2 text-right font-mono">{has ? formatReading(Math.min(...r.numbers)) : '—'}</td>
                   <td className="py-1.5 px-2 text-right font-mono">{has ? formatReading(Math.max(...r.numbers)) : '—'}</td>
                   <td className="py-1.5 px-3 text-right font-mono font-semibold text-ink">{has ? formatReading(avg) : '—'}</td>

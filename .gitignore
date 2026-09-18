@@ -54,3 +54,21 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Company calendar documents uploaded for review (stay on the server)
+backend/calendar-documents/
+
+# Offline OCR language data, copied from node_modules at runtime
+backend/.ocr-data/
+
+# Claude Code: installed skills and personal settings stay on each developer's machine
+.claude/
+
+# Scratch and backup files, test output
+*.orig
+*.bak
+*.pre-*
+screenshots/
+playwright-report/
+test-results/
+coverage/

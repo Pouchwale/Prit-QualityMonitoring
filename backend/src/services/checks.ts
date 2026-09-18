@@ -1,10 +1,12 @@
 import { and, asc, count, desc, eq, gte, inArray, lt, or, type SQL } from 'drizzle-orm'
+import { signedMediaUrl } from '../lib/mediaLinks'
 import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/client'
 import {
   activities,
   checkExceptions,
   departments,
+  jobs,
   machines,
   media,
   qualityCheckValues,
@@ -12,7 +14,6 @@ import {
   shifts,
   users
 } from '../db/schema'
-import { storage } from '../storage'
 import { resultOf } from '../lib/result'
 
 const worker = alias(users, 'worker')
@@ -37,7 +38,10 @@ export function mediaDto(row: typeof media.$inferSelect) {
   return {
     id: row.id,
     kind: row.kind,
-    url: storage.publicUrl(row.path),
+    /** The parameter this evidence belongs to; null for overall (or legacy) check evidence. */
+    parameterId: row.parameterId,
+    // Signed and short-lived: only callers allowed to see this check receive it (lib/mediaLinks.ts).
+    url: signedMediaUrl(row.path),
     mimeType: row.mimeType,
     sizeBytes: row.sizeBytes,
     sha256: row.sha256,
@@ -101,7 +105,12 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
       workerEmployeeId: worker.employeeId,
       shiftName: shifts.name,
       submittedByName: submitter.name,
-      submittedByEmployeeId: submitter.employeeId
+      submittedByEmployeeId: submitter.employeeId,
+      /** The production job this check belongs to, when it was done during one. */
+      itemCodeOfJob: jobs.itemCode,
+      jobNoOfJob: jobs.jobNo,
+      jobStartedAt: jobs.startedAt,
+      jobEndedAt: jobs.endedAt
     })
     .from(qualityChecks)
     .innerJoin(machines, eq(qualityChecks.machineId, machines.id))
@@ -110,6 +119,7 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
     .leftJoin(worker, eq(qualityChecks.workerId, worker.id))
     .leftJoin(shifts, eq(qualityChecks.shiftId, shifts.id))
     .leftJoin(submitter, eq(qualityChecks.submittedById, submitter.id))
+    .leftJoin(jobs, eq(qualityChecks.jobId, jobs.id))
     .where(buildWhere(filters))
     .orderBy(order === 'asc' ? asc(sortColumn) : desc(sortColumn))
     .limit(limit)
@@ -156,7 +166,18 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
       status: r.check.status,
       /** Overall result: Completed, Missed or Exception (null while still open). */
       result: resultOf(r.check.status),
+      itemCode: r.check.itemCode,
       jobNo: r.check.jobNo,
+      /** MANUAL when the worker started the check, NOTIFICATION when the scheduler did. */
+      submissionType: r.check.submissionType,
+      jobId: r.check.jobId,
+      /** The production job the check was done in, or null when no job was running. */
+      job:
+        r.check.jobId && r.jobNoOfJob !== null
+          ? { id: r.check.jobId, itemCode: r.itemCodeOfJob, jobNo: r.jobNoOfJob, startedAt: r.jobStartedAt, endedAt: r.jobEndedAt }
+          : null,
+      /** When the next check of this schedule became due, worked out at submission. */
+      nextDueAt: r.check.nextDueAt,
       submittedAt: r.check.submittedAt,
       submittedById: r.check.submittedById,
       submittedByName: r.submittedByName,
@@ -171,7 +192,12 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
           unit: v.unit,
           rule: v.rule,
           value: v.value,
-          result: v.result
+          result: v.result,
+          /** Marked Not Applicable by the worker (or because no job was running). */
+          notApplicable: v.notApplicable,
+          naReason: v.naReason,
+          naRemark: v.naRemark,
+          appliesWhen: v.appliesWhen
         })),
       media: mediaRows.filter((m) => m.checkId === r.check.id).map(mediaDto),
       exception: exc

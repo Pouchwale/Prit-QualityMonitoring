@@ -10,11 +10,16 @@ interface EvidenceViewerProps {
   workerName?: string | null
   deviceInfo?: string | null
   compact?: boolean
+  /**
+   * Heading of this group of evidence, e.g. a parameter name or "Overall evidence".
+   * Defaults to "Live camera evidence".
+   */
+  label?: string
   className?: string
 }
 
 /** Shows live-captured photo and video evidence with capture metadata. */
-export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerName, deviceInfo, compact = false, className = '' }) => {
+export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerName, deviceInfo, compact = false, label, className = '' }) => {
   const [preview, setPreview] = useState<MediaFile | null>(null)
   const photos = media.filter((m) => m.kind === 'PHOTO')
   const videos = media.filter((m) => m.kind === 'VIDEO')
@@ -23,7 +28,7 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerNam
     return (
       <div className={`p-4 rounded border border-dashed border-line bg-slate-50 text-center text-xs text-ink-muted ${className}`}>
         <Camera className="w-5 h-5 mx-auto mb-1.5 text-ink-faint" />
-        No photo or video attached
+        No photo or video attached{label ? ` for ${label}` : ''}
       </div>
     )
   }
@@ -58,7 +63,8 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerNam
     <div className={`border border-line rounded-md bg-white overflow-hidden ${className}`}>
       <div className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 border-b border-line text-xs font-medium text-ink">
         <ShieldCheck className="w-4 h-4 text-success" />
-        Live camera evidence
+        {label ?? 'Live camera evidence'}
+        {label && <span className="text-[11px] font-normal text-ink-muted">· live camera evidence</span>}
       </div>
 
       <div className={`grid gap-px bg-line ${media.length > 1 ? 'md:grid-cols-2' : ''}`}>

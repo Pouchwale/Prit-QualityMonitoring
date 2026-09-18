@@ -158,8 +158,11 @@ usersRouter.put('/:id', accountManagers, async (req, res) => {
   if (!before) throw notFound('User')
   assertCanManageAccount(req.user!, before.role, data.role)
   if (password !== undefined) {
-    // Everyone changes their own password in My Account, which asks for the current one.
-    if (id === req.user!.id) throw badRequest('Change your own password in My Account')
+    // The Super Admin changes their own password in My Account, which asks for the current one.
+    if (id === req.user!.id) {
+      if (req.user!.role !== 'SUPER_ADMIN') throw new HttpError(403, 'Only the Super Admin can change passwords')
+      throw badRequest('Change your own password in My Account')
+    }
     // Only the Super Admin may set or reset another user's password.
     if (req.user!.role !== 'SUPER_ADMIN') throw new HttpError(403, "Only the Super Admin can change another user's password")
   }
@@ -167,8 +170,11 @@ usersRouter.put('/:id', accountManagers, async (req, res) => {
     throw badRequest('You cannot disable your own account or change your own role')
   }
 
-  // Changing the password or disabling the account signs the user out everywhere.
-  const signOut = password !== undefined || (before.isActive && !data.isActive) || (before.appAccess && !data.appAccess)
+  // Changing the password or disabling the account signs the user out everywhere. Turning off
+  // mobile app access signs a Worker out; staff keep their web session, and their mobile session
+  // is refused on its next request (lib/auth.ts).
+  const signOut =
+    password !== undefined || (before.isActive && !data.isActive) || (before.role === 'WORKER' && before.appAccess && !data.appAccess)
   const [row] = await db
     .update(users)
     .set({

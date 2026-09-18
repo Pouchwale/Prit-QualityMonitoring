@@ -4,6 +4,7 @@
     "slug": "quality-worker",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": false,
@@ -21,7 +22,11 @@
         "android.permission.CAMERA"
       ],
       "package": "com.pouchwale.qualityworker",
-      "versionCode": 1
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#7F3D40"
+      }
     },
     "plugins": [
       [
@@ -38,10 +43,11 @@
       [
         "expo-notifications",
         {
-          "color": "#1E40AF",
+          "color": "#7F3D40",
           "defaultChannel": "due-checks"
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "scheme": "qualityworker",
     "web": {
@@ -49,8 +55,9 @@
       "output": "single",
       "name": "Quality Worker",
       "shortName": "Quality Worker",
-      "themeColor": "#1E40AF",
-      "backgroundColor": "#F8F9FA"
+      "themeColor": "#7F3D40",
+      "backgroundColor": "#F5F5F7",
+      "favicon": "./assets/favicon.png"
     },
     "experiments": {
       "baseUrl": "/app"

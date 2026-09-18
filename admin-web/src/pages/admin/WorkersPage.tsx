@@ -126,7 +126,7 @@ export const WorkersPage: React.FC = () => {
   }, [users, tab, search])
 
   const isSelf = editing !== null && editing !== 'new' && editing.id === me?.id
-  // Only the Super Admin may reset someone else's password; everyone changes their own in My Account.
+  // Only the Super Admin manages passwords: other users' here, their own in My Account.
   const canResetPassword = me?.role === 'SUPER_ADMIN' && !isSelf
 
   const openNew = () => {
@@ -277,7 +277,7 @@ export const WorkersPage: React.FC = () => {
                 <th className="py-2.5 px-3.5">Department</th>
                 <th className="py-2.5 px-3.5">Shift</th>
                 <th className="py-2.5 px-3.5">Machines</th>
-                <th className="py-2.5 px-3.5">App access</th>
+                <th className="py-2.5 px-3.5">Mobile app</th>
                 <th className="py-2.5 px-3.5">Status</th>
                 <th className="py-2.5 px-3.5">Last login</th>
                 {canEdit && <th className="py-2.5 px-3.5 text-right">Action</th>}
@@ -314,14 +314,10 @@ export const WorkersPage: React.FC = () => {
                       )}
                     </td>
                     <td className="py-2.5 px-3.5 whitespace-nowrap">
-                      {worker ? (
-                        u.appAccess ? (
-                          <span className="text-success font-medium">Allowed</span>
-                        ) : (
-                          <span className="text-ink-muted">Blocked</span>
-                        )
+                      {u.appAccess ? (
+                        <span className="text-success font-medium">Allowed</span>
                       ) : (
-                        <span className="text-ink-faint">—</span>
+                        <span className="text-ink-muted">Blocked</span>
                       )}
                     </td>
                     <td className="py-2.5 px-3.5 whitespace-nowrap">
@@ -430,7 +426,7 @@ export const WorkersPage: React.FC = () => {
 
           {editing !== 'new' && !canResetPassword && (
             <p className="text-[11px] text-ink-muted">
-              {isSelf ? 'To change your own password, use My Account.' : "Only the Super Admin can change this user's password."}
+              {isSelf && me?.role === 'SUPER_ADMIN' ? 'To change your own password, use My Account.' : 'Only the Super Admin can change passwords.'}
             </p>
           )}
 
@@ -442,9 +438,12 @@ export const WorkersPage: React.FC = () => {
               label="Active"
               description={isSelf ? 'You cannot disable your own account' : 'Disabled users cannot sign in'}
             />
-            {form.role === 'WORKER' && (
-              <Toggle checked={form.appAccess} onChange={(v) => set('appAccess', v)} label="Can use worker mobile app" description="Turn off to block mobile sign-in" />
-            )}
+            <Toggle
+              checked={form.appAccess}
+              onChange={(v) => set('appAccess', v)}
+              label="Mobile app access"
+              description={form.role === 'WORKER' ? 'Can sign in to the mobile app to do quality checks' : 'Can sign in to the mobile app, with the same access as on the web'}
+            />
           </div>
 
           {form.role === 'WORKER' && (

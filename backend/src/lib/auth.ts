@@ -11,11 +11,15 @@ import { encryptPassword } from './passwordVault'
 
 export type { Role } from './permissions'
 
+/** Which client a session belongs to: the mobile app (all roles) or the web admin panel. */
+export type ClientApp = 'mobile' | 'web'
+
 export interface AuthUser {
   id: string
   name: string
   employeeId: string
   role: Role
+  app: ClientApp
   /** Effective module permissions, loaded from the database on every request. */
   permissions: Permissions
 }
@@ -35,12 +39,15 @@ interface AccessPayload {
   name: string
   employeeId: string
   type: 'access'
+  /** Missing on tokens issued before the mobile app served every role: treated as web. */
+  app?: ClientApp
 }
 
 interface RefreshPayload {
   sub: string
   ver: number
   type: 'refresh'
+  app?: ClientApp
 }
 
 export const hashPassword = (password: string) => bcrypt.hash(password, 10)
@@ -54,14 +61,14 @@ export async function passwordColumns(password: string) {
   return { passwordHash: await hashPassword(password), passwordEncrypted: encryptPassword(password) }
 }
 
-export function signTokens(user: { id: string; name: string; employeeId: string; role: Role; tokenVersion: number }) {
+export function signTokens(user: { id: string; name: string; employeeId: string; role: Role; tokenVersion: number }, app: ClientApp) {
   const accessToken = jwt.sign(
-    { sub: user.id, role: user.role, name: user.name, employeeId: user.employeeId, type: 'access' } satisfies AccessPayload,
+    { sub: user.id, role: user.role, name: user.name, employeeId: user.employeeId, type: 'access', app } satisfies AccessPayload,
     config.jwtAccessSecret,
     { expiresIn: config.accessTokenTtl }
   )
   const refreshToken = jwt.sign(
-    { sub: user.id, ver: user.tokenVersion, type: 'refresh' } satisfies RefreshPayload,
+    { sub: user.id, ver: user.tokenVersion, type: 'refresh', app } satisfies RefreshPayload,
     config.jwtRefreshSecret,
     { expiresIn: config.refreshTokenTtl }
   )
@@ -78,7 +85,13 @@ export function verifyRefreshToken(token: string): RefreshPayload {
   }
 }
 
-/** Verifies the bearer token and confirms the account is still active. */
+/** The mobile app needs the account's "Mobile app access" switch on, for every role. */
+export const MOBILE_ACCESS_OFF = 'Mobile app access is turned off for this account. Please contact your administrator.'
+
+/**
+ * Verifies the bearer token and confirms the account is still active. Mobile sessions also need
+ * mobile app access, checked on every request so turning it off applies at once.
+ */
 export const authenticate: RequestHandler = async (req, _res, next) => {
   const header = req.headers.authorization
   const token = header?.startsWith('Bearer ') ? header.slice(7) : undefined
@@ -93,16 +106,19 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
   }
 
   const [user] = await db
-    .select({ id: users.id, name: users.name, employeeId: users.employeeId, role: users.role, isActive: users.isActive })
+    .select({ id: users.id, name: users.name, employeeId: users.employeeId, role: users.role, isActive: users.isActive, appAccess: users.appAccess })
     .from(users)
     .where(eq(users.id, payload.sub))
   if (!user || !user.isActive) return next(new HttpError(401, 'Your account is disabled'))
+  const app: ClientApp = payload.app ?? 'web'
+  if (app === 'mobile' && !user.appAccess) return next(new HttpError(401, MOBILE_ACCESS_OFF))
 
   req.user = {
     id: user.id,
     name: user.name,
     employeeId: user.employeeId,
     role: user.role,
+    app,
     permissions: await loadPermissions(user.id, user.role)
   }
   next()

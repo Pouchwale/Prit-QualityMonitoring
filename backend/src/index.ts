@@ -11,6 +11,10 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { db } from './db/client'
 import { prepareChecks } from './services/checkGenerator'
 import { repairCheckWorkers } from './services/workerAssignment'
+import { fixHolidayCalendar2026Adjustments, importHolidayCalendar2026 } from './db/holidayCalendar2026'
+import { ensureWeeklyOffSetting, purgeAllClosedDays } from './services/plantCalendar'
+import { ensureDefaultWeeklyRules } from './services/weeklyRules'
+import { adoptExistingFutureEntries } from './services/calendarYears'
 import { checkPushReceipts, notifyDueChecks } from './services/notifications'
 
 // Bring the database up to date before serving requests. New code can reach a running backend
@@ -68,8 +72,20 @@ http.createServer(app).listen(config.port, '0.0.0.0', () => {
 
   removeLegacyPlantLabel().catch((err) => console.error('Settings cleanup failed', err))
   ensureSuperAdmin().catch((err) => console.error('Super Admin check failed', err))
-  // Give every stored check its worker before the first scheduler pass.
-  repairCheckWorkers()
+  // Load the 2026 company holiday calendar (once), then give every stored check its worker,
+  // both before the first scheduler pass.
+  ensureWeeklyOffSetting()
+    .then(() => importHolidayCalendar2026())
+    .then(() => fixHolidayCalendar2026Adjustments())
+    // Annual calendars (2027+): Thursday weekly rule, and any 2027+ dates entered before.
+    .then(() => ensureDefaultWeeklyRules())
+    .then(() => adoptExistingFutureEntries())
+    .catch((err) => console.error('Holiday calendar import failed', err))
+    // Closed dates (weekly off, holidays) keep no open or Missed checks, however old.
+    .then(() => purgeAllClosedDays())
+    .then((removed) => removed && console.log(`Plant Calendar: removed ${removed} unsubmitted check(s) on closed dates.`))
+    .catch((err) => console.error('Closed-day cleanup failed', err))
+    .then(() => repairCheckWorkers())
     .catch((err) => console.error('Check worker repair failed', err))
     .finally(() => {
       tick()

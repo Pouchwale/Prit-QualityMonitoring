@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react'
 import { AlertTriangle, CalendarClock, Edit2, Plus, Search, Trash2 } from 'lucide-react'
-import type { Activity, Machine, Schedule, Shift, User } from '../../types'
+import type { Activity, Machine, Schedule, ScheduleMode, Shift, User } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
-import { frequencyLabel } from '../../lib/format'
+import { formatDateTime, frequencyLabel } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
 import { DataState } from '../../components/common/DataState'
@@ -58,6 +58,7 @@ interface FormState {
   activityId: string
   shiftId: string
   workerId: string
+  mode: ScheduleMode
   preset: string
   intervalMinutes: string
   useWindow: boolean
@@ -71,12 +72,19 @@ const emptyForm: FormState = {
   activityId: '',
   shiftId: '',
   workerId: '',
+  mode: 'INTERVAL',
   preset: '60',
   intervalMinutes: '60',
   useWindow: false,
   startTime: '',
   endTime: '',
   isActive: true
+}
+
+/** Monitoring mode wording, shared by the list and the form. */
+const MODE_LABEL: Record<ScheduleMode, string> = {
+  INTERVAL: 'Every interval',
+  JOB: 'Job-based'
 }
 
 export const SchedulesPage: React.FC = () => {
@@ -132,6 +140,7 @@ export const SchedulesPage: React.FC = () => {
       activityId: s.activityId,
       shiftId: s.shiftId,
       workerId: s.workerId ?? '',
+      mode: s.mode ?? 'INTERVAL',
       preset,
       intervalMinutes: String(s.intervalMinutes),
       useWindow: s.startTime !== null && s.endTime !== null,
@@ -178,6 +187,7 @@ export const SchedulesPage: React.FC = () => {
         activityId: form.activityId,
         shiftId: form.shiftId,
         workerId: form.workerId || null,
+        mode: form.mode,
         intervalMinutes: interval,
         startTime: form.useWindow ? form.startTime : null,
         endTime: form.useWindow ? form.endTime : null,
@@ -300,6 +310,7 @@ export const SchedulesPage: React.FC = () => {
                 <th className="py-2.5 px-3.5">Shift</th>
                 <th className="py-2.5 px-3.5">Time window</th>
                 <th className="py-2.5 px-3.5">Frequency</th>
+                <th className="py-2.5 px-3.5">Next due</th>
                 <th className="py-2.5 px-3.5">Assigned to</th>
                 <th className="py-2.5 px-3.5">Status</th>
                 {canEdit && <th className="py-2.5 px-3.5 text-right">Action</th>}
@@ -311,7 +322,7 @@ export const SchedulesPage: React.FC = () => {
               return (
                 <tbody key={g.machineId} className="divide-y divide-line border-b border-line last:border-b-0">
                   <tr className="bg-subtle">
-                    <td colSpan={canEdit ? 7 : 6} className="py-1.5 px-3.5">
+                    <td colSpan={canEdit ? 8 : 7} className="py-1.5 px-3.5">
                       <span className="font-semibold text-ink">{g.machineName}</span>
                       {machine && <span className="ml-2 font-mono text-[11px] text-ink-muted">{machine.code}</span>}
                       <span className="ml-2 text-[11px] text-ink-muted">
@@ -328,7 +339,10 @@ export const SchedulesPage: React.FC = () => {
                   </tr>
                   {g.rows.map((s) => (
                     <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-2.5 px-3.5 pl-6 font-medium text-ink whitespace-nowrap">{s.activityName}</td>
+                      <td className="py-2.5 px-3.5 pl-6 font-medium text-ink whitespace-nowrap">
+                        {s.activityName}
+                        <span className="block text-[11px] font-normal text-ink-muted">{MODE_LABEL[s.mode ?? 'INTERVAL']}</span>
+                      </td>
                       <td className="py-2.5 px-3.5 whitespace-nowrap">
                         <span className="text-slate-700">{s.shiftName}</span>
                         <span className="ml-1.5 font-mono text-[11px] text-ink-muted">
@@ -345,6 +359,12 @@ export const SchedulesPage: React.FC = () => {
                         )}
                       </td>
                       <td className="py-2.5 px-3.5 whitespace-nowrap text-ink">{frequencyLabel(s.intervalMinutes)}</td>
+                      <td className="py-2.5 px-3.5 whitespace-nowrap">
+                        {s.nextDueAt ? <span className="font-mono text-ink">{formatDateTime(s.nextDueAt)}</span> : <span className="text-ink-faint">—</span>}
+                        {s.lastSubmittedAt && (
+                          <span className="block text-[11px] text-ink-muted">Last submitted {formatDateTime(s.lastSubmittedAt)}</span>
+                        )}
+                      </td>
                       <td className="py-2.5 px-3.5 whitespace-nowrap">
                         {s.checkWorkers.length === 0 ? (
                           <span className="inline-flex items-center gap-1 text-failed font-medium">
@@ -459,7 +479,24 @@ export const SchedulesPage: React.FC = () => {
                 ))}
               </Select>
             </Field>
-            <Field label="Frequency" required>
+            <Field
+              label="Monitoring mode"
+              required
+              hint={
+                form.mode === 'JOB'
+                  ? 'Job-based: checks are only due while a job is running on the machine.'
+                  : 'Every interval: checks are due right through the shift.'
+              }
+            >
+              <Select value={form.mode} onChange={(e) => set('mode', e.target.value as ScheduleMode)}>
+                {(Object.keys(MODE_LABEL) as ScheduleMode[]).map((m) => (
+                  <option key={m} value={m}>
+                    {MODE_LABEL[m]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Frequency" required hint="The timer restarts when the worker submits, so the next check is due one interval after that submission.">
               <div className="flex gap-2">
                 <Select value={form.preset} onChange={(e) => changePreset(e.target.value)} className="flex-1">
                   {PRESETS.map((p) => (
@@ -531,6 +568,11 @@ export const SchedulesPage: React.FC = () => {
                 <span>
                   <span className="font-mono">{preview.text}</span>
                 </span>
+              </div>
+              <div className="text-ink-secondary">
+                {form.mode === 'JOB'
+                  ? `Job-based: nothing is due until a job is running on the machine. The next check is then due ${interval} minutes after each submission.`
+                  : `The timer restarts on submission: the next check is due ${interval} minutes after the worker submits.`}
               </div>
               {machineBlocked && selectedMachine && (
                 <div className="flex items-start gap-1.5 text-exception">

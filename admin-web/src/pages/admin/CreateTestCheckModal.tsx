@@ -142,8 +142,12 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
     >
       <FormError message={error ?? listsError} />
 
-      <Field label="Start" required>
-        <div className="grid grid-cols-2 gap-2">
+      {/* A fieldset, not a <label>: a label would give its name to the first button. */}
+      <fieldset>
+        <legend className="block text-[13px] lg:text-xs font-semibold text-slate-700 mb-1">
+          Start<span className="text-failed"> *</span>
+        </legend>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Start">
           {(
             [
               { value: 'DUE', title: 'Start now', text: 'Opens immediately on the phone' },
@@ -155,6 +159,8 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
               <button
                 key={option.value}
                 type="button"
+                role="radio"
+                aria-checked={active}
                 onClick={() => setStatus(option.value)}
                 className={`text-left px-3 py-2.5 rounded border transition-colors ${
                   active ? 'border-accent bg-blue-50 ring-1 ring-accent' : 'border-line-strong bg-white hover:bg-slate-50'
@@ -166,7 +172,7 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
             )
           })}
         </div>
-      </Field>
+      </fieldset>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Worker" hint={workerLacksAccess ? 'This worker is not assigned to this machine, but the check is assigned to them directly.' : undefined}>

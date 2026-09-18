@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import pdfmake from 'pdfmake'
 import type { Content, TDocumentDefinitions, TableCell } from 'pdfmake/interfaces'
+import { dateKey, localParts } from '../lib/time'
 import {
   formatDate,
   formatDateTime,
@@ -218,15 +219,23 @@ function parameterTable(rows: ParameterRow[]): Content {
         header(['Parameter', 'Actual', 'Standard / Acceptance', 'Unit', 'Min', 'Max', 'Reading']),
         ...rows.map((p) => [
           { text: p.name },
-          { text: p.value, alignment: 'right' as const, bold: true },
-          { text: p.standard },
+          // An N/A has no reading; its reason is printed in the Standard column below the rule.
+          { text: p.value, alignment: 'right' as const, bold: true, color: p.notApplicable ? MUTED : INK },
+          p.notApplicable
+            ? {
+                stack: [
+                  { text: p.standard },
+                  { text: `N/A: ${p.naReason}${p.naRemark !== '-' ? ` — ${p.naRemark}` : ''}`, style: 'sub' }
+                ]
+              }
+            : { text: p.standard },
           { text: p.unit, alignment: 'center' as const },
           { text: p.min, alignment: 'center' as const },
           { text: p.max, alignment: 'center' as const },
           {
-            text: p.result === 'NA' ? 'No limit' : p.result,
+            text: p.notApplicable ? 'Not applicable' : p.result === 'NA' ? 'No limit' : p.result,
             alignment: 'center' as const,
-            bold: p.result !== 'NA',
+            bold: !p.notApplicable && p.result !== 'NA',
             color: p.result === 'FAIL' ? '#B91C1C' : p.result === 'PASS' ? '#15803D' : FAINT
           }
         ])
@@ -253,11 +262,14 @@ function imageData(filePath: string): string | null {
 const MAX_EVIDENCE_IMAGES = 40
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const longDate = (d: Date) => `${String(d.getDate()).padStart(2, '0')} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
+const longDate = (d: Date) => {
+  const p = localParts(d)
+  return `${String(p.day).padStart(2, '0')} ${MONTHS[p.month - 1]} ${p.year}`
+}
 
 /** "01 Sep 2026 – 15 Sep 2026", or a single date when the report covers one day. */
 function longPeriod(from: Date, to: Date) {
-  return from.toDateString() === to.toDateString() ? longDate(from) : `${longDate(from)} – ${longDate(to)}`
+  return dateKey(from) === dateKey(to) ? longDate(from) : `${longDate(from)} – ${longDate(to)}`
 }
 
 export function buildReportDocument(report: QualityReport): TDocumentDefinitions {
@@ -342,6 +354,12 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
               String(report.readings.outsideLimits),
               report.readings.outsideLimits ? '#B91C1C' : INK
             )
+          ],
+          [
+            summaryValue('Not Applicable Parameters', String(report.notApplicable.total)),
+            summaryValue('Checks With N/A', String(report.notApplicable.checks)),
+            summaryValue('Submitted On Notification', String(report.submissionTypes.notification)),
+            summaryValue('Started Manually', String(report.submissionTypes.manual))
           ]
         ]
       },
@@ -372,6 +390,10 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
         },
         {
           text: `Parameter readings are separate recorded data and do not change the Result: a check with a reading outside its limits is still Completed.${report.readings.checksWithOutside ? ` ${report.readings.checksWithOutside} completed check${report.readings.checksWithOutside === 1 ? ' has' : 's have'} a reading outside limits (section 10).` : ''}`,
+          margin: [0, 2, 0, 0]
+        },
+        {
+          text: `A parameter marked Not Applicable carries no reading and is never counted as a failure; the reason the worker gave is printed with the check (sections 9 and 10).`,
           margin: [0, 2, 0, 0]
         },
         {
@@ -495,12 +517,27 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
                   { text: [{ text: 'Shift: ', style: 'metaLabel' }, detail.shiftName] },
                   {
                     text: [
-                      { text: 'Job No.: ', style: 'metaLabel' },
+                      { text: 'Item Code: ', style: 'metaLabel' },
+                      detail.itemCode,
+                      { text: '   Job No.: ', style: 'metaLabel' },
                       detail.jobNo,
                       { text: '   Evidence: ', style: 'metaLabel' },
                       `${detail.photos} photo${detail.photos === 1 ? '' : 's'}${detail.videos ? `, ${detail.videos} video` : ''}`
                     ]
                   }
+                ],
+                [
+                  { text: [{ text: 'Started By: ', style: 'metaLabel' }, detail.submissionType] },
+                  {
+                    text: [
+                      { text: 'Not Applicable: ', style: 'metaLabel' },
+                      detail.notApplicable
+                        ? `${detail.notApplicable} parameter${detail.notApplicable === 1 ? '' : 's'}`
+                        : 'None'
+                    ]
+                  },
+                  { text: '' },
+                  { text: '' }
                 ]
               ]
             },
@@ -553,6 +590,41 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
                 },
                 { text: 'Completed', color: '#15803D', bold: true }
               ])
+            ]
+          },
+          layout: tableLayout
+        }
+  )
+
+  /**
+   * Parameters marked Not Applicable, inside section 10 so the numbering of the report does not
+   * change. An N/A is recorded data like a reading, but it has no value and no PASS/FAIL.
+   */
+  content.push({ text: 'Parameters marked Not Applicable', style: 'h3', margin: [0, 10, 0, 3] })
+  content.push(
+    report.notApplicable.byParameter.length === 0
+      ? empty('No parameter was marked Not Applicable in this period.')
+      : {
+          table: {
+            headerRows: 1,
+            keepWithHeaderRows: 1,
+            dontBreakRows: true,
+            widths: gridWidths([160, 50, '*']),
+            body: [
+              header(['Parameter', 'N/A Count', 'Reasons Recorded']),
+              ...report.notApplicable.byParameter.map((p) => [
+                { text: p.name },
+                { text: String(p.count), alignment: 'center' as const },
+                { text: p.reasons.map((r) => `${r.reason} (${r.count})`).join(', '), style: 'sub' }
+              ]),
+              [
+                { text: 'Total', bold: true },
+                { text: String(report.notApplicable.total), alignment: 'center' as const, bold: true },
+                {
+                  text: `In ${report.notApplicable.checks} completed check${report.notApplicable.checks === 1 ? '' : 's'}. N/A never counts as a failed reading.`,
+                  style: 'sub'
+                }
+              ]
             ]
           },
           layout: tableLayout
@@ -742,41 +814,56 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
       )
     )
 
-    const shown = images.slice(0, MAX_EVIDENCE_IMAGES)
-    const cells: Content[] = []
-    for (const item of shown) {
-      const data = imageData(item.path)
-      cells.push({
-        unbreakable: true,
-        stack: [
-          data
-            ? { image: data, fit: [235, 175] as [number, number] }
-            : { text: 'Image file not available on the server', style: 'note' },
-          { text: item.code, style: 'sub', bold: true, margin: [0, 3, 0, 0] as [number, number, number, number] },
-          { text: `${item.machineName} · ${item.activityName}`, style: 'sub' },
-          { text: `${formatDateTime(item.capturedAt)} · ${item.workerName}`, style: 'sub' }
-        ]
-      })
-    }
-    for (let i = 0; i < cells.length; i += 2) {
+    /**
+     * Grouped per parameter, with the evidence captured for the whole check as its own group at
+     * the end. The photo budget is shared across the groups so the appendix stays a fixed size.
+     */
+    let budget = MAX_EVIDENCE_IMAGES
+    for (const group of report.evidenceGroups) {
       content.push({
-        columns: [cells[i], cells[i + 1] ?? { text: '' }],
-        columnGap: 14,
-        margin: [0, 0, 0, 12]
+        text: `${group.parameterName} — ${group.photos} photo${group.photos === 1 ? '' : 's'}${group.videos ? `, ${group.videos} video${group.videos === 1 ? '' : 's'}` : ''}`,
+        style: 'h3',
+        margin: [0, 8, 0, 4]
       })
-    }
-    if (images.length > shown.length) {
-      content.push({
-        text: `${images.length - shown.length} further photo${images.length - shown.length === 1 ? '' : 's'} are stored in the system and not reproduced here.`,
-        style: 'note'
-      })
-    }
-    if (videos.length) {
-      content.push({
-        text: `${videos.length} video recording${videos.length === 1 ? ' is' : 's are'} stored in the system and can be viewed in the Admin panel.`,
-        style: 'note',
-        margin: [0, 4, 0, 0]
-      })
+      const groupImages = group.items.filter((e) => e.kind === 'PHOTO')
+      const shown = groupImages.slice(0, Math.max(0, budget))
+      budget -= shown.length
+      const cells: Content[] = []
+      for (const item of shown) {
+        const data = imageData(item.path)
+        cells.push({
+          unbreakable: true,
+          stack: [
+            data
+              ? { image: data, fit: [235, 175] as [number, number] }
+              : { text: 'Image file not available on the server', style: 'note' },
+            { text: item.code, style: 'sub', bold: true, margin: [0, 3, 0, 0] as [number, number, number, number] },
+            { text: `${item.machineName} · ${item.activityName}`, style: 'sub' },
+            { text: `${formatDateTime(item.capturedAt)} · ${item.workerName}`, style: 'sub' }
+          ]
+        })
+      }
+      for (let i = 0; i < cells.length; i += 2) {
+        content.push({
+          columns: [cells[i], cells[i + 1] ?? { text: '' }],
+          columnGap: 14,
+          margin: [0, 0, 0, 12]
+        })
+      }
+      if (groupImages.length > shown.length) {
+        content.push({
+          text: `${groupImages.length - shown.length} further photo${groupImages.length - shown.length === 1 ? '' : 's'} of this parameter are stored in the system and not reproduced here.`,
+          style: 'note'
+        })
+      }
+      const groupVideos = group.videos
+      if (groupVideos) {
+        content.push({
+          text: `${groupVideos} video recording${groupVideos === 1 ? ' is' : 's are'} stored in the system and can be viewed in the Admin panel.`,
+          style: 'note',
+          margin: [0, 2, 0, 0]
+        })
+      }
     }
   }
 

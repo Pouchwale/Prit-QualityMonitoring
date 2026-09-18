@@ -1,6 +1,6 @@
 import React from 'react'
 import { AlertTriangle, ArrowLeft, Printer, RefreshCw } from 'lucide-react'
-import type { CheckResult, QualityCheck } from '../../types'
+import type { CheckResult, MediaFile, QualityCheck } from '../../types'
 import { useApi } from '../../lib/useApi'
 import { PARAMETER_TYPE_LABEL, formatDateTime, RESULT_LABEL } from '../../lib/format'
 import { Button } from '../../components/common/Button'
@@ -12,6 +12,42 @@ interface QualityCheckDetailPageProps {
   checkId: string
   onBack: () => void
 }
+
+/** How the check was started. */
+const SUBMISSION_LABEL = { MANUAL: 'Manual', NOTIFICATION: 'Notification' } as const
+
+/**
+ * Evidence grouped the way the worker captured it: one group per parameter (in form order),
+ * then the overall check evidence (media with no parameter, including older checks).
+ */
+function evidenceGroups(check: QualityCheck): { key: string; label?: string; media: MediaFile[] }[] {
+  const groups: { key: string; label?: string; media: MediaFile[] }[] = []
+  for (const v of check.values) {
+    if (!v.parameterId) continue
+    const media = check.media.filter((m) => m.parameterId === v.parameterId)
+    if (media.length > 0) groups.push({ key: v.parameterId, label: v.parameterName, media })
+  }
+  const overall = check.media.filter((m) => !m.parameterId)
+  // Evidence of a parameter that is no longer on the form still belongs somewhere.
+  const grouped = new Set(groups.map((g) => g.key))
+  for (const m of check.media) {
+    if (!m.parameterId || grouped.has(m.parameterId)) continue
+    grouped.add(m.parameterId)
+    groups.push({ key: m.parameterId, label: 'Removed parameter', media: check.media.filter((x) => x.parameterId === m.parameterId) })
+  }
+  if (overall.length > 0) groups.push({ key: 'overall', label: 'Overall evidence', media: overall })
+  // Nothing at all: one empty viewer, with its usual "Live camera evidence" heading.
+  if (groups.length === 0) groups.push({ key: 'overall', media: [] })
+  return groups
+}
+
+/** Small outlined badge for the header and the parameter rows. */
+const Chip: React.FC<{ label: string; value: string; tone?: string }> = ({ label, value, tone = 'border-line bg-subtle text-ink-secondary' }) => (
+  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] font-medium whitespace-nowrap ${tone}`}>
+    <span className="text-ink-muted">{label}</span>
+    <span className="font-mono font-semibold">{value}</span>
+  </span>
+)
 
 export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ checkId, onBack }) => {
   const { data: check, error, loading, reload } = useApi<QualityCheck>(`/api/quality-checks/${checkId}`)
@@ -29,6 +65,10 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                 <h1 className="text-lg font-bold text-ink tracking-tight font-mono">{check.code}</h1>
                 <CheckStatusBadge status={check.status} />
                 {check.result && <ResultBadge result={check.result} />}
+                {check.submissionType && <Chip label="Started" value={SUBMISSION_LABEL[check.submissionType]} />}
+                {(check.itemCode || check.job?.itemCode) && <Chip label="Item Code" value={check.itemCode ?? check.job?.itemCode ?? ''} />}
+                {(check.jobNo || check.job?.jobNo) && <Chip label="Job No." value={check.jobNo ?? check.job?.jobNo ?? ''} />}
+                {check.nextDueAt && <Chip label="Next due" value={formatDateTime(check.nextDueAt)} />}
               </div>
               <p className="text-xs text-ink-muted mt-0.5">
                 {check.machineName} · {check.activityName} · scheduled {formatDateTime(check.scheduledAt)}
@@ -73,15 +113,26 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                   value={check.submittedByName}
                   detail={[check.submittedByEmployeeId, check.submittedAt ? formatDateTime(check.submittedAt) : null].filter(Boolean).join(' · ') || null}
                 />
-                <Info label="Job No." value={check.jobNo} mono />
-                <Info label="Device" value={check.deviceInfo} className="col-span-2 md:col-span-3" />
+                <Info label="Item Code" value={check.itemCode ?? check.job?.itemCode ?? null} mono />
+                <Info label="Job No." value={check.jobNo ?? check.job?.jobNo ?? null} mono />
+                <Info
+                  label="Submission"
+                  value={check.submissionType ? SUBMISSION_LABEL[check.submissionType] : null}
+                  detail={check.submissionType === 'MANUAL' ? 'Started by the worker' : check.submissionType ? 'From a due notification' : null}
+                />
+                <Info label="Next check due" value={check.nextDueAt ? formatDateTime(check.nextDueAt) : null} mono />
+                <Info label="Device" value={check.deviceInfo} className="col-span-2 md:col-span-4" />
               </dl>
             </section>
 
             <section className="bg-white border border-line rounded-md shadow-2xs overflow-hidden printable-card">
               <SectionTitle
                 title="Parameter values"
-                subtitle="Values entered by the worker against the configured acceptance rules"
+                subtitle={`Values entered by the worker against the configured acceptance rules${
+                  check.values.some((v) => v.notApplicable)
+                    ? ` · ${check.values.filter((v) => v.notApplicable).length} not applicable (never counted as a failure)`
+                    : ''
+                }`}
                 right={check.result ? <ResultBadge result={check.result} size="sm" /> : undefined}
               />
               {check.values.length === 0 ? (
@@ -96,37 +147,66 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                         <th className="py-2 px-3 font-semibold">Value</th>
                         <th className="py-2 px-3 font-semibold">Rule</th>
                         <th className="py-2 px-3 font-semibold">Reading</th>
+                        <th className="py-2 px-3 font-semibold">Evidence</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-line">
-                      {check.values.map((v, i) => (
-                        <tr key={v.parameterId ?? i} className={v.result === 'FAIL' ? 'bg-missed-bg/40' : undefined}>
-                          <td className="py-2 px-4 font-semibold text-ink">{v.parameterName}</td>
-                          <td className="py-2 px-3 text-ink-muted">{PARAMETER_TYPE_LABEL[v.parameterType]}</td>
-                          <td className="py-2 px-3 font-mono text-ink">
-                            {v.value !== null && v.value !== '' ? (
-                              <>
-                                <span className="font-semibold">{v.value}</span>
-                                {v.unit && <span className="text-ink-muted ml-1">{v.unit}</span>}
-                              </>
-                            ) : (
-                              <span className="text-ink-faint">—</span>
-                            )}
-                          </td>
-                          <td className="py-2 px-3 text-ink-secondary">{v.rule ?? '—'}</td>
-                          <td className="py-2 px-3">
-                            {v.value !== null && v.value !== '' ? <StatusBadge status={v.result} size="sm" /> : <span className="text-ink-faint">—</span>}
-                          </td>
-                        </tr>
-                      ))}
+                      {check.values.map((v, i) => {
+                        const evidence = v.parameterId ? check.media.filter((m) => m.parameterId === v.parameterId) : []
+                        return (
+                          <tr key={v.parameterId ?? i} className={v.result === 'FAIL' ? 'bg-missed-bg/40' : undefined}>
+                            <td className="py-2 px-4 font-semibold text-ink">{v.parameterName}</td>
+                            <td className="py-2 px-3 text-ink-muted">{PARAMETER_TYPE_LABEL[v.parameterType]}</td>
+                            <td className="py-2 px-3 font-mono text-ink">
+                              {v.notApplicable ? (
+                                <span className="font-sans text-ink-secondary">
+                                  Not applicable — {v.naReason ?? 'no reason given'}
+                                  {v.naRemark && <span className="block text-[11px] text-ink-muted">{v.naRemark}</span>}
+                                </span>
+                              ) : v.value !== null && v.value !== '' ? (
+                                <>
+                                  <span className="font-semibold">{v.value}</span>
+                                  {v.unit && <span className="text-ink-muted ml-1">{v.unit}</span>}
+                                </>
+                              ) : (
+                                <span className="text-ink-faint">—</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3 text-ink-secondary">{v.rule ?? '—'}</td>
+                            <td className="py-2 px-3">
+                              {v.notApplicable ? (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded border border-line bg-slate-50 text-[11px] font-medium text-ink-muted">
+                                  Not applicable
+                                </span>
+                              ) : v.value !== null && v.value !== '' ? (
+                                <StatusBadge status={v.result} size="sm" />
+                              ) : (
+                                <span className="text-ink-faint">—</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-3">
+                              {evidence.length > 0 ? <EvidenceViewer media={evidence} compact /> : <span className="text-ink-faint">—</span>}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
               )}
             </section>
 
-            <section className="printable-card">
-              <EvidenceViewer media={check.media} workerName={check.submittedByName ?? check.workerName} deviceInfo={check.deviceInfo} />
+            {/* One block per parameter that has evidence, then the overall check evidence. */}
+            <section className="printable-card space-y-3">
+              {evidenceGroups(check).map((group) => (
+                <EvidenceViewer
+                  key={group.key}
+                  label={group.label}
+                  media={group.media}
+                  workerName={check.submittedByName ?? check.workerName}
+                  deviceInfo={check.deviceInfo}
+                />
+              ))}
             </section>
 
             {check.exception && (

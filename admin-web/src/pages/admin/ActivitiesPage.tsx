@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Camera, Hash, Pencil, Plus, Search, Trash2, Video, X } from 'lucide-react'
-import type { Activity, Department, Machine, Parameter, ParameterType } from '../../types'
+import type { Activity, AppliesWhen, Department, Machine, Parameter, ParameterType } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
@@ -18,6 +18,11 @@ interface FormParameter {
   parameterId: string
   isRequired: boolean
   isEnabled: boolean
+  /** Per-parameter evidence: the worker captures it on that parameter's card. */
+  requirePhoto: boolean
+  requireVideo: boolean
+  allowNa: boolean
+  appliesWhen: AppliesWhen
 }
 
 interface ActivityForm {
@@ -29,6 +34,7 @@ interface ActivityForm {
   requireJobNo: boolean
   requirePhoto: boolean
   requireVideo: boolean
+  allowManual: boolean
   /** Array order = order on the worker form. */
   parameters: FormParameter[]
   machineIds: string[]
@@ -43,6 +49,7 @@ interface ActivityBody {
   requirePhoto: boolean
   requireVideo: boolean
   requireJobNo: boolean
+  allowManual: boolean
   isActive: boolean
   parameters: FormParameter[]
   machineIds: string[]
@@ -66,6 +73,7 @@ const emptyForm: ActivityForm = {
   requireJobNo: true,
   requirePhoto: true,
   requireVideo: false,
+  allowManual: true,
   parameters: [],
   machineIds: []
 }
@@ -79,7 +87,16 @@ const formFromActivity = (a: Activity): ActivityForm => ({
   requireJobNo: a.requireJobNo,
   requirePhoto: a.requirePhoto,
   requireVideo: a.requireVideo,
-  parameters: a.parameters.map((p) => ({ parameterId: p.parameterId, isRequired: p.isRequired, isEnabled: p.isEnabled })),
+  allowManual: a.allowManual,
+  parameters: a.parameters.map((p) => ({
+    parameterId: p.parameterId,
+    isRequired: p.isRequired,
+    isEnabled: p.isEnabled,
+    requirePhoto: p.requirePhoto,
+    requireVideo: p.requireVideo,
+    allowNa: p.allowNa,
+    appliesWhen: p.appliesWhen
+  })),
   machineIds: [...a.machineIds]
 })
 
@@ -199,7 +216,10 @@ export const ActivitiesPage: React.FC = () => {
   const addParameter = () => {
     const parameter = availableParameters.find((p) => p.id === addParameterId)
     if (!parameter) return
-    update('parameters', [...form.parameters, { parameterId: parameter.id, isRequired: parameter.isRequired, isEnabled: true }])
+    update('parameters', [
+      ...form.parameters,
+      { parameterId: parameter.id, isRequired: parameter.isRequired, isEnabled: true, requirePhoto: false, requireVideo: false, allowNa: false, appliesWhen: 'ALWAYS' }
+    ])
     setAddParameterId('')
   }
 
@@ -214,6 +234,7 @@ export const ActivitiesPage: React.FC = () => {
       requirePhoto: form.requirePhoto,
       requireVideo: form.requireVideo,
       requireJobNo: form.requireJobNo,
+      allowManual: form.allowManual,
       isActive: form.isActive,
       parameters: form.parameters,
       machineIds: form.machineIds
@@ -449,16 +470,26 @@ export const ActivitiesPage: React.FC = () => {
               <Toggle
                 checked={form.requirePhoto}
                 onChange={(v) => update('requirePhoto', v)}
-                label="Photo required"
-                description="Worker takes a live photo."
+                label="Overall check photo"
+                description="One extra live photo for the whole check."
               />
               <Toggle
                 checked={form.requireVideo}
                 onChange={(v) => update('requireVideo', v)}
-                label="Video required"
-                description="Worker records a video up to 60 seconds."
+                label="Overall check video"
+                description="One extra video (up to 60 seconds) for the whole check."
               />
             </div>
+            <p className="text-[11px] text-ink-muted">
+              Prefer per-parameter evidence: set Photo and Video on the parameters below so the worker captures each reading. The overall photo and video
+              are captured once at the end of the form.
+            </p>
+            <Toggle
+              checked={form.allowManual}
+              onChange={(v) => update('allowManual', v)}
+              label="Allow manual submission"
+              description="Workers can start this check from the machine at any time, without waiting for a notification."
+            />
           </Section>
 
           <Section step={3} title="Parameters on this form" description="Workers see them in this order">
@@ -503,7 +534,6 @@ export const ActivitiesPage: React.FC = () => {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <Toggle checked={fp.isRequired} onChange={(v) => updateParameter(index, { isRequired: v })} label="Required" />
                         <Toggle checked={fp.isEnabled} onChange={(v) => updateParameter(index, { isEnabled: v })} label="Enabled" />
                         <button
                           type="button"
@@ -513,6 +543,19 @@ export const ActivitiesPage: React.FC = () => {
                         >
                           <X className="w-3.5 h-3.5" />
                         </button>
+                      </div>
+
+                      {/* Per-parameter rules: what the worker must provide for this reading. */}
+                      <div className="basis-full flex flex-wrap items-center gap-x-4 gap-y-1 pl-[26px]">
+                        <Toggle checked={fp.isRequired} onChange={(v) => updateParameter(index, { isRequired: v })} label="Required" />
+                        <Toggle checked={fp.requirePhoto} onChange={(v) => updateParameter(index, { requirePhoto: v })} label="Photo" />
+                        <Toggle checked={fp.requireVideo} onChange={(v) => updateParameter(index, { requireVideo: v })} label="Video" />
+                        <Toggle checked={fp.allowNa} onChange={(v) => updateParameter(index, { allowNa: v })} label="Allow N/A" />
+                        <Toggle
+                          checked={fp.appliesWhen === 'JOB_RUNNING'}
+                          onChange={(v) => updateParameter(index, { appliesWhen: v ? 'JOB_RUNNING' : 'ALWAYS' })}
+                          label="Only while a job is running"
+                        />
                       </div>
                     </div>
                   )
@@ -541,7 +584,9 @@ export const ActivitiesPage: React.FC = () => {
               </Button>
             </div>
             <p className="text-[11px] text-ink-muted">
-              {enabledOnForm} of {form.parameters.length} enabled. Turn a parameter off to hide it from this form without losing its settings.
+              {enabledOnForm} of {form.parameters.length} enabled. Turn a parameter off to hide it from this form without losing its settings. Photo and
+              Video are captured on that parameter's own card; Allow N/A lets the worker record a reason instead of a value, which never counts as a
+              failure.
             </p>
           </Section>
 

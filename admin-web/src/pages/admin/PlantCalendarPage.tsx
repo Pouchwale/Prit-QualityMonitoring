@@ -1,19 +1,82 @@
 import React, { useMemo, useState } from 'react'
-import { BellOff, CalendarCheck2, CalendarOff, ChevronLeft, ChevronRight, ClipboardX, Info, Pencil, Plus, Trash2 } from 'lucide-react'
-import type { ClosureType, PlantClosure } from '../../types'
+import {
+  BellOff,
+  BriefcaseBusiness,
+  CalendarCheck2,
+  CalendarOff,
+  CalendarRange,
+  ChevronLeft,
+  ChevronRight,
+  ClipboardX,
+  FileSpreadsheet,
+  Info,
+  Pencil,
+  Plus,
+  Trash2
+} from 'lucide-react'
+import type { CalendarYearSummary, ClosureType, DayState, PlantClosure, WeeklyRule } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
 import { addDaysKey, dateKey } from '../../lib/format'
-import { CLOSURE_TYPES } from '../../lib/closureTypes'
+import { CLOSURE_TYPES, WEEKDAY_NAMES, WEEKLY_OFF_STYLE, isClosedType } from '../../lib/closureTypes'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
 import { Field, FormError, TextInput, Toggle } from '../../components/common/Form'
 import { Modal } from '../../components/common/Modal'
 import { PageHeader } from '../../components/common/PageHeader'
 import { useToast } from '../../components/common/Toast'
+import { AnnualCalendarsTab } from './calendar/AnnualCalendarsTab'
+import { WeeklyRulesTab } from './calendar/WeeklyRulesTab'
 
-const TYPE_ORDER: ClosureType[] = ['CLOSED', 'HOLIDAY', 'SHUTDOWN']
+/** First date managed by annual calendars; earlier dates keep the original Plant Calendar setup. */
+const CALENDAR_V2_START = '2027-01-01'
+const LAST_LEGACY_DATE = '2026-12-31'
+
+type Tab = 'calendar' | 'years' | 'rules'
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'calendar', label: 'Calendar' },
+  { id: 'years', label: 'Annual calendars' },
+  { id: 'rules', label: 'Weekly rules' }
+]
+
+export const PlantCalendarPage: React.FC = () => {
+  const [tab, setTab] = useState<Tab>('calendar')
+  const [yearId, setYearId] = useState<string | null>(null)
+  const open = (next: Tab, id: string | null = null) => {
+    setTab(next)
+    setYearId(id)
+  }
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="Plant Calendar"
+        description="Weekly off days, holidays and closed days: no checks, no alerts and nothing marked Missed. An Adjustment Working Day opens the plant on that date."
+      />
+      <div role="tablist" aria-label="Plant Calendar" className="flex gap-1 border-b border-line -mt-1 overflow-x-auto">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => open(t.id)}
+            className={`h-[40px] lg:h-9 px-3 text-[13px] lg:text-xs font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${
+              tab === t.id ? 'border-accent text-accent' : 'border-transparent text-ink-secondary hover:text-ink'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'calendar' && <CalendarView onOpen={open} />}
+      {tab === 'years' && <AnnualCalendarsTab yearId={yearId} onOpenYear={(id) => open('years', id)} />}
+      {tab === 'rules' && <WeeklyRulesTab />}
+    </div>
+  )
+}
+
+const TYPE_ORDER: ClosureType[] = ['HOLIDAY', 'SHUTDOWN', 'CLOSED', 'WORKING']
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 const keyToDate = (key: string) => {
@@ -48,7 +111,7 @@ type Editor =
   | { mode: 'new'; from: string; to: string; multiDay: boolean; type: ClosureType; reason: string }
   | { mode: 'edit'; closure: PlantClosure; date: string; type: ClosureType; reason: string }
 
-export const PlantCalendarPage: React.FC = () => {
+const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => void }> = ({ onOpen }) => {
   const canEdit = useCanManage('calendar')
   const notify = useToast()
   const today = dateKey()
@@ -62,15 +125,34 @@ export const PlantCalendarPage: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState<PlantClosure | null>(null)
-
   const grid = useMemo(() => monthGrid(month), [month])
-  const monthData = useApi<PlantClosure[]>('/api/plant-closures', { from: grid[0], to: grid[grid.length - 1] })
+  // Open or closed, and why, for every day shown: decided by the backend (entries, weekly off, weekly rules).
+  const monthData = useApi<DayState[]>('/api/plant-closures/days', { from: grid[0], to: grid[grid.length - 1] })
   const upcoming = useApi<PlantClosure[]>('/api/plant-closures', { from: today, to: addDaysKey(today, 365) })
+  const years = useApi<{ firstYear: number; years: CalendarYearSummary[] }>('/api/calendar-years')
+  const rules = useApi<{ rules: WeeklyRule[] }>('/api/weekly-rules')
+  const legacy = useApi<{ weeklyOffDays: number[] }>('/api/plant-closures/settings')
 
-  const byDate = useMemo(() => new Map((monthData.data ?? []).map((c) => [c.date, c])), [monthData.data])
+  const stateByDate = useMemo(() => new Map((monthData.data ?? []).map((s) => [s.date, s])), [monthData.data])
+  const byDate = useMemo(
+    () =>
+      new Map(
+        (monthData.data ?? [])
+          .filter((s) => s.entry)
+          .map((s) => [s.date, { id: s.entry!.id, date: s.date, type: s.entry!.type, reason: s.entry!.reason, updatedAt: '' } as PlantClosure])
+      ),
+    [monthData.data]
+  )
+  const isWeeklyOff = (key: string) => stateByDate.get(key)?.weeklyClosed ?? false
+  const yearOf = (key: string) => (years.data?.years ?? []).find((y) => y.year === Number(key.slice(0, 4))) ?? null
+  const managedByYear = (key: string) => key >= CALENDAR_V2_START
   const upcomingRanges = useMemo(() => groupRanges(upcoming.data ?? []), [upcoming.data])
   const monthKey = dateKey(month).slice(0, 7)
-  const closedThisMonth = (monthData.data ?? []).filter((c) => c.date.startsWith(monthKey)).length
+  const monthStates = (monthData.data ?? []).filter((s) => s.date.startsWith(monthKey))
+  const closedThisMonth = monthStates.filter((s) => s.closed).length
+  const workingThisMonth = monthStates.filter((s) => s.entry?.type === 'WORKING').length
+  const viewedYear = Number(monthKey.slice(0, 4))
+  const viewedCalendar = viewedYear >= Number(CALENDAR_V2_START.slice(0, 4)) ? yearOf(monthKey) : null
   const selectedClosure = byDate.get(selected) ?? null
 
   const reload = () => {
@@ -86,10 +168,13 @@ export const PlantCalendarPage: React.FC = () => {
   }
 
   const openNew = (from = selected) => {
+    if (managedByYear(from)) return onOpen('years', yearOf(from)?.id ?? null)
     setFormError(null)
-    setEditor({ mode: 'new', from, to: from, multiDay: false, type: 'HOLIDAY', reason: '' })
+    // On a weekly off the usual change is to open the plant for that day.
+    setEditor({ mode: 'new', from, to: from, multiDay: false, type: isWeeklyOff(from) ? 'WORKING' : 'HOLIDAY', reason: '' })
   }
   const openEdit = (closure: PlantClosure) => {
+    if (managedByYear(closure.date)) return onOpen('years', yearOf(closure.date)?.id ?? null)
     setFormError(null)
     setEditor({ mode: 'edit', closure, date: closure.date, type: closure.type, reason: closure.reason ?? '' })
   }
@@ -118,7 +203,9 @@ export const PlantCalendarPage: React.FC = () => {
         notify(
           'success',
           `${days === 1 ? shortDate(editor.from) : `${days} days`} marked as ${CLOSURE_TYPES[editor.type].label}`,
-          `No checks or alerts on ${days === 1 ? 'this date' : 'these dates'}.${removedText(result.removedChecks)}`
+          isClosedType(editor.type)
+            ? `No checks or alerts on ${days === 1 ? 'this date' : 'these dates'}.${removedText(result.removedChecks)}`
+            : 'The plant runs normally: checks and alerts as scheduled.'
         )
         goToDate(editor.from)
       } else {
@@ -126,7 +213,7 @@ export const PlantCalendarPage: React.FC = () => {
         const result = await api.put<{ removedChecks: number }>(`/api/plant-closures/${editor.closure.id}`, { date: editor.date, type: editor.type, reason })
         notify(
           'success',
-          'Closed day updated',
+          'Calendar date updated',
           `${shortDate(editor.date)} · ${CLOSURE_TYPES[editor.type].label}.${editor.date !== editor.closure.date ? ` ${shortDate(editor.closure.date)} is open again.` : ''}${removedText(result.removedChecks)}`
         )
         goToDate(editor.date)
@@ -144,7 +231,14 @@ export const PlantCalendarPage: React.FC = () => {
     if (!removing) return
     try {
       await api.del(`/api/plant-closures/${removing.id}`)
-      notify('success', `${shortDate(removing.date)} is open again`, 'Checks for this day are scheduled again from the schedules.')
+      const nowClosed = isWeeklyOff(removing.date)
+      notify(
+        'success',
+        `${shortDate(removing.date)} removed from the calendar`,
+        nowClosed
+          ? `${WEEKDAY_NAMES[keyToDate(removing.date).getDay()]} is a weekly off, so the plant is closed on this date: no checks or alerts.`
+          : 'The plant is open on this date: checks and alerts as scheduled.'
+      )
       setEditor(null)
       reload()
     } catch (err) {
@@ -154,17 +248,21 @@ export const PlantCalendarPage: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="Plant Calendar"
-        description="Mark days when the plant is closed. No checks are scheduled, no alerts are sent and nothing is marked Missed on these days."
-        actions={
-          canEdit && (
-            <Button size="sm" variant="primary" onClick={() => openNew(selected < today ? today : selected)} icon={<Plus className="w-3.5 h-3.5" />}>
-              Mark Closed Days
+      {canEdit && (
+        <div className="flex flex-wrap items-center justify-end gap-2 -mt-1">
+          <span className="text-[11px] text-ink-muted mr-auto">
+            Dates up to 31 Dec 2026 are edited here. From 2027, dates come from the approved annual calendar.
+          </span>
+          <Button size="sm" variant="outline" onClick={() => onOpen('years')} icon={<FileSpreadsheet className="w-3.5 h-3.5" />}>
+            Annual calendars
+          </Button>
+          {today <= LAST_LEGACY_DATE && (
+            <Button size="sm" variant="primary" onClick={() => openNew(selected < today || managedByYear(selected) ? today : selected)} icon={<Plus className="w-3.5 h-3.5" />}>
+              Add Dates
             </Button>
-          )
-        }
-      />
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
         {/* Month */}
@@ -177,8 +275,13 @@ export const PlantCalendarPage: React.FC = () => {
               <p className="text-[11px] text-ink-muted">
                 {monthData.loading && !monthData.data
                   ? 'Loading…'
-                  : closedThisMonth
-                    ? `${closedThisMonth} closed day${closedThisMonth === 1 ? '' : 's'} this month`
+                  : closedThisMonth || workingThisMonth
+                    ? [
+                        closedThisMonth ? `${closedThisMonth} closed day${closedThisMonth === 1 ? '' : 's'}` : null,
+                        workingThisMonth ? `${workingThisMonth} adjustment working day${workingThisMonth === 1 ? '' : 's'}` : null
+                      ]
+                        .filter(Boolean)
+                        .join(' · ') + ' this month'
                     : 'Plant open every day this month'}
               </p>
             </div>
@@ -196,6 +299,21 @@ export const PlantCalendarPage: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {viewedYear >= Number(CALENDAR_V2_START.slice(0, 4)) && years.data && (!viewedCalendar || viewedCalendar.status !== 'APPROVED' || viewedCalendar.pendingChanges) && (
+            <div className="px-4 py-2 text-xs border-b border-exception-line bg-exception-bg flex flex-wrap items-center justify-between gap-2" role="status">
+              <span className="text-ink-secondary">
+                {!viewedCalendar
+                  ? `No ${viewedYear} company calendar yet: only the weekly rules apply. Holidays and adjustment working days take effect once the ${viewedYear} calendar is approved.`
+                  : viewedCalendar.status !== 'APPROVED'
+                    ? `The ${viewedYear} calendar is a draft: its holidays are not in use until it is approved.`
+                    : `The ${viewedYear} calendar has changes awaiting approval. The dates shown are the approved ones.`}
+              </span>
+              <Button size="sm" variant="outline" onClick={() => onOpen('years', viewedCalendar?.id ?? null)}>
+                {viewedCalendar ? `Review ${viewedYear}` : 'Annual calendars'}
+              </Button>
+            </div>
+          )}
 
           {monthData.error && (
             <div className="px-4 py-2 text-xs text-failed bg-missed-bg border-b border-missed-line flex items-center justify-between gap-2">
@@ -220,8 +338,11 @@ export const PlantCalendarPage: React.FC = () => {
               const isToday = key === today
               const isSelected = key === selected
               const past = key < today
-              const style = closure ? CLOSURE_TYPES[closure.type] : null
-              const label = `${longDate(key)}${closure ? `, ${style!.label}${closure.reason ? `: ${closure.reason}` : ''}` : ', plant open'}`
+              const weeklyOff = !closure && isWeeklyOff(key)
+              const style = closure ? CLOSURE_TYPES[closure.type] : weeklyOff ? WEEKLY_OFF_STYLE : null
+              const label = `${longDate(key)}${
+                closure ? `, ${CLOSURE_TYPES[closure.type].label}${closure.reason ? `: ${closure.reason}` : ''}` : weeklyOff ? ', Weekly Off' : ', plant open'
+              }`
               return (
                 <button
                   key={key}
@@ -254,8 +375,8 @@ export const PlantCalendarPage: React.FC = () => {
                     <>
                       <span className={`sm:hidden mt-auto mx-auto mb-0.5 h-1.5 w-1.5 rounded-full ${style.dot}`} aria-hidden />
                       <span className={`hidden sm:block mt-auto ${inMonth ? '' : 'opacity-60'}`}>
-                        <span className="block text-[11px] font-semibold text-ink leading-tight truncate">{style.label}</span>
-                        {closure!.reason && <span className="block text-[11px] text-ink-secondary leading-tight line-clamp-2 break-words">{closure!.reason}</span>}
+                        <span className="block text-[11px] font-semibold text-ink leading-tight line-clamp-2 break-words">{style.short}</span>
+                        {closure?.reason && <span className="block text-[11px] text-ink-secondary leading-tight line-clamp-2 break-words">{closure.reason}</span>}
                       </span>
                     </>
                   )}
@@ -271,6 +392,12 @@ export const PlantCalendarPage: React.FC = () => {
                 {CLOSURE_TYPES[t].label}
               </span>
             ))}
+            {(monthData.data ?? []).some((s) => s.source === 'WEEKLY') && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className={`w-2.5 h-2.5 rounded-full ${WEEKLY_OFF_STYLE.dot}`} aria-hidden />
+                Weekly Off
+              </span>
+            )}
             <span className="inline-flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-accent" aria-hidden />
               Today
@@ -290,6 +417,10 @@ export const PlantCalendarPage: React.FC = () => {
             date={selected}
             today={today}
             closure={selectedClosure}
+            weeklyOff={isWeeklyOff(selected)}
+            managedYear={managedByYear(selected) ? Number(selected.slice(0, 4)) : null}
+            yearStatus={managedByYear(selected) ? yearOf(selected) : null}
+            onOpenYear={() => onOpen('years', yearOf(selected)?.id ?? null)}
             loading={monthData.loading && !monthData.data}
             canEdit={canEdit}
             onMark={() => openNew(selected)}
@@ -297,15 +428,17 @@ export const PlantCalendarPage: React.FC = () => {
             onRemove={() => selectedClosure && setRemoving(selectedClosure)}
           />
 
+          <WeeklySummaryCard legacyDays={legacy.data?.weeklyOffDays ?? null} rules={rules.data?.rules ?? null} today={today} onOpenRules={() => onOpen('rules')} />
+
           <section className="bg-white border border-line rounded-lg shadow-2xs overflow-hidden">
             <div className="px-4 py-2.5 border-b border-line flex items-center justify-between">
-              <h2 className="text-sm font-bold text-ink">Upcoming closures</h2>
+              <h2 className="text-sm font-bold text-ink">Upcoming dates</h2>
               <span className="text-[11px] text-ink-muted">next 12 months</span>
             </div>
             {upcoming.error ? (
               <p className="px-4 py-4 text-xs text-failed">{upcoming.error}</p>
             ) : upcomingRanges.length === 0 ? (
-              <p className="px-4 py-5 text-xs text-ink-muted text-center">{upcoming.loading ? 'Loading…' : 'No closed days planned.'}</p>
+              <p className="px-4 py-5 text-xs text-ink-muted text-center">{upcoming.loading ? 'Loading…' : 'No holidays or working days planned.'}</p>
             ) : (
               <ul className="divide-y divide-line max-h-[340px] overflow-y-auto">
                 {upcomingRanges.map((r) => {
@@ -339,7 +472,7 @@ export const PlantCalendarPage: React.FC = () => {
 
           <section className="bg-slate-50 border border-line rounded-lg px-4 py-3">
             <h2 className="text-xs font-bold text-ink flex items-center gap-1.5">
-              <Info className="w-3.5 h-3.5 text-ink-muted" /> On a closed day
+              <Info className="w-3.5 h-3.5 text-ink-muted" /> On a closed day (weekly off, holiday, shutdown)
             </h2>
             <ul className="mt-2 space-y-1.5 text-[11px] text-ink-secondary">
               <li className="flex gap-2"><CalendarOff className="w-3.5 h-3.5 shrink-0 text-ink-muted" /> Scheduled checks are skipped</li>
@@ -347,6 +480,10 @@ export const PlantCalendarPage: React.FC = () => {
               <li className="flex gap-2"><ClipboardX className="w-3.5 h-3.5 shrink-0 text-ink-muted" /> Nothing is marked Missed</li>
               <li className="flex gap-2"><CalendarCheck2 className="w-3.5 h-3.5 shrink-0 text-ink-muted" /> Completed and Exception records are kept</li>
             </ul>
+            <p className="mt-2.5 pt-2.5 border-t border-line text-[11px] text-ink-secondary">
+              <span className="font-semibold text-sky-700">Adjustment working days</span> are normal working days: checks are scheduled, workers get alerts
+              and Missed checks count as usual.
+            </p>
           </section>
         </aside>
       </div>
@@ -366,9 +503,24 @@ export const PlantCalendarPage: React.FC = () => {
 
       <ConfirmModal
         isOpen={removing !== null}
-        title="Open the plant on this day?"
+        title={
+          removing && !isClosedType(removing.type)
+            ? 'Remove this adjustment working day?'
+            : removing && isWeeklyOff(removing.date)
+              ? 'Remove this calendar date?'
+              : 'Open the plant on this day?'
+        }
         message={
-          removing && (
+          removing && isWeeklyOff(removing.date) ? (
+            <>
+              <span className="font-semibold text-ink">{longDate(removing.date)}</span> is a weekly off, so without this entry the plant is{' '}
+              <span className="font-semibold text-ink">closed</span> on this date: its checks are removed and workers get no alerts.
+            </>
+          ) : removing && !isClosedType(removing.type) ? (
+            <>
+              <span className="font-semibold text-ink">{longDate(removing.date)}</span> is removed from the calendar. The plant keeps running normally on this date.
+            </>
+          ) : removing && (
             <>
               <span className="font-semibold text-ink">{longDate(removing.date)}</span> will no longer be a closed day. Its quality checks are scheduled again from
               the schedules and workers get alerts as usual.
@@ -376,7 +528,7 @@ export const PlantCalendarPage: React.FC = () => {
             </>
           )
         }
-        confirmLabel="Open the plant"
+        confirmLabel={removing && (!isClosedType(removing.type) || isWeeklyOff(removing.date)) ? 'Remove' : 'Open the plant'}
         danger
         onConfirm={remove}
         onClose={() => setRemoving(null)}
@@ -389,12 +541,18 @@ const SelectedDay: React.FC<{
   date: string
   today: string
   closure: PlantClosure | null
+  weeklyOff: boolean
+  /** 2027+: the date belongs to an annual calendar and is changed there. */
+  managedYear: number | null
+  yearStatus: CalendarYearSummary | null
+  onOpenYear: () => void
   loading: boolean
   canEdit: boolean
   onMark: () => void
   onEdit: () => void
   onRemove: () => void
-}> = ({ date, today, closure, loading, canEdit, onMark, onEdit, onRemove }) => {
+}> = ({ date, today, closure, weeklyOff, managedYear, yearStatus, onOpenYear, loading, canEdit, onMark, onEdit, onRemove }) => {
+  const weekday = WEEKDAY_NAMES[keyToDate(date).getDay()]
   const style = closure ? CLOSURE_TYPES[closure.type] : null
   const when = date === today ? 'Today' : date === addDaysKey(today, 1) ? 'Tomorrow' : date === addDaysKey(today, -1) ? 'Yesterday' : null
   return (
@@ -414,11 +572,21 @@ const SelectedDay: React.FC<{
               </span>
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-ink">{style.label}</div>
-                <div className="text-xs text-ink-secondary break-words">{closure.reason || <span className="text-ink-faint">No reason added</span>}</div>
+                {(closure.reason || isClosedType(closure.type)) && (
+                  <div className="text-xs text-ink-secondary break-words">{closure.reason || <span className="text-ink-faint">No reason added</span>}</div>
+                )}
               </div>
             </div>
-            <p className="text-[11px] text-ink-muted">No checks are scheduled and no alerts are sent on this day.</p>
-            {canEdit && (
+            <p className="text-[11px] text-ink-muted">
+              {isClosedType(closure.type)
+                ? 'No checks are scheduled and no alerts are sent on this day.'
+                : weeklyOff
+                  ? `Opens the plant on this ${weekday}, normally a weekly off: checks are scheduled and workers get alerts.`
+                  : 'The plant runs normally: checks are scheduled and workers get alerts.'}
+            </p>
+            {managedYear ? (
+              <YearLink year={managedYear} status={yearStatus} onOpen={onOpenYear} />
+            ) : canEdit && (
               <div className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={onEdit} icon={<Pencil className="w-3.5 h-3.5" />} className="flex-1">
                   Edit
@@ -429,19 +597,96 @@ const SelectedDay: React.FC<{
               </div>
             )}
           </div>
+        ) : weeklyOff ? (
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <span className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center ${WEEKLY_OFF_STYLE.chip}`} aria-hidden>
+                {WEEKLY_OFF_STYLE.icon}
+              </span>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-ink">Weekly Off · Plant closed</div>
+                <div className="text-xs text-ink-secondary">Every {weekday} is closed unless marked as an Adjustment Working Day.</div>
+              </div>
+            </div>
+            <p className="text-[11px] text-ink-muted">No checks are scheduled and no alerts are sent on this day.</p>
+            {managedYear ? (
+              <YearLink year={managedYear} status={yearStatus} onOpen={onOpenYear} />
+            ) : canEdit && (
+              <Button size="sm" variant="primary" onClick={onMark} icon={<BriefcaseBusiness className="w-3.5 h-3.5" />} className="w-full">
+                Mark as Adjustment Working Day
+              </Button>
+            )}
+          </div>
         ) : (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-xs text-ink-secondary">
               <span className="w-2 h-2 rounded-full bg-success" aria-hidden />
               Plant open · checks run as scheduled
             </div>
-            {canEdit && (
+            {managedYear ? (
+              <YearLink year={managedYear} status={yearStatus} onOpen={onOpenYear} />
+            ) : canEdit && (
               <Button size="sm" variant="primary" onClick={onMark} icon={<CalendarOff className="w-3.5 h-3.5" />} className="w-full">
-                Mark as closed
+                Add to calendar
               </Button>
             )}
           </div>
         )}
+      </div>
+    </section>
+  )
+}
+
+/** 2027+ dates are changed in their annual calendar, after review and approval. */
+const YearLink: React.FC<{ year: number; status: CalendarYearSummary | null; onOpen: () => void }> = ({ year, status, onOpen }) => (
+  <div className="space-y-2">
+    <p className="text-[11px] text-ink-muted">
+      {status
+        ? status.status === 'APPROVED'
+          ? `From the approved ${year} calendar. Change it there and approve again.`
+          : `The ${year} calendar is still a draft; its dates apply after approval.`
+        : `No ${year} calendar yet: only the weekly rules apply to this date.`}
+    </p>
+    <Button size="sm" variant="outline" onClick={onOpen} icon={<FileSpreadsheet className="w-3.5 h-3.5" />} className="w-full">
+      {status ? `Open ${year} calendar` : 'Annual calendars'}
+    </Button>
+  </div>
+)
+
+/** Weekly closures: the locked 2026 weekly off and the weekly rules from 2027. */
+const WeeklySummaryCard: React.FC<{ legacyDays: number[] | null; rules: WeeklyRule[] | null; today: string; onOpenRules: () => void }> = ({
+  legacyDays,
+  rules,
+  today,
+  onOpenRules
+}) => {
+  const current = (rules ?? []).filter((r) => !r.effectiveTo || r.effectiveTo >= (today > CALENDAR_V2_START ? today : CALENDAR_V2_START))
+  return (
+    <section className="bg-white border border-line rounded-lg shadow-2xs overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-line">
+        <h2 className="text-sm font-bold text-ink">Weekly off</h2>
+      </div>
+      <div className="px-4 py-3 space-y-2 text-xs">
+        <div className="flex justify-between gap-2">
+          <span className="text-ink-muted">Up to 2026</span>
+          <span className="text-right font-medium text-ink">
+            {legacyDays === null ? '…' : legacyDays.length ? legacyDays.map((d) => WEEKDAY_NAMES[d]).join(', ') : 'None'}
+            <span className="block text-[11px] font-normal text-ink-muted">Locked</span>
+          </span>
+        </div>
+        <div className="flex justify-between gap-2">
+          <span className="text-ink-muted">From 2027</span>
+          <span className="text-right font-medium text-ink">
+            {rules === null
+              ? '…'
+              : current.length
+                ? current.map((r) => `${WEEKDAY_NAMES[r.weekday]}${r.effectiveTo ? ` until ${r.effectiveTo}` : ''}`).join(', ')
+                : 'None'}
+          </span>
+        </div>
+        <Button size="sm" variant="outline" onClick={onOpenRules} icon={<CalendarRange className="w-3.5 h-3.5" />} className="w-full">
+          Weekly rules
+        </Button>
       </div>
     </section>
   )
@@ -462,21 +707,22 @@ const ClosureModal: React.FC<{
   const to = isNew && editor.multiDay ? editor.to : from
   const valid = !!from && !!to && to >= from
   const days = valid ? daysBetween(from, to) : 0
-  const includesPast = valid && from < today
-  const includesToday = valid && from <= today && to >= today
+  const closing = isClosedType(editor.type)
+  const includesPast = closing && valid && from < today
+  const includesToday = closing && valid && from <= today && to >= today
 
   return (
     <Modal
       isOpen
       onClose={onClose}
-      title={isNew ? 'Mark plant closed' : 'Edit closed day'}
-      subtitle={isNew ? 'Checks and alerts are skipped on these dates' : longDate(editor.closure.date)}
+      title={isNew ? 'Add to plant calendar' : 'Edit calendar date'}
+      subtitle={isNew ? 'Holidays and closed days skip checks and alerts; working days run as normal' : longDate(editor.closure.date)}
       maxWidth="lg"
       footer={
         <div className="flex w-full flex-col-reverse sm:flex-row sm:items-center gap-2">
           {!isNew && (
             <Button type="button" variant="ghost" onClick={onRemove} icon={<Trash2 className="w-3.5 h-3.5" />} className="text-failed hover:text-failed sm:mr-auto">
-              Remove closed day
+              Remove from calendar
             </Button>
           )}
           <div className="flex gap-2 sm:ml-auto">
@@ -484,7 +730,11 @@ const ClosureModal: React.FC<{
               Cancel
             </Button>
             <Button type="submit" form="closure-form" variant="primary" loading={saving} disabled={!valid} className="flex-1 sm:flex-none">
-              {isNew ? (days > 1 ? `Mark ${days} days closed` : 'Mark closed') : 'Save changes'}
+              {isNew
+                ? closing
+                  ? days > 1 ? `Mark ${days} days closed` : 'Mark closed'
+                  : days > 1 ? `Mark ${days} working days` : 'Mark working day'
+                : 'Save changes'}
             </Button>
           </div>
         </div>
@@ -493,8 +743,12 @@ const ClosureModal: React.FC<{
       <form id="closure-form" onSubmit={onSubmit} className="space-y-4">
         <FormError message={error} />
 
-        <Field label="Type" required>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="Type">
+        {/* A fieldset, not a <label>: a label would give its name to the first option. */}
+        <fieldset>
+          <legend className="block text-[13px] lg:text-xs font-semibold text-slate-700 mb-1">
+            Type<span className="text-failed"> *</span>
+          </legend>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="radiogroup" aria-label="Type">
             {TYPE_ORDER.map((t) => {
               const style = CLOSURE_TYPES[t]
               const active = editor.type === t
@@ -520,7 +774,7 @@ const ClosureModal: React.FC<{
               )
             })}
           </div>
-        </Field>
+        </fieldset>
 
         {isNew ? (
           <>
@@ -529,13 +783,14 @@ const ClosureModal: React.FC<{
                 <TextInput
                   type="date"
                   value={editor.from}
+                  max={LAST_LEGACY_DATE}
                   onChange={(e) => onChange({ ...editor, from: e.target.value, to: editor.to < e.target.value ? e.target.value : editor.to })}
                   required
                 />
               </Field>
               {editor.multiDay && (
                 <Field label="To date" required error={editor.to && editor.to < editor.from ? 'Must be on or after the From date' : null}>
-                  <TextInput type="date" value={editor.to} min={editor.from} onChange={(e) => onChange({ ...editor, to: e.target.value })} required />
+                  <TextInput type="date" value={editor.to} min={editor.from} max={LAST_LEGACY_DATE} onChange={(e) => onChange({ ...editor, to: e.target.value })} required />
                 </Field>
               )}
             </div>
@@ -547,8 +802,8 @@ const ClosureModal: React.FC<{
             />
           </>
         ) : (
-          <Field label="Date" required hint="Moving a closed day opens the plant again on the old date">
-            <TextInput type="date" value={editor.date} onChange={(e) => onChange({ ...editor, date: e.target.value })} required />
+          <Field label="Date" required hint="Moving a date clears the old date from the calendar">
+            <TextInput type="date" value={editor.date} max={LAST_LEGACY_DATE} onChange={(e) => onChange({ ...editor, date: e.target.value })} required />
           </Field>
         )}
 
@@ -556,7 +811,15 @@ const ClosureModal: React.FC<{
           <TextInput
             value={editor.reason}
             maxLength={200}
-            placeholder={editor.type === 'HOLIDAY' ? 'e.g. Diwali' : editor.type === 'SHUTDOWN' ? 'e.g. Annual maintenance' : 'e.g. Sunday weekly off'}
+            placeholder={
+              editor.type === 'HOLIDAY'
+                ? 'e.g. Diwali'
+                : editor.type === 'SHUTDOWN'
+                  ? 'e.g. Annual maintenance'
+                  : editor.type === 'WORKING'
+                    ? 'e.g. Adjustment working day'
+                    : 'e.g. Sunday weekly off'
+            }
             onChange={(e) => onChange({ ...editor, reason: e.target.value })}
           />
         </Field>

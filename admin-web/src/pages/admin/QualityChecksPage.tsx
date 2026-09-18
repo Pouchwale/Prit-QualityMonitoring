@@ -32,9 +32,25 @@ const reading = (v: QualityCheck['values'][number]) => `${v.parameterName}=${v.v
 
 // Readings and their within/outside-limits result are separate recorded data, not the check Result.
 const valueText = (c: QualityCheck) =>
-  c.values.map((v) => `${reading(v)} (${v.result === 'PASS' ? 'within limits' : v.result === 'FAIL' ? 'outside limits' : 'no limit'})`).join('; ')
+  c.values
+    .map((v) =>
+      v.notApplicable
+        ? `${v.parameterName}=not applicable (${v.naReason ?? 'no reason'})`
+        : `${reading(v)} (${v.result === 'PASS' ? 'within limits' : v.result === 'FAIL' ? 'outside limits' : 'no limit'})`
+    )
+    .join('; ')
 
 const outsideLimitsText = (c: QualityCheck) => c.values.filter((v) => v.result === 'FAIL').map(reading).join('; ')
+
+/** Parameters the worker marked Not Applicable, e.g. "Viscosity: Machine stopped". */
+const notApplicableText = (c: QualityCheck) =>
+  c.values
+    .filter((v) => v.notApplicable)
+    .map((v) => `${v.parameterName}: ${v.naReason ?? 'no reason'}${v.naRemark ? ` (${v.naRemark})` : ''}`)
+    .join('; ')
+
+/** How the check was started: by the worker, or from the due notification. */
+const SUBMISSION_LABEL = { MANUAL: 'Manual', NOTIFICATION: 'Notification' } as const
 
 export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void }> = ({ onViewCheck }) => {
   const [filters, setFilters] = useState<MonitoringFilters>(defaultFilters)
@@ -64,7 +80,8 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void }> 
   const exportCsv = () => {
     downloadCsv(
       `quality-checks_${filters.from}_${filters.to}${filters.status ? `_${filters.status.toLowerCase()}` : ''}.csv`,
-      ['Scheduled at', 'Check code', 'Machine', 'Machine code', 'Department', 'Check type', 'Worker', 'Employee ID', 'Shift', 'Status', 'Result', 'Job No.', 'Submitted at', 'Parameters', 'Parameters outside limits', 'Exception reason', 'Evidence URLs'],
+      // prettier-ignore
+      ['Scheduled at', 'Check code', 'Machine', 'Machine code', 'Department', 'Check type', 'Worker', 'Employee ID', 'Shift', 'Status', 'Result', 'Submission type', 'Item Code', 'Job No.', 'Submitted at', 'Parameters', 'Parameters outside limits', 'N/A parameters', 'Exception reason', 'Evidence URLs'],
       rows.map((c) => [
         formatDateTime(c.scheduledAt),
         c.code,
@@ -77,10 +94,13 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void }> 
         c.shiftName,
         checkStatusLabel(c.status),
         c.result ? RESULT_LABEL[c.result] : '',
+        c.submissionType ? SUBMISSION_LABEL[c.submissionType] : '',
+        c.itemCode,
         c.jobNo,
         c.submittedAt ? formatDateTime(c.submittedAt) : '',
         valueText(c),
         outsideLimitsText(c),
+        notApplicableText(c),
         c.exception?.reason,
         c.media.map((m) => mediaUrl(m.url)).join(' ')
       ])
@@ -171,6 +191,7 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void }> 
                   <th className="py-2.5 px-3 font-semibold">Shift</th>
                   <th className="py-2.5 px-3 font-semibold">Status</th>
                   <th className="py-2.5 px-3 font-semibold" title={RESULT_HINT}>Result</th>
+                  <th className="py-2.5 px-3 font-semibold">Item Code</th>
                   <th className="py-2.5 px-3 font-semibold">Job No.</th>
                   <th className="py-2.5 px-3 font-semibold">Evidence</th>
                   <th className="py-2.5 px-3 font-semibold">Submitted</th>
@@ -202,6 +223,7 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void }> 
                     <td className="py-2 px-3 whitespace-nowrap">
                       {c.result ? <StatusBadge status={c.result} size="sm" showDot={false} /> : <span className="text-ink-faint">—</span>}
                     </td>
+                    <td className="py-2 px-3 font-mono text-ink whitespace-nowrap">{c.itemCode ?? <span className="text-ink-faint">—</span>}</td>
                     <td className="py-2 px-3 font-mono text-ink whitespace-nowrap">{c.jobNo ?? <span className="text-ink-faint">—</span>}</td>
                     <td className="py-2 px-3 whitespace-nowrap">
                       {c.media.length > 0 ? <EvidenceViewer media={c.media} compact /> : <span className="text-ink-faint">—</span>}

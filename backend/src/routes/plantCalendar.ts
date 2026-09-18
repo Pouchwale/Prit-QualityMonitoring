@@ -9,7 +9,8 @@ import { audit, snapshot } from '../lib/audit'
 import { requireAnyView, requireModule } from '../lib/permissions'
 import { addDays, dateKey, parseDateKey } from '../lib/time'
 import { invalidateCheckGeneration } from '../services/checkGenerator'
-import { CLOSURE_LABEL, listClosures, removeChecksOnClosedDays } from '../services/plantCalendar'
+import { CALENDAR_V2_START } from '../services/weeklyRules'
+import { CLOSURE_LABEL, dayStates, isClosedType, listClosures, removeChecksIfClosed, weeklyOffDays } from '../services/plantCalendar'
 
 export const plantCalendarRouter = Router()
 
@@ -25,7 +26,7 @@ const dateString = (label: string) =>
     }
   }, `${label} must be a valid date`)
 
-const closureType = z.enum(['CLOSED', 'HOLIDAY', 'SHUTDOWN'], 'Choose Plant Closed, Holiday or Shutdown')
+const closureType = z.enum(['CLOSED', 'HOLIDAY', 'SHUTDOWN', 'WORKING'], 'Choose Plant Closed, Holiday, Shutdown or Adjustment Working Day')
 
 /** Every date from `from` to `to`, inclusive. */
 function datesBetween(from: string, to: string) {
@@ -34,6 +35,17 @@ function datesBetween(from: string, to: string) {
   return keys
 }
 
+/** Dates from 2027 belong to an annual calendar and change only through its review and approval. */
+const MANAGED_BY_YEAR = `Dates from ${CALENDAR_V2_START.slice(0, 4)} onwards are managed in Annual Calendars, where changes are reviewed and approved.`
+
+/** Whether the plant is open on each date, and why (entry, weekly closure or open), for the admin calendar. */
+plantCalendarRouter.get('/days', requireAnyView('calendar', 'dashboard', 'schedules'), async (req, res) => {
+  const q = z.object({ from: dateString('From date'), to: dateString('To date') }).parse(req.query)
+  if (q.to < q.from) throw badRequest('"to" date must be on or after "from" date')
+  if (datesBetween(q.from, q.to).length > 800) throw badRequest('Choose a shorter date range')
+  res.json(await dayStates(parseDateKey(q.from), parseDateKey(q.to)))
+})
+
 plantCalendarRouter.get('/', requireAnyView('calendar', 'dashboard', 'schedules'), async (req, res) => {
   const q = z.object({ from: dateString('From date'), to: dateString('To date') }).parse(req.query)
   if (q.to < q.from) throw badRequest('"to" date must be on or after "from" date')
@@ -41,7 +53,19 @@ plantCalendarRouter.get('/', requireAnyView('calendar', 'dashboard', 'schedules'
   res.json(await listClosures(q.from, q.to))
 })
 
-/** Marks one date, or every date in a range, as closed. Dates already marked are updated. */
+/**
+ * The weekly off that applies before 2027 (Thursday). It is locked, so 2026 check statuses,
+ * Missed counts and reports stay exactly as they are; from 2027 the weekly rules apply.
+ */
+plantCalendarRouter.get('/settings', requireAnyView('calendar', 'dashboard', 'schedules'), async (_req, res) => {
+  res.json({ weeklyOffDays: await weeklyOffDays(), appliesUntil: '2026-12-31', locked: true })
+})
+
+plantCalendarRouter.put('/settings', requireModule('calendar', 'manage'), async () => {
+  throw conflict('The weekly off up to 31 Dec 2026 is locked to keep 2026 records unchanged. From 2027, change the Weekly Rules instead.')
+})
+
+/** Marks one date, or every date in a range, as closed or as an adjustment working day. Dates already marked are updated. */
 plantCalendarRouter.post('/', requireModule('calendar', 'manage'), async (req, res) => {
   const body = z
     .object({
@@ -53,6 +77,7 @@ plantCalendarRouter.post('/', requireModule('calendar', 'manage'), async (req, r
     .parse(req.body)
   const to = body.to ?? body.from
   if (to < body.from) throw badRequest('End date must be on or after the start date')
+  if (to >= CALENDAR_V2_START) throw conflict(MANAGED_BY_YEAR)
   const keys = datesBetween(body.from, to)
   if (keys.length > MAX_DAYS) throw badRequest(`Mark at most ${MAX_DAYS} days at a time`)
 
@@ -75,28 +100,30 @@ plantCalendarRouter.post('/', requireModule('calendar', 'manage'), async (req, r
     }
   })
 
-  const removedChecks = await removeChecksOnClosedDays(keys)
+  // An Adjustment Working Day opens the date even on a weekly off; checks come back from the schedules.
+  const removedChecks = await removeChecksIfClosed(keys)
   invalidateCheckGeneration()
-  await audit(req, 'MARK_PLANT_CLOSED', 'PlantCalendar', keys.length === 1 ? keys[0] : `${keys[0]} – ${keys[keys.length - 1]}`, {
+  await audit(req, isClosedType(body.type) ? 'MARK_PLANT_CLOSED' : 'MARK_WORKING_DAY', 'PlantCalendar', keys.length === 1 ? keys[0] : `${keys[0]} – ${keys[keys.length - 1]}`, {
     oldValue: existing.length ? existing.map((r) => ({ date: r.date, type: CLOSURE_LABEL[r.type], reason: r.reason })) : undefined,
     newValue: { from: body.from, to, days: keys.length, type: CLOSURE_LABEL[body.type], reason: body.reason, removedChecks }
   })
   res.status(201).json({ dates: keys, created: keys.length - existing.length, updated: existing.length, removedChecks })
 })
 
-/** Edits a closed date: its type, reason or the date itself. */
+/** Edits a calendar date: its type, reason or the date itself. */
 plantCalendarRouter.put('/:id', requireModule('calendar', 'manage'), async (req, res) => {
   const id = idParam(req)
   const body = z.object({ date: dateString('Date'), type: closureType, reason: optionalText(200) }).parse(req.body)
   const [before] = await db.select().from(plantClosures).where(eq(plantClosures.id, id))
-  if (!before) throw notFound('Closed date')
+  if (before && (before.date >= CALENDAR_V2_START || body.date >= CALENDAR_V2_START)) throw conflict(MANAGED_BY_YEAR)
+  if (!before) throw notFound('Calendar date')
 
   if (body.date !== before.date) {
     const [clash] = await db
       .select({ id: plantClosures.id })
       .from(plantClosures)
       .where(and(eq(plantClosures.date, body.date), ne(plantClosures.id, id)))
-    if (clash) throw conflict(`${body.date} is already marked as closed. Edit that date instead.`)
+    if (clash) throw conflict(`${body.date} is already in the Plant Calendar. Edit that date instead.`)
   }
 
   const [row] = await db
@@ -105,8 +132,8 @@ plantCalendarRouter.put('/:id', requireModule('calendar', 'manage'), async (req,
     .where(eq(plantClosures.id, id))
     .returning()
 
-  const removedChecks = await removeChecksOnClosedDays([row.date])
-  // Moving a closure reopens the old date: its checks are generated again from the schedules.
+  // Both dates are checked: moving an Adjustment Working Day off a weekly off closes the old date again.
+  const removedChecks = await removeChecksIfClosed([before.date, row.date])
   invalidateCheckGeneration()
   await audit(req, 'UPDATE_PLANT_CLOSURE', 'PlantCalendar', row.date, {
     oldValue: snapshot({ ...before, type: CLOSURE_LABEL[before.type] }),
@@ -115,14 +142,21 @@ plantCalendarRouter.put('/:id', requireModule('calendar', 'manage'), async (req,
   res.json({ ...row, removedChecks })
 })
 
-/** Reopens a date. Its checks are generated again from the schedules. */
+/**
+ * Removes a calendar entry; the date follows the weekly off again. A removed closure reopens an
+ * ordinary day, and a removed Adjustment Working Day on a weekly off closes that date again.
+ */
 plantCalendarRouter.delete('/:id', requireModule('calendar', 'manage'), async (req, res) => {
   const id = idParam(req)
+  const [existing] = await db.select({ date: plantClosures.date }).from(plantClosures).where(eq(plantClosures.id, id))
+  if (existing && existing.date >= CALENDAR_V2_START) throw conflict(MANAGED_BY_YEAR)
   const [row] = await db.delete(plantClosures).where(eq(plantClosures.id, id)).returning()
-  if (!row) throw notFound('Closed date')
+  if (!row) throw notFound('Calendar date')
   invalidateCheckGeneration()
+  const removedChecks = await removeChecksIfClosed([row.date])
   await audit(req, 'REMOVE_PLANT_CLOSURE', 'PlantCalendar', row.date, {
-    oldValue: snapshot({ ...row, type: CLOSURE_LABEL[row.type] })
+    oldValue: snapshot({ ...row, type: CLOSURE_LABEL[row.type] }),
+    newValue: removedChecks ? { removedChecks } : undefined
   })
-  res.json({ result: 'deleted' })
+  res.json({ result: 'deleted', removedChecks })
 })

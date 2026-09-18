@@ -1,14 +1,19 @@
 import Constants from 'expo-constants'
 import { Platform } from 'react-native'
 import {
+  AssignedMachine,
   Capture,
   CheckForm,
   CheckRecord,
   CheckSummary,
+  EvidenceUpload,
   HistoryFilterOptions,
   HistoryPage,
   HistoryQuery,
-  Profile
+  Job,
+  Profile,
+  SubmitResult,
+  SubmitValue
 } from '../types'
 import { tokenStorage } from './storage'
 
@@ -172,7 +177,8 @@ export async function login(employeeId: string, password: string): Promise<Profi
   const res = await send('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ employeeId, password, app: 'worker' })
+    // One app for every role: the backend decides what this account may use.
+    body: JSON.stringify({ employeeId, password, app: 'mobile' })
   })
   if (!res.ok) throw new ApiError(res.status, await readError(res))
   const data = await res.json()
@@ -180,13 +186,14 @@ export async function login(employeeId: string, password: string): Promise<Profi
   return data.user
 }
 
-/** Restores a saved session. Returns null when the worker needs to sign in. */
+/** Restores a saved session. Returns null when the user needs to sign in. */
 export async function restoreSession(): Promise<Profile | null> {
   accessToken = await tokenStorage.get(ACCESS_KEY)
   refreshToken = await tokenStorage.get(REFRESH_KEY)
   if (!accessToken && !refreshToken) return null
   try {
-    return await request<Profile>('GET', '/api/worker/profile')
+    // Works for every role and includes the module permissions.
+    return await request<Profile>('GET', '/api/auth/me')
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) return null
     throw err
@@ -201,6 +208,74 @@ export async function logout() {
   }
   await clearTokens()
 }
+
+/** Super Admin only (the backend refuses everyone else): changes the password and keeps this device signed in. */
+export async function changePassword(currentPassword: string, newPassword: string) {
+  const tokens = await request<{ accessToken: string; refreshToken: string }>('POST', '/api/auth/change-password', { currentPassword, newPassword })
+  await saveTokens(tokens)
+}
+
+/** The signed-in user's latest profile and permissions (an Admin may have changed them). */
+export const getMe = () => request<Profile>('GET', '/api/auth/me')
+
+// ---- Generic API (admin and manager screens) ----
+
+export type Query = Record<string, string | number | boolean | null | undefined>
+
+export function withQuery(path: string, query?: Query) {
+  if (!query) return path
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value))
+  }
+  const qs = params.toString()
+  return qs ? `${path}${path.includes('?') ? '&' : '?'}${qs}` : path
+}
+
+/** The same endpoints as the web admin panel; the backend enforces every permission. */
+export const api = {
+  get: <T>(path: string, query?: Query) => request<T>('GET', withQuery(path, query)),
+  post: <T>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
+  put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body ?? {}),
+  patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body ?? {}),
+  del: <T = { result: string }>(path: string) => request<T>('DELETE', path)
+}
+
+/** A file picked on the device (document picker), for multipart uploads. */
+export interface PickedFile {
+  uri: string
+  name: string
+  mimeType?: string | null
+  /** Web: the browser File. */
+  file?: Blob | null
+}
+
+export function uploadFile<T>(path: string, field: string, file: PickedFile, onProgress?: UploadProgress) {
+  return upload<T>(
+    path,
+    () => {
+      const form = new FormData()
+      if (file.file) form.append(field, file.file, file.name)
+      else form.append(field, { uri: file.uri, name: file.name, type: file.mimeType || 'application/octet-stream' } as unknown as Blob)
+      return form
+    },
+    onProgress
+  )
+}
+
+/** A fresh access token for authenticated downloads (refreshed first if it expired). */
+export async function authHeaders(path = '/api/auth/me'): Promise<Record<string, string>> {
+  if (accessToken) {
+    const probe = await send(path === '/api/auth/me' ? path : '/api/auth/me', { headers: { Authorization: `Bearer ${accessToken}` } })
+    if (probe.status !== 401) return { Authorization: `Bearer ${accessToken}` }
+  }
+  if (await tryRefresh()) return { Authorization: `Bearer ${accessToken}` }
+  await clearTokens()
+  sessionExpiredHandler?.()
+  throw new ApiError(401, 'Session expired. Please sign in again.')
+}
+
+export { readError }
 
 // ---- Worker ----
 
@@ -229,8 +304,25 @@ export function getHistory(query: HistoryQuery = {}) {
 
 export const getHistoryFilters = () => request<HistoryFilterOptions>('GET', '/api/worker/history/filters')
 
-/** Machines the admin has assigned to this worker. */
-export const getMyMachines = () => request<{ id: string; name: string; code: string }[]>('GET', '/api/worker/machines')
+/**
+ * Machines the admin has assigned to this worker, each with its running job and, per check
+ * type, the mode, the open check and when the next check is due.
+ */
+export const getMyMachines = () => request<AssignedMachine[]>('GET', '/api/worker/machines')
+
+/**
+ * Starts a check on the machine without waiting for an alert. The schedule's open check is
+ * reused when there is one, so a machine never ends up with two open checks of the same type.
+ */
+export const startManualCheck = (machineId: string, activityId: string) =>
+  request<CheckSummary & { created: boolean }>('POST', `/api/worker/machines/${machineId}/checks`, { activityId })
+
+/** Starts a job on the machine: job-based checks become due and record this job number. */
+export const startJob = (machineId: string, jobNo: string, itemCode = '') =>
+  request<Job>('POST', `/api/worker/machines/${machineId}/jobs`, { itemCode, jobNo })
+
+/** Ends the running job. Job-based checks nobody was told about disappear with it. */
+export const endJob = (jobId: string) => request<Job>('POST', `/api/worker/jobs/${jobId}/end`)
 
 export const registerPushToken = (token: string, platform: string) =>
   request<void>('PUT', '/api/worker/push-token', { token, platform })
@@ -264,40 +356,67 @@ const deviceInfo = () =>
     ? `web · ${typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 160) : 'browser'}`
     : `${Platform.OS} ${Platform.Version} · ${Constants.deviceName ?? 'unknown device'}`
 
-function appendFile(form: FormData, field: 'photo' | 'video', capture: Capture) {
+/**
+ * Adds one capture as the multipart field the backend expects: `photo` / `video` for the
+ * overall check evidence, `photo:<parameterId>` / `video:<parameterId>` per parameter.
+ */
+function appendFile(form: FormData, field: string, capture: Capture) {
+  const isPhoto = !field.startsWith('video')
+  const name = isPhoto ? 'photo' : 'video'
   // Web app: the browser captured a real file.
   if (capture.blob) {
-    const type = capture.mimeType || capture.blob.type || (field === 'photo' ? 'image/jpeg' : 'video/webm')
+    const type = capture.mimeType || capture.blob.type || (isPhoto ? 'image/jpeg' : 'video/webm')
     const ext = type.includes('png') ? 'png' : type.includes('jpeg') ? 'jpg' : type.includes('mp4') ? 'mp4' : type.includes('quicktime') ? 'mov' : type.split('/')[1]?.split(';')[0] || 'bin'
-    form.append(`${field}CapturedAt`, capture.capturedAt)
-    form.append(field, capture.blob, `${field}.${ext}`)
+    form.append(field, capture.blob, `${name}.${ext}`)
     return
   }
   const last = capture.uri.split('?')[0].split('/').pop() ?? ''
-  const ext = last.includes('.') ? last.split('.').pop()!.toLowerCase() : field === 'photo' ? 'jpg' : 'mp4'
-  const type =
-    field === 'photo' ? (ext === 'png' ? 'image/png' : 'image/jpeg') : ext === 'mov' ? 'video/quicktime' : 'video/mp4'
-  // Text fields go before the file so the server has them even if the upload is cut short.
-  form.append(`${field}CapturedAt`, capture.capturedAt)
+  const ext = last.includes('.') ? last.split('.').pop()!.toLowerCase() : isPhoto ? 'jpg' : 'mp4'
+  const type = isPhoto ? (ext === 'png' ? 'image/png' : 'image/jpeg') : ext === 'mov' ? 'video/quicktime' : 'video/mp4'
   // React Native's XMLHttpRequest sends { uri, name, type } parts as files.
-  form.append(field, { uri: capture.uri, name: `${field}.${ext}`, type } as unknown as Blob)
+  form.append(field, { uri: capture.uri, name: `${name}.${ext}`, type } as unknown as Blob)
 }
 
-export function submitCheck(
-  checkId: string,
-  data: { jobNo: string; values: { parameterId: string; value: string }[]; photo: Capture | null; video: Capture | null },
-  onProgress?: UploadProgress
-) {
-  return upload<CheckSummary>(
+export interface CheckSubmission {
+  itemCode: string
+  jobNo: string
+  /** Readings, and the parameters marked Not Applicable with their reason. */
+  values: SubmitValue[]
+  /** Every photo and video, per parameter and overall (see EvidenceUpload). */
+  media: EvidenceUpload[]
+}
+
+export function submitCheck(checkId: string, data: CheckSubmission, onProgress?: UploadProgress) {
+  return upload<SubmitResult>(
     `/api/worker/checks/${checkId}/submit`,
     () => {
       const form = new FormData()
+      // Text fields go first, so the server has them even if the upload is cut short.
+      form.append('itemCode', data.itemCode)
       form.append('jobNo', data.jobNo)
       form.append('values', JSON.stringify(data.values))
+      form.append(
+        'evidence',
+        JSON.stringify(
+          data.media.map((m) => ({
+            field: m.field,
+            capturedAt: m.capture.capturedAt,
+            ...(m.capture.durationSeconds != null ? { durationSeconds: m.capture.durationSeconds } : {})
+          }))
+        )
+      )
       form.append('deviceInfo', deviceInfo())
-      if (data.video?.durationSeconds != null) form.append('videoDurationSeconds', String(data.video.durationSeconds))
-      if (data.photo) appendFile(form, 'photo', data.photo)
-      if (data.video) appendFile(form, 'video', data.video)
+      // Legacy fields for the overall check photo/video, still read by older servers.
+      const overallPhoto = data.media.find((m) => m.field === 'photo')
+      const overallVideo = data.media.find((m) => m.field === 'video')
+      if (overallPhoto) form.append('photoCapturedAt', overallPhoto.capture.capturedAt)
+      if (overallVideo) {
+        form.append('videoCapturedAt', overallVideo.capture.capturedAt)
+        if (overallVideo.capture.durationSeconds != null) {
+          form.append('videoDurationSeconds', String(overallVideo.capture.durationSeconds))
+        }
+      }
+      for (const m of data.media) appendFile(form, m.field, m.capture)
       return form
     },
     onProgress
@@ -316,6 +435,7 @@ export function submitException(
       form.append('reason', data.reason)
       form.append('remark', data.remark)
       form.append('deviceInfo', deviceInfo())
+      form.append('photoCapturedAt', data.photo.capturedAt)
       appendFile(form, 'photo', data.photo)
       return form
     },

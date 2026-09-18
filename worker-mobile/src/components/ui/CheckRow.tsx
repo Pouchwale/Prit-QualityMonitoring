@@ -3,6 +3,7 @@ import { View, Text, Pressable } from 'react-native'
 import { CheckSummary } from '../../types'
 import { formatTime } from '../../utils/format'
 import { StatusLabel, hasStatusLabel } from './StatusLabel'
+import { Icon } from './Icon'
 
 interface Props {
   check: CheckSummary
@@ -11,30 +12,28 @@ interface Props {
   detail?: string
 }
 
+/** One check in a grouped list: check type and status, time on the right. */
 export const CheckRow: React.FC<Props> = ({ check, onPress, detail }) => {
-  const [clock, period] = formatTime(check.scheduledAt).split(' ')
+  const time = formatTime(check.submittedAt ?? check.scheduledAt)
 
   const content = (
-    <View className="min-h-[72px] flex-row items-center px-4 py-3.5">
-      <View className="w-[68px]">
-        <Text className={`text-[17px] font-semibold ${check.status === 'DUE' ? 'text-accent' : 'text-ink'}`}>{clock}</Text>
-        {period ? <Text className="text-[13px] text-ink-muted">{period}</Text> : null}
-      </View>
-
+    <View className="min-h-[60px] flex-row items-center px-4 py-3">
       <View className="flex-1">
-        <Text className="text-[17px] font-semibold text-ink" numberOfLines={1}>
-          {check.machineName}
+        <Text className="text-[16px] text-ink" numberOfLines={1}>
+          {detail ?? check.activityName}
         </Text>
-        <View className="mt-1 flex-row items-center">
-          <StatusLabel status={check.status} />
-          {hasStatusLabel(check.status) ? <Text className="mx-1.5 text-[14px] text-ink-faint">·</Text> : null}
-          <Text className="flex-1 text-[14px] text-ink-muted" numberOfLines={1}>
-            {detail ?? check.activityName}
-          </Text>
-        </View>
+        {hasStatusLabel(check.status) ? (
+          <View className="mt-0.5">
+            <StatusLabel status={check.status} />
+          </View>
+        ) : null}
       </View>
-
-      {onPress ? <Text className="ml-2 text-[24px] text-ink-faint">›</Text> : null}
+      <Text className="ml-3 text-[15px] text-ink-muted">{time}</Text>
+      {onPress ? (
+        <View className="ml-2">
+          <Icon name="chevron-forward" size={18} color="faint" />
+        </View>
+      ) : null}
     </View>
   )
 

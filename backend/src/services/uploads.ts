@@ -12,6 +12,41 @@ import { MINUTE } from '../lib/time'
 import { storage } from '../storage'
 import type { StorageCategory } from '../storage/StorageService'
 
+const UUID = '[0-9a-fA-F-]{36}'
+const FIELD_REGEX = new RegExp(`^(photo|video)(:${UUID})?$`)
+
+/** The parameter a `photo:<parameterId>` / `video:<parameterId>` field belongs to, or null. */
+export function fieldParameterId(field: string): string | null {
+  const match = FIELD_REGEX.exec(field)
+  return match?.[2] ? match[2].slice(1) : null
+}
+
+export const fieldKind = (field: string): 'PHOTO' | 'VIDEO' => (field.startsWith('video') ? 'VIDEO' : 'PHOTO')
+
+/**
+ * Evidence for a check: the overall `photo` / `video` fields plus one `photo:<parameterId>` and
+ * `video:<parameterId>` per parameter that needs it. `maxFiles` is 2 x parameters + 2.
+ */
+export function checkEvidenceUpload(maxFiles: number) {
+  const seen = new WeakMap<object, Set<string>>()
+  return multer({
+    dest: path.join(config.uploadDir, '.tmp'),
+    limits: { fileSize: config.maxVideoBytes, files: Math.max(2, maxFiles) },
+    fileFilter: (req, file, cb) => {
+      const match = FIELD_REGEX.exec(file.fieldname)
+      if (!match) return cb(new HttpError(400, `Unexpected file "${file.fieldname}"`))
+      const kind = fieldKind(file.fieldname)
+      const expected = kind === 'PHOTO' ? 'image/' : 'video/'
+      if (!file.mimetype.startsWith(expected)) return cb(new HttpError(400, `Unsupported file for "${file.fieldname}"`))
+      const fields = seen.get(req) ?? new Set<string>()
+      if (fields.has(file.fieldname)) return cb(new HttpError(400, `Only one file for "${file.fieldname}"`))
+      fields.add(file.fieldname)
+      seen.set(req, fields)
+      cb(null, true)
+    }
+  }).any()
+}
+
 /** Accepts one `photo` (image/*) and one `video` (video/*) field. */
 export const evidenceUpload = multer({
   dest: path.join(config.uploadDir, '.tmp'),
@@ -26,7 +61,20 @@ export const evidenceUpload = multer({
   { name: 'video', maxCount: 1 }
 ])
 
-export type UploadedFiles = Partial<Record<'photo' | 'video', Express.Multer.File[]>>
+export type UploadedFiles = Partial<Record<'photo' | 'video', Express.Multer.File[]>> | Express.Multer.File[]
+
+/** Uploaded files by field name, for both `.fields()` and `.any()` uploads. */
+export function filesByField(files: UploadedFiles | undefined): Map<string, Express.Multer.File> {
+  const map = new Map<string, Express.Multer.File>()
+  for (const file of allFiles(files)) map.set(file.fieldname, file)
+  return map
+}
+
+function allFiles(files: UploadedFiles | undefined): Express.Multer.File[] {
+  if (!files) return []
+  if (Array.isArray(files)) return files
+  return [...(files.photo ?? []), ...(files.video ?? [])]
+}
 
 function sha256(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -58,10 +106,15 @@ export interface EvidenceInput {
   kind: 'PHOTO' | 'VIDEO'
   capturedAt: unknown
   durationSeconds?: number
+  /** The parameter this file belongs to; null for the overall check photo/video. */
+  parameterId?: string | null
+  /** Name shown in error messages, e.g. the parameter name. */
+  label?: string
 }
 
 export interface StoredEvidence {
   kind: 'PHOTO' | 'VIDEO'
+  parameterId: string | null
   path: string
   mimeType: string
   sizeBytes: number
@@ -77,7 +130,7 @@ const extensionFor = (file: Express.Multer.File) =>
 export async function storeEvidence(items: EvidenceInput[], category: StorageCategory): Promise<StoredEvidence[]> {
   const prepared = await Promise.all(
     items.map(async (item) => {
-      const label = item.kind === 'PHOTO' ? 'Photo' : 'Video'
+      const label = item.label ?? (item.kind === 'PHOTO' ? 'Photo' : 'Video')
       if (item.kind === 'PHOTO' && item.file.size > config.maxPhotoBytes) throw badRequest('Photo is too large')
       if (item.file.size === 0) throw badRequest(`${label} is empty. Please try again.`)
       if (item.kind === 'VIDEO' && item.durationSeconds != null && item.durationSeconds > config.maxVideoSeconds + 2) {
@@ -93,6 +146,12 @@ export async function storeEvidence(items: EvidenceInput[], category: StorageCat
   )
 
   if (prepared.length) {
+    // The same file sent twice in one submission is a reuse as well.
+    const hashes = new Set<string>()
+    for (const p of prepared) {
+      if (hashes.has(p.hash)) throw conflict(`${p.label} was already used. Please take a new one.`)
+      hashes.add(p.hash)
+    }
     const reused = await db
       .select({ kind: media.kind })
       .from(media)
@@ -108,6 +167,7 @@ export async function storeEvidence(items: EvidenceInput[], category: StorageCat
       const saved = await storage.save(p.item.file.path, { category, extension: extensionFor(p.item.file) })
       stored.push({
         kind: p.item.kind,
+        parameterId: p.item.parameterId ?? null,
         path: saved.path,
         mimeType: p.item.file.mimetype,
         sizeBytes: p.item.file.size,
@@ -129,6 +189,5 @@ export async function removeStored(stored: StoredEvidence[]) {
 
 /** Deletes any multer temp files that were not moved into storage. */
 export async function cleanupTemp(files: UploadedFiles | undefined) {
-  const all = [...(files?.photo ?? []), ...(files?.video ?? [])]
-  await Promise.all(all.map((f) => fsp.rm(f.path, { force: true })))
+  await Promise.all(allFiles(files).map((f) => fsp.rm(f.path, { force: true })))
 }

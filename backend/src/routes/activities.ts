@@ -16,17 +16,25 @@ const input = z.object({
   code: z.string().trim().min(1, 'Code is required').max(40),
   departmentId: optionalUuid,
   description: optionalText(500),
+  /** "Overall check photo/video": one photo/video for the whole check. */
   requirePhoto: z.boolean().default(true),
   requireVideo: z.boolean().default(false),
   requireJobNo: z.boolean().default(true),
+  /** The worker may start this check from the machine screen. Left as it is when not sent. */
+  allowManual: z.boolean().optional(),
   isActive: z.boolean().default(true),
-  /** Parameters in the order they appear on the worker form. */
+  /** Parameters in the order they appear on the worker form, with their evidence rules. */
   parameters: z
     .array(
       z.object({
         parameterId: z.uuid(),
         isRequired: z.boolean().default(true),
-        isEnabled: z.boolean().default(true)
+        isEnabled: z.boolean().default(true),
+        /** Evidence for this parameter. Omitted fields keep whatever is stored. */
+        requirePhoto: z.boolean().optional(),
+        requireVideo: z.boolean().optional(),
+        allowNa: z.boolean().optional(),
+        appliesWhen: z.enum(['ALWAYS', 'JOB_RUNNING']).optional()
       })
     )
     .default([]),
@@ -47,6 +55,10 @@ activitiesRouter.get('/', async (_req, res) => {
         sortOrder: activityParameters.sortOrder,
         isRequired: activityParameters.isRequired,
         isEnabled: activityParameters.isEnabled,
+        requirePhoto: activityParameters.requirePhoto,
+        requireVideo: activityParameters.requireVideo,
+        allowNa: activityParameters.allowNa,
+        appliesWhen: activityParameters.appliesWhen,
         name: parameters.name,
         code: parameters.code,
         type: parameters.type,
@@ -72,12 +84,26 @@ activitiesRouter.get('/', async (_req, res) => {
 })
 
 async function saveRelations(activityId: string, data: z.infer<typeof input>) {
+  // The parameter rows are rewritten, so anything the caller did not send keeps its old value
+  // (an older admin screen must not silently clear the per-parameter evidence rules).
+  const before = await db.select().from(activityParameters).where(eq(activityParameters.activityId, activityId))
+  const kept = new Map(before.map((row) => [row.parameterId, row]))
   await db.transaction(async (tx) => {
     await tx.delete(activityParameters).where(eq(activityParameters.activityId, activityId))
     const seen = new Set<string>()
     const rows = data.parameters
       .filter((p) => !seen.has(p.parameterId) && seen.add(p.parameterId))
-      .map((p, index) => ({ activityId, parameterId: p.parameterId, sortOrder: index, isRequired: p.isRequired, isEnabled: p.isEnabled }))
+      .map((p, index) => ({
+        activityId,
+        parameterId: p.parameterId,
+        sortOrder: index,
+        isRequired: p.isRequired,
+        isEnabled: p.isEnabled,
+        requirePhoto: p.requirePhoto ?? kept.get(p.parameterId)?.requirePhoto ?? false,
+        requireVideo: p.requireVideo ?? kept.get(p.parameterId)?.requireVideo ?? false,
+        allowNa: p.allowNa ?? kept.get(p.parameterId)?.allowNa ?? false,
+        appliesWhen: p.appliesWhen ?? kept.get(p.parameterId)?.appliesWhen ?? ('ALWAYS' as const)
+      }))
     if (rows.length) await tx.insert(activityParameters).values(rows)
 
     await tx.delete(machineActivities).where(eq(machineActivities.activityId, activityId))
@@ -88,7 +114,8 @@ async function saveRelations(activityId: string, data: z.infer<typeof input>) {
 
 activitiesRouter.post('/', async (req, res) => {
   const data = input.parse(req.body)
-  const { parameters: _p, machineIds: _m, ...fields } = data
+  const { parameters: _p, machineIds: _m, allowManual, ...rest } = data
+  const fields = { ...rest, ...(allowManual === undefined ? {} : { allowManual }) }
   const [row] = await db.insert(activities).values(fields).returning()
   await saveRelations(row.id, data)
   await audit(req, 'CREATE_ACTIVITY', 'Activity', row.id, { newValue: data })
@@ -98,7 +125,9 @@ activitiesRouter.post('/', async (req, res) => {
 activitiesRouter.put('/:id', async (req, res) => {
   const id = idParam(req)
   const data = input.parse(req.body)
-  const { parameters: _p, machineIds: _m, ...fields } = data
+  const { parameters: _p, machineIds: _m, allowManual, ...rest } = data
+  // Not sent: keep the stored value, so older screens do not turn manual submission off.
+  const fields = { ...rest, ...(allowManual === undefined ? {} : { allowManual }) }
   const [before] = await db.select().from(activities).where(eq(activities.id, id))
   if (!before) throw notFound('Activity')
   const beforeParams = await db.select().from(activityParameters).where(eq(activityParameters.activityId, id))

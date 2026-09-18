@@ -5,6 +5,7 @@ import {
   departments,
   machineActivities,
   machines,
+  monitoringReasons,
   parameters,
   schedules,
   shifts,
@@ -74,15 +75,48 @@ async function main() {
         name: 'Routine Quality Check',
         code: 'ROUTINE-QC',
         description: 'Standard periodic quality check',
-        requirePhoto: true,
+        // Evidence is captured per parameter (below), so no single photo for the whole check.
+        requirePhoto: false,
         requireVideo: false,
         requireJobNo: true
       })
       .returning()
 
+    /**
+     * Per-parameter evidence and Not Applicable rules, as an example of how the plant works:
+     *   Viscosity       a photo of the reading
+     *   Registration    a photo and a video of the printed web (print quality)
+     *   Deep Punching   a video of the machine, only while a job is running, and skippable
+     * Everything else is a reading only. The admin adjusts these in Check Types.
+     */
+    const evidenceRules: Record<string, { requirePhoto?: boolean; requireVideo?: boolean; allowNa?: boolean; appliesWhen?: 'ALWAYS' | 'JOB_RUNNING' }> = {
+      VISCOSITY: { requirePhoto: true },
+      REGISTRATION: { requirePhoto: true, requireVideo: true, allowNa: true },
+      'DEEP-PUNCHING': { requireVideo: true, allowNa: true, appliesWhen: 'JOB_RUNNING' }
+    }
+
     await tx.insert(activityParameters).values(
-      params.map((p, index) => ({ activityId: routine.id, parameterId: p.id, sortOrder: index, isRequired: true }))
+      params.map((p, index) => ({
+        activityId: routine.id,
+        parameterId: p.id,
+        sortOrder: index,
+        isRequired: true,
+        ...evidenceRules[p.code]
+      }))
     )
+
+    // The reasons a worker may choose when marking a parameter Not Applicable. Migration 0009
+    // already inserts these, so only a database without any reason at all is filled here.
+    const reasons = await tx.select({ id: monitoringReasons.id }).from(monitoringReasons).limit(1)
+    if (reasons.length === 0) {
+      await tx.insert(monitoringReasons).values([
+        { label: 'Job still running', requiresRemark: false, sortOrder: 0 },
+        { label: 'Parameter not applicable', requiresRemark: false, sortOrder: 1 },
+        { label: 'Machine stopped', requiresRemark: false, sortOrder: 2 },
+        { label: 'No production', requiresRemark: false, sortOrder: 3 },
+        { label: 'Other', requiresRemark: true, sortOrder: 4 }
+      ])
+    }
     await tx.insert(machineActivities).values(allMachines.map((m) => ({ machineId: m.id, activityId: routine.id })))
 
     await tx.insert(users).values({

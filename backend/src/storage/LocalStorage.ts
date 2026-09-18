@@ -23,10 +23,6 @@ export class LocalStorage implements StorageService {
     return { path: relative }
   }
 
-  publicUrl(relativePath: string): string {
-    return `/uploads/${relativePath}`
-  }
-
   async remove(relativePath: string): Promise<void> {
     await fs.rm(path.join(this.rootDir, relativePath), { force: true })
   }
