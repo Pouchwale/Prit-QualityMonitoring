@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView, Pressable, BackHandler, KeyboardAvoidingView, Platform, TextInput } from 'react-native'
-import { ApiError, getCheckForm, getTodayChecks, submitCheck, submitException } from '../services/api'
+import { ApiError, endJob, getCheckForm, getTodayChecks, submitCheck, submitException } from '../services/api'
 import { showDialog } from '../utils/dialog'
 import { syncLocalAlerts } from '../services/notifications'
 import { Capture, CheckForm, EvidenceUpload, FormParameter, SubmitResult, SubmitValue } from '../types'
@@ -16,17 +16,21 @@ import { Icon } from '../components/ui/Icon'
 import { EmptyState, ErrorState, Loading } from '../components/ui/LoadState'
 import { RadioMark } from '../components/RadioMark'
 import { numberStatus } from '../components/ParameterField'
-import { ParameterCard, type NaChoice } from '../components/ParameterCard'
+import { ParameterCard, needsPhoto, type NaChoice } from '../components/ParameterCard'
 import { EvidenceField } from '../components/EvidenceField'
 import { NaReasonSheet } from '../components/NaReasonSheet'
 import { SubmitSuccess } from '../components/SubmitSuccess'
 import { CameraModal } from '../components/CameraModal'
+import { KIND_LABEL } from './JobScreen'
+import { ContinueJobSheet } from '../components/ContinueJobSheet'
 
 interface Props {
   checkId: string
   onClose: (submitted: boolean) => void
   /** "exception" opens the exception form straight away; otherwise the check form is shown. */
   startWith?: 'exception'
+  /** Opens another check next, e.g. the Job End check after "End Job" or the next Job Start check. */
+  onOpenCheck?: (checkId: string) => void
 }
 
 /** Which camera is open and which multipart field the capture belongs to. */
@@ -39,13 +43,25 @@ const videoField = (parameterId: string) => `video:${parameterId}`
 function whatIsMissing(p: FormParameter, value: string, na: NaChoice | null, media: Record<string, Capture>): string[] {
   if (!p.applicable || na) return []
   const missing: string[] = []
-  if (p.isRequired && !value.trim()) missing.push('Value')
-  if (p.requirePhoto && !media[photoField(p.id)]) missing.push('Photo')
+  if (p.isRequired && p.type !== 'PHOTO' && !value.trim()) missing.push('Value')
+  if (needsPhoto(p) && !media[photoField(p.id)]) missing.push('Photo')
   if (p.requireVideo && !media[videoField(p.id)]) missing.push('Video')
   return missing
 }
 
-export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith }) => {
+/**
+ * Whether the worker has completed this parameter: answered it (a value, a photo or video, or
+ * Not applicable) with nothing required still missing. An optional parameter left empty is not
+ * "done", so it gets no green tick. A job-only parameter with no job is recorded as Not
+ * Applicable automatically, so it counts towards the progress.
+ */
+function isDone(p: FormParameter, value: string, na: NaChoice | null, media: Record<string, Capture>): boolean {
+  if (!p.applicable || na) return true
+  const answered = !!value.trim() || !!media[photoField(p.id)] || !!media[videoField(p.id)]
+  return answered && whatIsMissing(p, value, na, media).length === 0
+}
+
+export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOpenCheck }) => {
   const [form, setForm] = useState<CheckForm | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [mode, setMode] = useState<'check' | 'exception'>(startWith === 'exception' ? 'exception' : 'check')
@@ -53,6 +69,9 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith }) =>
   const [sending, setSending] = useState(false)
   const [progress, setProgress] = useState(0)
   const [result, setResult] = useState<SubmitResult | null>(null)
+  /** "Continue the job or end the job?" after a scheduled job check. */
+  const [askJob, setAskJob] = useState(false)
+  const [endingJob, setEndingJob] = useState(false)
 
   // Check form
   const [itemCode, setItemCode] = useState('')
@@ -142,7 +161,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith }) =>
 
   const parameters = form?.parameters ?? []
   const doneCount = useMemo(
-    () => parameters.filter((p) => whatIsMissing(p, values[p.id] ?? '', na[p.id] ?? null, media).length === 0).length,
+    () => parameters.filter((p) => isDone(p, values[p.id] ?? '', na[p.id] ?? null, media)).length,
     [parameters, values, na, media]
   )
 
@@ -194,6 +213,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith }) =>
     try {
       const submitted = await submitCheck(checkId, { itemCode: itemCode.trim(), jobNo: jobNo.trim(), values: submitValues, media: files }, setProgress)
       setResult(submitted)
+      if (submitted.askContinue && submitted.job) setAskJob(true)
       // Checks may have been cancelled or moved by this submission: rebuild the local alerts.
       getTodayChecks()
         .then(syncLocalAlerts)
@@ -204,6 +224,34 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith }) =>
       setSending(false)
     }
   }
+
+  /** End Job from "Continue or end?": the Job End check opens next; with none, the job is completed. */
+  const endJobNow = async () => {
+    const job = result?.job
+    if (!job) return
+    setEndingJob(true)
+    try {
+      const ended = await endJob(job.id)
+      setAskJob(false)
+      // Reminders of the job's withdrawn scheduled checks must not fire.
+      getTodayChecks()
+        .then(syncLocalAlerts)
+        .catch(() => undefined)
+      const first = ended.endChecks[0]
+      if (first && onOpenCheck) onOpenCheck(first.id)
+      else {
+        showDialog('Job completed', `Job No. ${job.jobNo} is completed.`)
+        onClose(true)
+      }
+    } catch (err) {
+      showDialog('Could not end the job', err instanceof ApiError ? err.message : 'Please try again.')
+    } finally {
+      setEndingJob(false)
+    }
+  }
+
+  /** The job's next open check for this worker (e.g. another check type's Job Start check), if any. */
+  const nextJobCheck = result?.pendingJobChecks?.find((c) => c.id !== checkId && c.canSubmit && (c.kind === 'JOB_START' || c.kind === 'JOB_END'))
 
   const sendException = async () => {
     const items: string[] = []
@@ -270,7 +318,27 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith }) =>
       const raw = values[p.id]?.trim() ?? ''
       return p.type === 'PASS_FAIL' ? raw.toUpperCase() === 'FAIL' : p.type === 'NUMBER' && numberStatus(p, raw) === 'out'
     })
-    return <SubmitSuccess result={result} activityName={activity.name} outOfRange={outOfRange} onDone={() => onClose(true)} />
+    return (
+      <>
+        <SubmitSuccess
+          result={result}
+          activityName={activity.name}
+          outOfRange={outOfRange}
+          onDone={() => (nextJobCheck && onOpenCheck ? onOpenCheck(nextJobCheck.id) : onClose(true))}
+          doneLabel={nextJobCheck ? `Next: ${KIND_LABEL[nextJobCheck.kind ?? 'SCHEDULED']}` : undefined}
+        />
+        {result.job ? (
+          <ContinueJobSheet
+            visible={askJob}
+            jobNo={result.job.jobNo}
+            itemCode={result.job.itemCode}
+            ending={endingJob}
+            onContinue={() => setAskJob(false)}
+            onEnd={endJobNow}
+          />
+        ) : null}
+      </>
+    )
   }
 
   const missingSummary = [
@@ -285,7 +353,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith }) =>
   let nextStep: { parameterId: string; kind: 'photo' | 'video' } | null = null
   for (const p of parameters) {
     if (!p.applicable || na[p.id]) continue
-    if (p.requirePhoto && !media[photoField(p.id)]) nextStep = { parameterId: p.id, kind: 'photo' }
+    if (needsPhoto(p) && !media[photoField(p.id)]) nextStep = { parameterId: p.id, kind: 'photo' }
     else if (p.requireVideo && !media[videoField(p.id)]) nextStep = { parameterId: p.id, kind: 'video' }
     if (nextStep) break
   }
@@ -298,7 +366,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith }) =>
           <NavBar
             leftLabel="Back"
             onLeftPress={goBack}
-            rightLabel={check.canSubmit ? 'Exception' : undefined}
+            rightLabel={check.canSubmit && form.allowException !== false ? 'Exception' : undefined}
             onRightPress={() => setMode('exception')}
             rightTone="exception"
           />
@@ -310,7 +378,10 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith }) =>
               keyboardShouldPersistTaps="handled"
             >
               <View className="pb-6 pt-4">
-                <Text className="text-[15px] font-medium text-ink-muted">{check.machineName}</Text>
+                <Text className="text-[15px] font-medium text-ink-muted">
+                  {check.machineName}
+                  {check.kind && check.kind !== 'SCHEDULED' ? ` · ${KIND_LABEL[check.kind]}` : ''}
+                </Text>
                 <Text className="mt-0.5 text-[28px] font-bold leading-[34px] tracking-[-0.5px] text-ink" accessibilityRole="header">
                   {activity.name}
                 </Text>
@@ -360,7 +431,9 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith }) =>
                     </ListGroup>
                     <Text className="mt-2 px-4 text-[13px] text-ink-muted">
                       {job
-                        ? `From the job running since ${formatTime(job.startedAt)}.`
+                        ? job.startedAt
+                          ? `From the job running since ${formatTime(job.startedAt)}.`
+                          : 'From the job.'
                         : activity.requireJobNo
                           ? 'Job No. is required for this check.'
                           : 'Job No. is optional for this check.'}
@@ -380,7 +453,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith }) =>
                             na={na[p.id] ?? null}
                             photo={media[photoField(p.id)] ?? null}
                             video={media[videoField(p.id)] ?? null}
-                            done={whatIsMissing(p, values[p.id] ?? '', na[p.id] ?? null, media).length === 0}
+                            done={isDone(p, values[p.id] ?? '', na[p.id] ?? null, media)}
                             missing={missing[p.id]}
                             highlight={nextStep?.parameterId === p.id ? nextStep.kind : null}
                             onLayout={(e) => (cardY.current[p.id] = e.nativeEvent.layout.y)}

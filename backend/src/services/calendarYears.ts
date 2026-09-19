@@ -6,7 +6,7 @@ import { and, asc, eq, gte, isNull, lte, max } from 'drizzle-orm'
 import { db } from '../db/client'
 import { calendarYearItems, calendarYears, plantClosures } from '../db/schema'
 import { badRequest, conflict, notFound } from '../lib/http'
-import { addDays, dateKey, parseDateKey, startOfDay, weekdayOf } from '../lib/time'
+import { addDays, dateKey, formatDateKey, parseDateKey, startOfDay, weekdayOf } from '../lib/time'
 import { invalidateCheckGeneration } from './checkGenerator'
 import { extractRows, type ExtractionMethod } from './calendarExtraction'
 import { itemsFromRows } from './calendarImport'
@@ -38,7 +38,7 @@ export interface Issue {
 }
 
 const today = () => dateKey(startOfDay(new Date()))
-const shortDate = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`
+const shortDate = (iso: string) => formatDateKey(iso)
 const weekdayIndex = (iso: string) => weekdayOf(parseDateKey(iso))
 
 export async function getYear(id: string) {

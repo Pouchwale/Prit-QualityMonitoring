@@ -7,10 +7,10 @@ import { idParam, optionalText } from '../lib/validate'
 import { badRequest, conflict, notFound } from '../lib/http'
 import { audit, snapshot } from '../lib/audit'
 import { requireAnyView, requireModule } from '../lib/permissions'
-import { addDays, dateKey, parseDateKey } from '../lib/time'
+import { addDays, dateKey, formatDateKey, parseDateKey } from '../lib/time'
 import { invalidateCheckGeneration } from '../services/checkGenerator'
 import { CALENDAR_V2_START } from '../services/weeklyRules'
-import { CLOSURE_LABEL, dayStates, isClosedType, listClosures, removeChecksIfClosed, weeklyOffDays } from '../services/plantCalendar'
+import { CLOSURE_LABEL, dayStates, isClosedType, listClosures, plansBetween, removeChecksIfClosed, weeklyOffDays } from '../services/plantCalendar'
 
 export const plantCalendarRouter = Router()
 
@@ -43,7 +43,14 @@ plantCalendarRouter.get('/days', requireAnyView('calendar', 'dashboard', 'schedu
   const q = z.object({ from: dateString('From date'), to: dateString('To date') }).parse(req.query)
   if (q.to < q.from) throw badRequest('"to" date must be on or after "from" date')
   if (datesBetween(q.from, q.to).length > 800) throw badRequest('Choose a shorter date range')
-  res.json(await dayStates(parseDateKey(q.from), parseDateKey(q.to)))
+  const [states, plans] = await Promise.all([dayStates(parseDateKey(q.from), parseDateKey(q.to)), plansBetween(q.from, q.to)])
+  // Machine day plans: on a planned date exactly these machines run, whatever the plant calendar says.
+  res.json(
+    states.map((s) => {
+      const plan = plans.get(s.date)
+      return { ...s, machinePlan: plan ? { count: plan.size, machineIds: [...plan] } : null }
+    })
+  )
 })
 
 plantCalendarRouter.get('/', requireAnyView('calendar', 'dashboard', 'schedules'), async (req, res) => {
@@ -62,7 +69,7 @@ plantCalendarRouter.get('/settings', requireAnyView('calendar', 'dashboard', 'sc
 })
 
 plantCalendarRouter.put('/settings', requireModule('calendar', 'manage'), async () => {
-  throw conflict('The weekly off up to 31 Dec 2026 is locked to keep 2026 records unchanged. From 2027, change the Weekly Rules instead.')
+  throw conflict('The weekly off up to 31/12/2026 is locked to keep 2026 records unchanged. From 2027, change the Weekly Rules instead.')
 })
 
 /** Marks one date, or every date in a range, as closed or as an adjustment working day. Dates already marked are updated. */
@@ -123,7 +130,7 @@ plantCalendarRouter.put('/:id', requireModule('calendar', 'manage'), async (req,
       .select({ id: plantClosures.id })
       .from(plantClosures)
       .where(and(eq(plantClosures.date, body.date), ne(plantClosures.id, id)))
-    if (clash) throw conflict(`${body.date} is already in the Plant Calendar. Edit that date instead.`)
+    if (clash) throw conflict(`${formatDateKey(body.date)} is already in the Plant Calendar. Edit that date instead.`)
   }
 
   const [row] = await db

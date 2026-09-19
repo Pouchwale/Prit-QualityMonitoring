@@ -14,11 +14,11 @@ import {
   Plus,
   Trash2
 } from 'lucide-react'
-import type { CalendarYearSummary, ClosureType, DayState, PlantClosure, WeeklyRule } from '../../types'
+import type { CalendarYearSummary, ClosureType, DayState, MachineDayPlan, PlantClosure, WeeklyRule } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
-import { addDaysKey, dateKey } from '../../lib/format'
+import { addDaysKey, dateKey, formatDateKey, formatLongDate } from '../../lib/format'
 import { CLOSURE_TYPES, WEEKDAY_NAMES, WEEKLY_OFF_STYLE, isClosedType } from '../../lib/closureTypes'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
@@ -27,7 +27,9 @@ import { Modal } from '../../components/common/Modal'
 import { PageHeader } from '../../components/common/PageHeader'
 import { useToast } from '../../components/common/Toast'
 import { AnnualCalendarsTab } from './calendar/AnnualCalendarsTab'
+import { MachinesRunningSection } from './calendar/MachineDayPlan'
 import { WeeklyRulesTab } from './calendar/WeeklyRulesTab'
+import { DateInput } from '../../components/common/DateTimeInputs'
 
 /** First date managed by annual calendars; earlier dates keep the original Plant Calendar setup. */
 const CALENDAR_V2_START = '2027-01-01'
@@ -83,9 +85,8 @@ const keyToDate = (key: string) => {
   const [y, m, d] = key.split('-').map(Number)
   return new Date(y, m - 1, d)
 }
-const longDate = (key: string) => keyToDate(key).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-const shortDate = (key: string, withYear = true) =>
-  keyToDate(key).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) })
+const longDate = (key: string) => formatLongDate(key)
+const shortDate = (key: string) => formatDateKey(key)
 const monthTitle = (month: Date) => month.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 const daysBetween = (from: string, to: string) => Math.round((keyToDate(to).getTime() - keyToDate(from).getTime()) / 86_400_000) + 1
 
@@ -132,6 +133,9 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
   const years = useApi<{ firstYear: number; years: CalendarYearSummary[] }>('/api/calendar-years')
   const rules = useApi<{ rules: WeeklyRule[] }>('/api/weekly-rules')
   const legacy = useApi<{ weeklyOffDays: number[] }>('/api/plant-closures/settings')
+  // Machine day plans: which machines run on a date (overrides the plant calendar per machine).
+  const machinePlans = useApi<MachineDayPlan[]>('/api/machine-days', { from: grid[0], to: grid[grid.length - 1] })
+  const planByDate = useMemo(() => new Map((machinePlans.data ?? []).map((p) => [p.date, p])), [machinePlans.data])
 
   const stateByDate = useMemo(() => new Map((monthData.data ?? []).map((s) => [s.date, s])), [monthData.data])
   const byDate = useMemo(
@@ -158,6 +162,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
   const reload = () => {
     monthData.reload()
     upcoming.reload()
+    machinePlans.reload()
   }
 
   const goToMonth = (offset: number) => setMonth((m) => new Date(m.getFullYear(), m.getMonth() + offset, 1))
@@ -251,7 +256,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
       {canEdit && (
         <div className="flex flex-wrap items-center justify-end gap-2 -mt-1">
           <span className="text-[11px] text-ink-muted mr-auto">
-            Dates up to 31 Dec 2026 are edited here. From 2027, dates come from the approved annual calendar.
+            Dates up to 31/12/2026 are edited here. From 2027, dates come from the approved annual calendar.
           </span>
           <Button size="sm" variant="outline" onClick={() => onOpen('years')} icon={<FileSpreadsheet className="w-3.5 h-3.5" />}>
             Annual calendars
@@ -340,9 +345,10 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
               const past = key < today
               const weeklyOff = !closure && isWeeklyOff(key)
               const style = closure ? CLOSURE_TYPES[closure.type] : weeklyOff ? WEEKLY_OFF_STYLE : null
+              const plan = planByDate.get(key)
               const label = `${longDate(key)}${
                 closure ? `, ${CLOSURE_TYPES[closure.type].label}${closure.reason ? `: ${closure.reason}` : ''}` : weeklyOff ? ', Weekly Off' : ', plant open'
-              }`
+              }${plan ? ', machine plan' : ''}`
               return (
                 <button
                   key={key}
@@ -365,11 +371,22 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                     >
                       {keyToDate(key).getDate()}
                     </span>
-                    {style && (
-                      <span className={`hidden sm:inline-flex items-center justify-center w-5 h-5 rounded-full ${style.chip} ${inMonth ? '' : 'opacity-60'}`} aria-hidden>
-                        {style.icon}
-                      </span>
-                    )}
+                    <span className="inline-flex items-center gap-1">
+                      {plan && (
+                        <span
+                          className={`inline-flex items-center justify-center h-4 sm:h-5 min-w-4 sm:min-w-5 px-0.5 sm:px-1 rounded border border-accent bg-white text-accent text-[9px] sm:text-[10px] font-bold leading-none ${inMonth ? '' : 'opacity-60'}`}
+                          title={`Machine plan: ${plan.machineIds.length} machine${plan.machineIds.length === 1 ? '' : 's'} running`}
+                          aria-hidden
+                        >
+                          M<span className="hidden sm:inline">·{plan.machineIds.length}</span>
+                        </span>
+                      )}
+                      {style && (
+                        <span className={`hidden sm:inline-flex items-center justify-center w-5 h-5 rounded-full ${style.chip} ${inMonth ? '' : 'opacity-60'}`} aria-hidden>
+                          {style.icon}
+                        </span>
+                      )}
+                    </span>
                   </span>
                   {style && (
                     <>
@@ -402,6 +419,12 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
               <span className="w-2.5 h-2.5 rounded-full bg-accent" aria-hidden />
               Today
             </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-flex items-center justify-center h-3.5 px-0.5 rounded-sm border border-accent text-accent text-[8px] font-bold leading-none" aria-hidden>
+                M
+              </span>
+              Machine plan
+            </span>
             {canEdit && (
               <span className="text-ink-muted sm:ml-auto">
                 <span className="lg:hidden">Tap a day to mark or edit it</span>
@@ -426,7 +449,18 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
             onMark={() => openNew(selected)}
             onEdit={() => selectedClosure && openEdit(selectedClosure)}
             onRemove={() => selectedClosure && setRemoving(selectedClosure)}
-          />
+          >
+            <MachinesRunningSection
+              date={selected}
+              today={today}
+              plantClosed={stateByDate.get(selected)?.closed ?? false}
+              plan={planByDate.get(selected) ?? null}
+              loading={(machinePlans.loading && !machinePlans.data) || (monthData.loading && !monthData.data)}
+              canEdit={canEdit}
+              onChanged={machinePlans.reload}
+            />
+            {machinePlans.error && <p className="mt-2 text-[11px] text-failed">{machinePlans.error}</p>}
+          </SelectedDay>
 
           <WeeklySummaryCard legacyDays={legacy.data?.weeklyOffDays ?? null} rules={rules.data?.rules ?? null} today={today} onOpenRules={() => onOpen('rules')} />
 
@@ -444,7 +478,6 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                 {upcomingRanges.map((r) => {
                   const style = CLOSURE_TYPES[r.type]
                   const days = daysBetween(r.from, r.to)
-                  const sameYear = r.from.slice(0, 4) === r.to.slice(0, 4)
                   return (
                     <li key={r.from}>
                       <button type="button" onClick={() => goToDate(r.from)} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-start gap-3">
@@ -453,7 +486,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block text-xs font-semibold text-ink">
-                            {days === 1 ? shortDate(r.from) : `${shortDate(r.from, !sameYear)} – ${shortDate(r.to)}`}
+                            {days === 1 ? shortDate(r.from) : `${shortDate(r.from)} – ${shortDate(r.to)}`}
                           </span>
                           <span className="block text-[11px] text-ink-muted truncate">
                             {style.label}
@@ -551,7 +584,9 @@ const SelectedDay: React.FC<{
   onMark: () => void
   onEdit: () => void
   onRemove: () => void
-}> = ({ date, today, closure, weeklyOff, managedYear, yearStatus, onOpenYear, loading, canEdit, onMark, onEdit, onRemove }) => {
+  /** Extra content under the day's status (the "Machines running" section). */
+  children?: React.ReactNode
+}> = ({ date, today, closure, weeklyOff, managedYear, yearStatus, onOpenYear, loading, canEdit, onMark, onEdit, onRemove, children }) => {
   const weekday = WEEKDAY_NAMES[keyToDate(date).getDay()]
   const style = closure ? CLOSURE_TYPES[closure.type] : null
   const when = date === today ? 'Today' : date === addDaysKey(today, 1) ? 'Tomorrow' : date === addDaysKey(today, -1) ? 'Yesterday' : null
@@ -632,6 +667,7 @@ const SelectedDay: React.FC<{
             )}
           </div>
         )}
+        {children}
       </div>
     </section>
   )
@@ -680,7 +716,7 @@ const WeeklySummaryCard: React.FC<{ legacyDays: number[] | null; rules: WeeklyRu
             {rules === null
               ? '…'
               : current.length
-                ? current.map((r) => `${WEEKDAY_NAMES[r.weekday]}${r.effectiveTo ? ` until ${r.effectiveTo}` : ''}`).join(', ')
+                ? current.map((r) => `${WEEKDAY_NAMES[r.weekday]}${r.effectiveTo ? ` until ${formatDateKey(r.effectiveTo)}` : ''}`).join(', ')
                 : 'None'}
           </span>
         </div>
@@ -780,8 +816,7 @@ const ClosureModal: React.FC<{
           <>
             <div className={`grid grid-cols-1 ${editor.multiDay ? 'sm:grid-cols-2' : ''} gap-3`}>
               <Field label={editor.multiDay ? 'From date' : 'Date'} required>
-                <TextInput
-                  type="date"
+                <DateInput
                   value={editor.from}
                   max={LAST_LEGACY_DATE}
                   onChange={(e) => onChange({ ...editor, from: e.target.value, to: editor.to < e.target.value ? e.target.value : editor.to })}
@@ -790,7 +825,7 @@ const ClosureModal: React.FC<{
               </Field>
               {editor.multiDay && (
                 <Field label="To date" required error={editor.to && editor.to < editor.from ? 'Must be on or after the From date' : null}>
-                  <TextInput type="date" value={editor.to} min={editor.from} max={LAST_LEGACY_DATE} onChange={(e) => onChange({ ...editor, to: e.target.value })} required />
+                  <DateInput value={editor.to} min={editor.from} max={LAST_LEGACY_DATE} onChange={(e) => onChange({ ...editor, to: e.target.value })} required />
                 </Field>
               )}
             </div>
@@ -803,7 +838,7 @@ const ClosureModal: React.FC<{
           </>
         ) : (
           <Field label="Date" required hint="Moving a date clears the old date from the calendar">
-            <TextInput type="date" value={editor.date} max={LAST_LEGACY_DATE} onChange={(e) => onChange({ ...editor, date: e.target.value })} required />
+            <DateInput value={editor.date} max={LAST_LEGACY_DATE} onChange={(e) => onChange({ ...editor, date: e.target.value })} required />
           </Field>
         )}
 

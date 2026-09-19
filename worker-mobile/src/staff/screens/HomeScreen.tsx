@@ -22,6 +22,7 @@ import {
   Section,
   SkeletonRows
 } from '../ui'
+import { formatLongDate } from '../../utils/datetime'
 
 const REFRESH_MS = 60_000
 const REPEAT_WINDOW_DAYS = 7
@@ -141,7 +142,7 @@ export const HomeScreen: React.FC = () => {
   const dayLabel = isToday ? 'today' : formatKey(date)
 
   const openChecks = (params: Record<string, unknown>) => switchTab('checks', { name: 'checks', params: { date, ...params } })
-  const todayLong = new Date().toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' })
+  const todayLong = formatLongDate(new Date())
 
   // ---- warnings (setup problems someone can act on), shown as one compact group
   const warnings: Warning[] = []
@@ -226,8 +227,15 @@ export const HomeScreen: React.FC = () => {
               <Notice
                 icon="moon-outline"
                 title={`Plant closed ${isToday ? 'today' : `on ${formatKey(date)}`} · ${data.closure.label}${data.closure.reason ? ` · ${data.closure.reason}` : ''}`}
-                message="No checks are scheduled, no alerts are sent and nothing is marked Missed on this day."
+                message={
+                  data.machinePlan?.count
+                    ? `Only the ${data.machinePlan.count} machine${data.machinePlan.count === 1 ? '' : 's'} in the machine plan run${data.machinePlan.count === 1 ? 's' : ''} on this day; every other machine has no checks and no alerts.`
+                    : 'No checks are scheduled, no alerts are sent and nothing is marked Missed on this day.'
+                }
               />
+            ) : null}
+            {data?.machinePlan && !data.closure ? (
+              <Text className="px-1 text-[13px] leading-[18px] text-staff-muted">{`${data.machinePlan.count} machine${data.machinePlan.count === 1 ? '' : 's'} scheduled ${isToday ? 'today' : `on ${formatKey(date)}`} · machine plan`}</Text>
             ) : null}
             {kpi && (!data?.closure || kpi.scheduled > 0) ? (
               <MetricCard

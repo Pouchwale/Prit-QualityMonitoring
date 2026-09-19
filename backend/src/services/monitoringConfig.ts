@@ -1,10 +1,11 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/client'
 import {
   activities,
   activityParameters,
   departments,
+  jobHandovers,
   jobs,
   machineActivities,
   machines,
@@ -17,6 +18,7 @@ import {
   users
 } from '../db/schema'
 import { ruleText } from './evaluate'
+import { RUNNING_STATUSES } from './jobMonitoring'
 
 /**
  * Reference data behind the Monitoring Setup screens: the Not Applicable reasons, the
@@ -68,6 +70,19 @@ export async function monitoringReasonById(id: string) {
 
 export { reasonDto }
 
+export interface JobCheckCounts {
+  /** Every check recorded against the job. */
+  total: number
+  /** Open: not due yet, or due and not submitted. */
+  pending: number
+  due: number
+  /** Due and past its window grace, still not done (Job Start / End checks stay open). */
+  overdue: number
+  completed: number
+  missed: number
+  exception: number
+}
+
 export interface JobRow {
   id: string
   machineId: string
@@ -75,36 +90,58 @@ export interface JobRow {
   machineCode: string
   itemCode: string | null
   jobNo: string
-  startedAt: Date
+  status: (typeof jobs.$inferSelect)['status']
+  /** Null while the job is only planned. */
+  startedAt: Date | null
   startedById: string | null
   startedByName: string | null
+  activatedAt: Date | null
+  endRequestedAt: Date | null
   endedAt: Date | null
   endedById: string | null
   endedByName: string | null
+  /** The worker responsible now. */
+  assignedWorkerId: string | null
+  assignedWorkerName: string | null
+  plannedFor: string | null
+  note: string | null
+  forceClosed: boolean
+  /** NONE: no Job Start/End parameters. PENDING: open. DONE: submitted. */
+  startCheck: 'NONE' | 'PENDING' | 'DONE'
+  endCheck: 'NONE' | 'PENDING' | 'DONE'
+  handovers: number
+  counts: JobCheckCounts
   /** Checks recorded against this job (quality_checks.job_id). */
   checkCount: number
-  /** Minutes from start to end, or to now while the job is still running. */
+  /** Minutes from start to end, or to now while the job is still running (0 while planned). */
   durationMinutes: number
 }
 
 export interface JobFilters {
-  /** Jobs that started on or after this moment. */
+  /** Jobs started (or, when not started, created) on or after this moment. */
   from?: Date
-  /** Jobs that started before this moment (exclusive, so callers pass the day after "to"). */
+  /** ... and before this moment (exclusive, so callers pass the day after "to"). */
   to?: Date
   machineId?: string
   /** true: only running jobs. false: only finished jobs. Undefined: both. */
   running?: boolean
+  statuses?: (typeof jobs.$inferSelect)['status'][]
+  ids?: string[]
 }
 
-/** The production jobs log: newest first, with the machine, both workers and the check count. */
+const assignee = alias(users, 'job_assignee')
+
+/** The production jobs log: newest first, with the machine, the workers and the check status. */
 export async function listJobs(filters: JobFilters = {}): Promise<JobRow[]> {
   const where: SQL[] = []
-  if (filters.from) where.push(gte(jobs.startedAt, filters.from))
-  if (filters.to) where.push(lt(jobs.startedAt, filters.to))
+  const when = sql`coalesce(${jobs.startedAt}, ${jobs.createdAt})`
+  if (filters.from) where.push(sql`${when} >= ${filters.from}`)
+  if (filters.to) where.push(sql`${when} < ${filters.to}`)
   if (filters.machineId) where.push(eq(jobs.machineId, filters.machineId))
-  if (filters.running === true) where.push(isNull(jobs.endedAt))
-  if (filters.running === false) where.push(isNotNull(jobs.endedAt))
+  if (filters.running === true) where.push(inArray(jobs.status, [...RUNNING_STATUSES]))
+  if (filters.running === false) where.push(inArray(jobs.status, ['COMPLETED', 'CANCELLED']))
+  if (filters.statuses?.length) where.push(inArray(jobs.status, filters.statuses))
+  if (filters.ids) where.push(inArray(jobs.id, filters.ids.length ? filters.ids : ['00000000-0000-0000-0000-000000000000']))
 
   const rows = await db
     .select({
@@ -112,40 +149,82 @@ export async function listJobs(filters: JobFilters = {}): Promise<JobRow[]> {
       machineName: machines.name,
       machineCode: machines.code,
       startedByName: starter.name,
-      endedByName: ender.name
+      endedByName: ender.name,
+      assignedWorkerName: assignee.name
     })
     .from(jobs)
     .innerJoin(machines, eq(jobs.machineId, machines.id))
     .leftJoin(starter, eq(jobs.startedById, starter.id))
     .leftJoin(ender, eq(jobs.endedById, ender.id))
+    .leftJoin(assignee, eq(jobs.assignedWorkerId, assignee.id))
     .where(where.length ? and(...where) : undefined)
-    .orderBy(desc(jobs.startedAt))
+    .orderBy(desc(when))
 
   const ids = rows.map((r) => r.job.id)
-  const checkRows = ids.length
-    ? await db.select({ jobId: qualityChecks.jobId }).from(qualityChecks).where(inArray(qualityChecks.jobId, ids))
-    : []
+  const [checkRows, handoverRows] = ids.length
+    ? await Promise.all([
+        db
+          .select({
+            jobId: qualityChecks.jobId,
+            kind: qualityChecks.kind,
+            status: qualityChecks.status,
+            scheduledAt: qualityChecks.scheduledAt,
+            graceMinutes: activities.graceMinutes
+          })
+          .from(qualityChecks)
+          .innerJoin(activities, eq(qualityChecks.activityId, activities.id))
+          .where(inArray(qualityChecks.jobId, ids)),
+        db.select({ jobId: jobHandovers.jobId }).from(jobHandovers).where(inArray(jobHandovers.jobId, ids))
+      ])
+    : [[], []]
 
   const now = Date.now()
-  return rows.map((r) => ({
-    id: r.job.id,
-    machineId: r.job.machineId,
-    machineName: r.machineName,
-    machineCode: r.machineCode,
-    itemCode: r.job.itemCode,
-    jobNo: r.job.jobNo,
-    startedAt: r.job.startedAt,
-    startedById: r.job.startedById,
-    startedByName: r.startedByName,
-    endedAt: r.job.endedAt,
-    endedById: r.job.endedById,
-    endedByName: r.endedByName,
-    checkCount: checkRows.filter((c) => c.jobId === r.job.id).length,
-    durationMinutes: Math.max(
-      0,
-      Math.round(((r.job.endedAt ? +r.job.endedAt : now) - +r.job.startedAt) / 60_000)
-    )
-  }))
+  const open = (status: string) => status === 'PENDING' || status === 'DUE' || status === 'IN_PROGRESS'
+  const edge = (list: typeof checkRows, kind: 'JOB_START' | 'JOB_END'): JobRow['startCheck'] => {
+    const mine = list.filter((c) => c.kind === kind)
+    if (mine.length === 0) return 'NONE'
+    return mine.some((c) => open(c.status)) ? 'PENDING' : 'DONE'
+  }
+  return rows.map((r) => {
+    const list = checkRows.filter((c) => c.jobId === r.job.id)
+    const counts: JobCheckCounts = {
+      total: list.length,
+      pending: list.filter((c) => c.status === 'PENDING').length,
+      due: list.filter((c) => c.status === 'DUE' || c.status === 'IN_PROGRESS').length,
+      overdue: list.filter((c) => (c.status === 'DUE' || c.status === 'IN_PROGRESS') && +c.scheduledAt + c.graceMinutes * 60_000 < now).length,
+      completed: list.filter((c) => c.status === 'COMPLETED').length,
+      missed: list.filter((c) => c.status === 'MISSED').length,
+      exception: list.filter((c) => c.status === 'EXCEPTION').length
+    }
+    return {
+      id: r.job.id,
+      machineId: r.job.machineId,
+      machineName: r.machineName,
+      machineCode: r.machineCode,
+      itemCode: r.job.itemCode,
+      jobNo: r.job.jobNo,
+      status: r.job.status,
+      startedAt: r.job.startedAt,
+      startedById: r.job.startedById,
+      startedByName: r.startedByName,
+      activatedAt: r.job.activatedAt,
+      endRequestedAt: r.job.endRequestedAt,
+      endedAt: r.job.endedAt,
+      endedById: r.job.endedById,
+      endedByName: r.endedByName,
+      assignedWorkerId: r.job.assignedWorkerId,
+      assignedWorkerName: r.assignedWorkerName,
+      plannedFor: r.job.plannedFor,
+      note: r.job.note,
+      forceClosed: r.job.forceClosed,
+      startCheck: edge(list, 'JOB_START'),
+      endCheck: edge(list, 'JOB_END'),
+      handovers: handoverRows.filter((h) => h.jobId === r.job.id).length,
+      counts,
+      checkCount: list.length,
+      durationMinutes: r.job.startedAt ? Math.max(0, Math.round(((r.job.endedAt ? +r.job.endedAt : now) - +r.job.startedAt) / 60_000)) : 0
+    }
+  })
 }
 
 export interface OverviewSchedule {
@@ -207,7 +286,7 @@ export interface OverviewMachine {
     machineId: string
     itemCode: string | null
     jobNo: string
-    startedAt: Date
+    startedAt: Date | null
     startedById: string | null
     startedByName: string | null
     endedAt: Date | null
@@ -273,7 +352,7 @@ export async function monitoringOverview(): Promise<OverviewMachine[]> {
       .select({ job: jobs, startedByName: users.name })
       .from(jobs)
       .leftJoin(users, eq(jobs.startedById, users.id))
-      .where(isNull(jobs.endedAt))
+      .where(inArray(jobs.status, [...RUNNING_STATUSES]))
   ])
 
   return machineRows.map(({ machine, departmentName }) => {

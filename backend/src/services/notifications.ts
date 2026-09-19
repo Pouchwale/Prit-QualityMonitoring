@@ -1,8 +1,8 @@
-import { and, eq, inArray, isNull, lte } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { db } from '../db/client'
-import { activities, machines, pushTokens, qualityChecks, users, workerMachines } from '../db/schema'
+import { activities, jobs, machines, parameters, pushTokens, qualityChecks, users, workerMachines } from '../db/schema'
 import { sendWebPush, type WebSubscription } from './webPush'
-import { closedDateKeys } from './plantCalendar'
+import { machineOffBetween } from './plantCalendar'
 import { dateKey } from '../lib/time'
 
 /**
@@ -139,8 +139,19 @@ async function recipients(check: { id: string; machineId: string; workerId: stri
 }
 
 /** Sends notifications for checks that have just become due. Safe to call repeatedly. */
+/**
+ * A job check is only notified while its job still needs it: a scheduled job check while the job is
+ * ACTIVE, the Job Start check while it is STARTING, the Job End check while it is ENDING. A completed
+ * or closed job never produces a notification. Shift schedule checks have no job condition.
+ */
+const jobStillNeedsIt = or(
+  eq(qualityChecks.kind, 'SCHEDULED'),
+  sql`exists (select 1 from ${jobs} where ${jobs.id} = ${qualityChecks.jobId} and ${jobs.status} = case ${qualityChecks.kind}
+    when 'JOB_START' then 'STARTING'::job_status when 'JOB_END' then 'ENDING'::job_status else 'ACTIVE'::job_status end)`
+)!
+
 export async function notifyDueChecks() {
-  const due = await db
+  const candidates = await db
     .select({
       id: qualityChecks.id,
       machineId: qualityChecks.machineId,
@@ -148,7 +159,10 @@ export async function notifyDueChecks() {
       shiftId: qualityChecks.shiftId,
       scheduledAt: qualityChecks.scheduledAt,
       machineName: machines.name,
-      activityName: activities.name
+      activityName: activities.name,
+      kind: qualityChecks.kind,
+      parameterIds: qualityChecks.parameterIds,
+      jobNo: qualityChecks.jobNo
     })
     .from(qualityChecks)
     .innerJoin(machines, eq(qualityChecks.machineId, machines.id))
@@ -157,28 +171,57 @@ export async function notifyDueChecks() {
       and(
         eq(qualityChecks.status, 'DUE'),
         isNull(qualityChecks.notifiedAt),
-        lte(qualityChecks.scheduledAt, new Date())
+        lte(qualityChecks.scheduledAt, new Date()),
+        jobStillNeedsIt
       )
     )
     .limit(200)
 
+  if (candidates.length === 0) return { checks: 0, messages: 0 }
+
+  // Claim them first, in one statement that checks the job again: a check whose job was ended,
+  // completed or force-closed a moment ago (its check removed, or the job no longer in that state) is
+  // never sent, a failed send does not loop, and two servers never send the same notification.
+  const claimed = new Set(
+    (
+      await db
+        .update(qualityChecks)
+        .set({ notifiedAt: new Date() })
+        .where(and(inArray(qualityChecks.id, candidates.map((c) => c.id)), eq(qualityChecks.status, 'DUE'), isNull(qualityChecks.notifiedAt), jobStillNeedsIt))
+        .returning({ id: qualityChecks.id })
+    ).map((r) => r.id)
+  )
+  const due = candidates.filter((c) => claimed.has(c.id))
   if (due.length === 0) return { checks: 0, messages: 0 }
 
-  // Plant Calendar: never alert for a check on a closed date.
+  // Plant Calendar: never alert for a check on a closed date, or of a machine not scheduled to
+  // run that day (machine day plans); a planned machine is alerted even on a closed date.
   const times = due.map((c) => c.scheduledAt.getTime())
-  const closed = await closedDateKeys(new Date(Math.min(...times)), new Date(Math.max(...times)))
+  const machineOff = await machineOffBetween(new Date(Math.min(...times)), new Date(Math.max(...times)))
+
+  // A job check names exactly the parameters that are due, e.g. "Viscosity, Printing quality".
+  const parameterIds = [...new Set(due.flatMap((c) => c.parameterIds ?? []))]
+  const names = new Map(
+    parameterIds.length
+      ? (await db.select({ id: parameters.id, name: parameters.name }).from(parameters).where(inArray(parameters.id, parameterIds))).map((p) => [p.id, p.name])
+      : []
+  )
+  const bodyOf = (check: (typeof due)[number]) =>
+    check.kind === 'SCHEDULED' || !check.parameterIds?.length
+      ? `${check.machineName} · ${check.activityName}`
+      : `${check.machineName}${check.jobNo ? ` · Job ${check.jobNo}` : ''} · ${check.parameterIds.map((id) => names.get(id) ?? '').filter(Boolean).join(', ')}`
 
   const messages: ExpoMessage[] = []
   const browserSends: { targets: { token: string; subscription: WebSubscription }[]; title: string; body: string; checkId: string }[] = []
   for (const check of due) {
-    if (closed.has(dateKey(check.scheduledAt))) continue
+    if (machineOff(check.machineId, dateKey(check.scheduledAt))) continue
     const devices = await recipients(check)
     const browsers = devices.filter((d) => d.kind === 'web' && d.subscription)
     if (browsers.length) {
       browserSends.push({
         targets: browsers.map((d) => ({ token: d.token, subscription: d.subscription! })),
         title: 'Quality check due',
-        body: `${check.machineName} · ${check.activityName}`,
+        body: bodyOf(check),
         checkId: check.id
       })
     }
@@ -186,7 +229,7 @@ export async function notifyDueChecks() {
       messages.push({
         to: r.token,
         title: 'Quality check due',
-        body: `${check.machineName} · ${check.activityName}`,
+        body: bodyOf(check),
         data: { checkId: check.id },
         sound: 'default',
         priority: 'high',
@@ -194,12 +237,6 @@ export async function notifyDueChecks() {
       })
     }
   }
-
-  // Mark them first: a failed send must not turn into a notification loop.
-  await db
-    .update(qualityChecks)
-    .set({ notifiedAt: new Date() })
-    .where(inArray(qualityChecks.id, due.map((c) => c.id)))
 
   if (messages.length) await sendToExpo(messages)
   for (const send of browserSends) await sendWebPush(send.targets, send)
@@ -236,4 +273,27 @@ export async function sendTestNotification(userId: string, machineName?: string)
     }))
   )
   return { devices: devices.length, browsers: browsers.length }
+}
+
+/** Sends a notification to every device of one user (e.g. "a job was handed over to you"). */
+export async function sendToUser(userId: string, title: string, body: string, data: Record<string, unknown> = {}) {
+  const devices = await db
+    .select({ token: pushTokens.token, kind: pushTokens.kind, subscription: pushTokens.subscription })
+    .from(pushTokens)
+    .where(eq(pushTokens.userId, userId))
+  if (devices.length === 0) return { devices: 0 }
+  const browsers = devices.filter((d) => d.kind === 'web' && d.subscription)
+  if (browsers.length) {
+    await sendWebPush(
+      browsers.map((d) => ({ token: d.token, subscription: d.subscription! })),
+      { title, body }
+    )
+  }
+  const phones = devices.filter((d) => d.kind !== 'web')
+  if (phones.length) {
+    await sendToExpo(
+      phones.map((d) => ({ to: d.token, title, body, data, sound: 'default' as const, priority: 'high' as const, channelId: 'due-checks' }))
+    )
+  }
+  return { devices: devices.length }
 }

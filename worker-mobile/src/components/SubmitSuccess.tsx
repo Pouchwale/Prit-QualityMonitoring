@@ -16,6 +16,8 @@ interface Props {
   /** True when a reading was outside its limits; the check is still completed. */
   outOfRange: boolean
   onDone: () => void
+  /** Replaces "Done", e.g. "Next: Job Start check". */
+  doneLabel?: string
 }
 
 const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
@@ -28,7 +30,7 @@ const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
 )
 
 /** Shown after a submission: a calm confirmation, when the next check is due and what was sent. */
-export const SubmitSuccess: React.FC<Props> = ({ result, activityName, outOfRange, onDone }) => {
+export const SubmitSuccess: React.FC<Props> = ({ result, activityName, outOfRange, onDone, doneLabel }) => {
   const insets = useSafeAreaInsets()
   const nextDue = result.nextDueAt ? formatTime(result.nextDueAt) : null
 
@@ -44,7 +46,7 @@ export const SubmitSuccess: React.FC<Props> = ({ result, activityName, outOfRang
           </Animated.View>
           <Animated.View entering={FadeIn.duration(250).delay(120)} style={{ alignItems: 'center' }}>
             <Text className="mt-5 text-[28px] font-bold leading-[34px] tracking-[-0.5px] text-ink" accessibilityRole="header">
-              Check submitted
+              {result.jobCompleted ? 'Job completed' : 'Check submitted'}
             </Text>
             <Text className="mt-1 text-center text-[17px] text-ink-secondary">
               {result.machineName} · {activityName}
@@ -53,7 +55,23 @@ export const SubmitSuccess: React.FC<Props> = ({ result, activityName, outOfRang
         </View>
 
         <Animated.View entering={FadeIn.duration(250).delay(200)} style={{ gap: 28 }}>
-          {nextDue ? (
+          {result.jobActivated ? (
+            <View className="flex-row items-start rounded-2xl bg-success-bg px-4 py-3.5">
+              <Icon name="play-circle-outline" size={20} color="success" />
+              <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink-secondary">
+                Job No. {result.job?.jobNo} is running. The scheduled checks follow the admin's plan.
+              </Text>
+            </View>
+          ) : null}
+          {result.jobCompleted ? (
+            <View className="flex-row items-start rounded-2xl bg-success-bg px-4 py-3.5">
+              <Icon name="checkmark-done-outline" size={20} color="success" />
+              <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink-secondary">
+                The Job End check is in and Job No. {result.job?.jobNo} is completed.
+              </Text>
+            </View>
+          ) : null}
+          {result.jobCompleted ? null : nextDue ? (
             <View className="items-center rounded-2xl bg-surface px-4 py-5">
               <Text className="text-[15px] font-medium text-ink-muted">Next check due</Text>
               <Text className="mt-0.5 text-[34px] font-bold leading-[40px] tracking-[-0.6px] text-ink">{nextDue}</Text>
@@ -92,7 +110,7 @@ export const SubmitSuccess: React.FC<Props> = ({ result, activityName, outOfRang
       </ScrollView>
 
       <ActionBar>
-        <Button label="Done" onPress={onDone} />
+        <Button label={doneLabel ?? 'Done'} onPress={onDone} />
       </ActionBar>
     </View>
   )

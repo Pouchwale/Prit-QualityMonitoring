@@ -7,6 +7,7 @@ import { Button } from '../../components/common/Button'
 import { PageHeader } from '../../components/common/PageHeader'
 import { DataState } from '../../components/common/DataState'
 import { inputClass } from '../../components/common/Form'
+import { DateInput } from '../../components/common/DateTimeInputs'
 
 const ENTITIES = ['User', 'Parameter', 'Activity', 'Machine', 'Schedule', 'Shift', 'Department', 'PlantCalendar', 'QualityCheck', 'Exception', 'Settings']
 const LIMITS = [100, 300, 500, 1000]
@@ -86,8 +87,7 @@ export const AuditLogsPage: React.FC = () => {
         </div>
         <div className="min-w-0">
           <div className="text-[11px] font-semibold text-ink-secondary mb-1">From</div>
-          <input
-            type="date"
+          <DateInput
             value={from}
             max={to}
             onChange={(e) => {
@@ -95,13 +95,12 @@ export const AuditLogsPage: React.FC = () => {
               setFrom(v)
               if (v && to && v > to) setTo(v)
             }}
-            className={`${inputClass} sm:w-[160px] lg:w-[132px]`}
+            className="sm:w-[160px] lg:w-[132px]"
           />
         </div>
         <div className="min-w-0">
           <div className="text-[11px] font-semibold text-ink-secondary mb-1">To</div>
-          <input
-            type="date"
+          <DateInput
             value={to}
             min={from}
             onChange={(e) => {
@@ -109,7 +108,7 @@ export const AuditLogsPage: React.FC = () => {
               setTo(v)
               if (v && from && v < from) setFrom(v)
             }}
-            className={`${inputClass} sm:w-[160px] lg:w-[132px]`}
+            className="sm:w-[160px] lg:w-[132px]"
           />
         </div>
         <div className="min-w-0">

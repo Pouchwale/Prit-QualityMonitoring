@@ -54,7 +54,13 @@ export async function resetScheduleTimer(
  */
 export async function settleNextDue(check: { id: string; scheduleId: string | null; machineId: string; activityId: string }) {
   invalidateCheckGeneration()
-  await generateNextChecks(true)
+  try {
+    await generateNextChecks(true)
+  } catch (err) {
+    // The submission is already saved: never report it as failed because the next check could not
+    // be created yet. The scheduler tick creates it within a minute.
+    console.error('Creating the next check after a submission failed; the scheduler will retry.', err)
+  }
 
   const where = check.scheduleId
     ? eq(qualityChecks.scheduleId, check.scheduleId)

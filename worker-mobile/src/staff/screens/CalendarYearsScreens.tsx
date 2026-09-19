@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Image, Platform, Pressable, Text, View } from 'react-native'
 import * as DocumentPicker from 'expo-document-picker'
 import type { CalendarIssue, CalendarYearDetail, CalendarYearItem, CalendarYearSummary, ClosureType } from '../types'
-import { API_URL, ApiError, api, authHeaders, readError, uploadFile, withQuery } from '../../services/api'
+import { getApiUrl, ApiError, api, authHeaders, readError, uploadFile, withQuery } from '../../services/api'
 import { downloadAndShare } from '../../services/files'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
@@ -33,10 +33,11 @@ import {
 } from '../ui'
 import { ICON_COLOR } from '../Icon'
 import { ActionGroup, ActionItem, StatusText } from './adminParts'
+import { formatDate } from '../../utils/datetime'
 
 // Same wording and rules as admin-web/src/pages/admin/calendar/AnnualCalendarsTab.tsx.
 
-const fullDate = (iso: string) => keyToDate(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+const fullDate = (iso: string) => formatDate(iso)
 const weekdayName = (iso: string) => WEEKDAY_NAMES[keyToDate(iso).getDay()]
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -684,7 +685,7 @@ const DocumentImage: React.FC<{ yearId: string; version: string; label: string }
   useEffect(() => {
     let cancelled = false
     let objectUrl: string | null = null
-    const url = `${API_URL}/api/calendar-years/${yearId}/document`
+    const url = `${getApiUrl()}/api/calendar-years/${yearId}/document`
     setSource(null)
     setError(null)
     ;(async () => {

@@ -5,6 +5,12 @@ import { Icon } from './ui/Icon'
 import { ParameterInput } from './ParameterField'
 import { EvidenceButton } from './EvidenceButton'
 
+/**
+ * Whether this parameter needs a photo. A Photo parameter (e.g. Ink Photo) is answered with a
+ * photo, so when it is Required the photo is required.
+ */
+export const needsPhoto = (p: FormParameter) => p.requirePhoto || (p.type === 'PHOTO' && p.isRequired)
+
 /** What the worker chose when marking a parameter Not Applicable. */
 export interface NaChoice {
   reasonId: string
@@ -53,13 +59,15 @@ export const ParameterCard: React.FC<Props> = ({
   onLayout
 }) => {
   const hasMissing = missing.length > 0
+  const isPhoto = p.type === 'PHOTO'
+  const photoRequired = needsPhoto(p)
 
   return (
     <View onLayout={onLayout} className={`rounded-2xl border bg-surface p-4 ${hasMissing ? 'border-missed' : 'border-transparent'}`}>
       <View className="flex-row items-start">
         <View className="flex-1">
           <Text className={`text-[17px] font-semibold leading-[22px] ${p.applicable ? 'text-ink' : 'text-ink-muted'}`}>{p.name}</Text>
-          {p.rule && p.applicable && p.type !== 'PASS_FAIL' && p.type !== 'YES_NO' && p.type !== 'DROPDOWN' ? <Text className="mt-0.5 text-[15px] text-ink-muted">{p.rule}</Text> : null}
+          {p.rule && p.applicable && p.type !== 'PASS_FAIL' && p.type !== 'YES_NO' && p.type !== 'DROPDOWN' && p.type !== 'PHOTO' ? <Text className="mt-0.5 text-[15px] text-ink-muted">{p.rule}</Text> : null}
           {!p.isRequired && p.applicable && !na ? <Text className="mt-0.5 text-[13px] text-ink-muted">Optional</Text> : null}
         </View>
         {done && p.applicable ? (
@@ -96,13 +104,13 @@ export const ParameterCard: React.FC<Props> = ({
         </View>
       ) : (
         <View className="mt-3 gap-2.5">
-          <ParameterInput parameter={p} value={value} onChange={onChange} invalid={missing.includes('Value')} />
+          {isPhoto ? null : <ParameterInput parameter={p} value={value} onChange={onChange} invalid={missing.includes('Value')} />}
 
-          {p.requirePhoto || photo ? (
+          {photoRequired || isPhoto || photo ? (
             <EvidenceButton
               kind="photo"
               capture={photo}
-              required={p.requirePhoto}
+              required={photoRequired}
               forName={p.name}
               missing={missing.includes('Photo')}
               highlight={highlight === 'photo'}

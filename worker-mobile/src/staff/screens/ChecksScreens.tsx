@@ -17,6 +17,7 @@ import {
   toCsv
 } from '../format'
 import {
+  AccessDenied,
   ActionRow,
   Badge,
   Card,
@@ -39,9 +40,9 @@ import {
   Segmented,
   SelectField,
   StatusBadge,
-  useToast,
+  TimeField,
   type HeaderAction,
-  AccessDenied
+  useToast
 } from '../ui'
 
 const workerOf = (c: QualityCheck) => c.submittedByName ?? c.workerName ?? '—'
@@ -435,14 +436,10 @@ const TestCheckForm: React.FC = () => {
           />
         </View>
         {status === 'PENDING' ? (
-          <View className="flex-row gap-2">
-            <View className="flex-1">
-              <DateField label="Date" value={startDate} min={dateKey()} onChange={(d) => d && setStartDate(d)} />
-            </View>
-            <View className="w-28">
-              <Input label="Time" value={startTime} onChangeText={setStartTime} placeholder="14:30" keyboardType="numbers-and-punctuation" error={timeValid ? null : 'HH:MM'} />
-            </View>
-          </View>
+          <>
+            <DateField label="Date" value={startDate} min={dateKey()} onChange={(d) => d && setStartDate(d)} />
+            <TimeField label="Time" value={startTime} onChange={setStartTime} error={timeValid ? null : 'Choose a time'} />
+          </>
         ) : null}
         <SelectField
           label="Open for"

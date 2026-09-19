@@ -43,7 +43,32 @@ interface FormParameter {
   allowNa: boolean
   /** JOB_RUNNING parameters are skipped automatically when no job runs on the machine. */
   appliesWhen: AppliesWhen
+  /** Job-based check types: checked at job start, every intervalMinutes, or at job end. */
+  frequency: 'JOB_START' | 'INTERVAL' | 'JOB_END'
+  intervalMinutes: number
 }
+
+/** The "When checked" choices of a job-based check type's parameter. */
+const FREQUENCY_OPTIONS = [
+  { value: 'JOB_START', label: 'Job start' },
+  { value: '60', label: 'Every 1 hour' },
+  { value: '120', label: 'Every 2 hours' },
+  { value: '180', label: 'Every 3 hours' },
+  { value: 'CUSTOM', label: 'Custom interval' },
+  { value: 'JOB_END', label: 'Job end' }
+] as const
+type FrequencyChoice = (typeof FREQUENCY_OPTIONS)[number]['value']
+const frequencyChoice = (p: FormParameter): FrequencyChoice =>
+  p.frequency !== 'INTERVAL' ? p.frequency : ([60, 120, 180].includes(p.intervalMinutes) ? (String(p.intervalMinutes) as '60' | '120' | '180') : 'CUSTOM')
+/** "Job start", "Every 1 hour", "Every 45 min", "Job end". */
+const frequencyText = (p: { frequency?: string; intervalMinutes?: number }) =>
+  p.frequency === 'JOB_START'
+    ? 'Job start'
+    : p.frequency === 'JOB_END'
+      ? 'Job end'
+      : (p.intervalMinutes ?? 60) % 60 === 0
+        ? `Every ${(p.intervalMinutes ?? 60) / 60} hour${p.intervalMinutes === 60 ? '' : 's'}`
+        : `Every ${p.intervalMinutes} min`
 
 interface ActivityForm {
   name: string
@@ -55,6 +80,9 @@ interface ActivityForm {
   requirePhoto: boolean
   requireVideo: boolean
   allowManual: boolean
+  /** SHIFT: checks from shift schedules. JOB: per job, each parameter at its own frequency. */
+  monitoring: 'SHIFT' | 'JOB'
+  graceMinutes: string
   /** Array order = order on the worker form. */
   parameters: FormParameter[]
   machineIds: string[]
@@ -70,6 +98,8 @@ interface ActivityBody {
   requireVideo: boolean
   requireJobNo: boolean
   allowManual: boolean
+  monitoring: 'SHIFT' | 'JOB'
+  graceMinutes: number
   isActive: boolean
   parameters: FormParameter[]
   machineIds: string[]
@@ -94,6 +124,8 @@ const emptyForm: ActivityForm = {
   requirePhoto: true,
   requireVideo: false,
   allowManual: true,
+  monitoring: 'SHIFT',
+  graceMinutes: '20',
   parameters: [],
   machineIds: []
 }
@@ -108,6 +140,8 @@ const formFromActivity = (a: Activity): ActivityForm => ({
   requirePhoto: a.requirePhoto,
   requireVideo: a.requireVideo,
   allowManual: a.allowManual ?? true,
+  monitoring: a.monitoring ?? 'SHIFT',
+  graceMinutes: String(a.graceMinutes ?? 20),
   parameters: a.parameters.map((p) => ({
     parameterId: p.parameterId,
     isRequired: p.isRequired,
@@ -115,7 +149,9 @@ const formFromActivity = (a: Activity): ActivityForm => ({
     requirePhoto: p.requirePhoto ?? false,
     requireVideo: p.requireVideo ?? false,
     allowNa: p.allowNa ?? false,
-    appliesWhen: p.appliesWhen ?? 'ALWAYS'
+    appliesWhen: p.appliesWhen ?? 'ALWAYS',
+    frequency: p.frequency ?? 'INTERVAL',
+    intervalMinutes: p.intervalMinutes ?? 60
   })),
   machineIds: [...a.machineIds]
 })
@@ -124,11 +160,15 @@ const formFromActivity = (a: Activity): ActivityForm => ({
 const evidenceLabels = (a: Pick<Activity, 'requireJobNo' | 'requirePhoto' | 'requireVideo'>) =>
   [a.requireJobNo && 'Job No.', a.requirePhoto && 'Overall photo', a.requireVideo && 'Overall video'].filter((x): x is string => !!x)
 
-/** "Photo · Video · N/A · Only during a job" for one parameter of the check type. */
-const parameterFlags = (p: Activity['parameters'][number]) =>
-  [p.requirePhoto && 'Photo', p.requireVideo && 'Video', p.allowNa && 'N/A allowed', p.appliesWhen === 'JOB_RUNNING' && 'Only during a job'].filter(
-    (x): x is string => !!x
-  )
+/** "Photo · Video · N/A · Only during a job" (or "Every 1 hour" on a job-based type) for one parameter. */
+const parameterFlags = (p: Activity['parameters'][number], jobBased = false) =>
+  [
+    jobBased && frequencyText(p),
+    p.requirePhoto && 'Photo',
+    p.requireVideo && 'Video',
+    p.allowNa && 'N/A allowed',
+    !jobBased && p.appliesWhen === 'JOB_RUNNING' && 'Only during a job'
+  ].filter((x): x is string => !!x)
 
 /** Parameters shown to workers (enabled here and active globally). */
 const shownParameters = (a: Activity) => a.parameters.filter((p) => p.isEnabled && p.parameterActive)
@@ -279,6 +319,7 @@ export const ActivityDetailScreen: React.FC<{ params: { id: string } }> = ({ par
                   value={evidence.length ? evidence.join(' · ') : 'None required'}
                   detail="Per-parameter photo and video are listed with each parameter below."
                 />
+                <KV label="Monitoring" value={activity.monitoring === 'JOB' ? `Job-based · grace ${activity.graceMinutes ?? 20} min` : 'Shift schedules'} />
                 <KV label="Manual submission" value={activity.allowManual ? 'Allowed' : 'Notification only'} />
                 {activity.description ? <KV stacked label="Description" value={activity.description} /> : null}
               </Card>
@@ -296,7 +337,7 @@ export const ActivityDetailScreen: React.FC<{ params: { id: string } }> = ({ par
                       titleClassName={p.isEnabled ? '' : 'text-staff-muted'}
                       subtitle={`${PARAMETER_TYPE_LABEL[p.type]}${p.unit ? ` · ${p.unit}` : ''} · ${p.isRequired ? 'Required' : 'Optional'}`}
                       detail={
-                        [...parameterFlags(p), !p.isEnabled && 'Off on this form', !p.parameterActive && 'Disabled globally'].filter(Boolean).join(' · ') || null
+                        [...parameterFlags(p, activity.monitoring === 'JOB'), !p.isEnabled && 'Off on this form', !p.parameterActive && 'Disabled globally'].filter(Boolean).join(' · ') || null
                       }
                     />
                   ))}
@@ -403,12 +444,28 @@ const ActivityForm: React.FC<{ params: { id?: string } }> = ({ params }) => {
     if (!parameter) return
     update('parameters', [
       ...form.parameters,
-      { parameterId: parameter.id, isRequired: parameter.isRequired, isEnabled: true, requirePhoto: false, requireVideo: false, allowNa: false, appliesWhen: 'ALWAYS' }
+      {
+        parameterId: parameter.id,
+        isRequired: parameter.isRequired,
+        isEnabled: true,
+        requirePhoto: false,
+        requireVideo: false,
+        allowNa: false,
+        appliesWhen: 'ALWAYS',
+        frequency: 'INTERVAL',
+        intervalMinutes: 60
+      }
     ])
     setAddParameterId('')
   }
 
   const submit = async () => {
+    const grace = Number(form.graceMinutes)
+    if (form.monitoring === 'JOB') {
+      if (!Number.isInteger(grace) || grace < 5 || grace > 240) return setFormError('Grace must be 5 to 240 minutes')
+      const bad = form.parameters.find((p) => p.frequency === 'INTERVAL' && (!Number.isInteger(p.intervalMinutes) || p.intervalMinutes < 5 || p.intervalMinutes > 1440))
+      if (bad) return setFormError(`${parameterInfo.get(bad.parameterId)?.name ?? 'A parameter'}: the interval must be 5 to 1440 minutes`)
+    }
     const body: ActivityBody = {
       name: form.name.trim(),
       code: form.code.trim(),
@@ -418,6 +475,8 @@ const ActivityForm: React.FC<{ params: { id?: string } }> = ({ params }) => {
       requireVideo: form.requireVideo,
       requireJobNo: form.requireJobNo,
       allowManual: form.allowManual,
+      monitoring: form.monitoring,
+      graceMinutes: Number.isInteger(grace) && grace >= 5 ? grace : 20,
       isActive: form.isActive,
       parameters: form.parameters,
       machineIds: form.machineIds
@@ -510,6 +569,31 @@ const ActivityForm: React.FC<{ params: { id?: string } }> = ({ params }) => {
             </FormSection>
 
             <FormSection
+              title="When it is checked"
+              description="Shift schedules ask every parameter at each scheduled check. Job-based: each parameter at job start, every N hours, or at job end; a notification asks only what is due."
+            >
+              <SelectField
+                label="Monitoring"
+                value={form.monitoring}
+                options={[
+                  { value: 'SHIFT', label: 'Shift schedules' },
+                  { value: 'JOB', label: 'Job-based' }
+                ]}
+                onChange={(v) => v && update('monitoring', v)}
+              />
+              {form.monitoring === 'JOB' ? (
+                <Input
+                  label="Grace (minutes)"
+                  hint="A scheduled job check counts as Missed this long after it is due."
+                  value={form.graceMinutes}
+                  onChangeText={(v) => update('graceMinutes', v.replace(/[^0-9]/g, ''))}
+                  keyboardType="number-pad"
+                  maxLength={3}
+                />
+              ) : null}
+            </FormSection>
+
+            <FormSection
               title="Parameters"
               description={`Workers see them in this order. ${enabledOnForm} of ${form.parameters.length} enabled. Turn a parameter off to hide it from this form without losing its settings. Photo and Video ask for evidence on that parameter alone; Allow N/A lets the worker mark it not applicable with a reason.`}
             >
@@ -551,13 +635,42 @@ const ActivityForm: React.FC<{ params: { id?: string } }> = ({ params }) => {
                           <View className="flex-row gap-2">
                             <CompactToggle label="Allow N/A" value={fp.allowNa} onChange={(v) => updateParameter(index, { allowNa: v })} />
                           </View>
-                          <View className="flex-row gap-2">
-                            <CompactToggle
-                              label="Only while a job is running"
-                              value={fp.appliesWhen === 'JOB_RUNNING'}
-                              onChange={(v) => updateParameter(index, { appliesWhen: v ? 'JOB_RUNNING' : 'ALWAYS' })}
-                            />
-                          </View>
+                          {form.monitoring === 'SHIFT' ? (
+                            <View className="flex-row gap-2">
+                              <CompactToggle
+                                label="Only while a job is running"
+                                value={fp.appliesWhen === 'JOB_RUNNING'}
+                                onChange={(v) => updateParameter(index, { appliesWhen: v ? 'JOB_RUNNING' : 'ALWAYS' })}
+                              />
+                            </View>
+                          ) : (
+                            <View className="gap-2">
+                              <SelectField
+                                label={`When checked: ${name}`}
+                                value={frequencyChoice(fp)}
+                                options={FREQUENCY_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+                                onChange={(v) => {
+                                  if (!v) return
+                                  if (v === 'JOB_START' || v === 'JOB_END') updateParameter(index, { frequency: v })
+                                  else if (v === 'CUSTOM')
+                                    updateParameter(index, {
+                                      frequency: 'INTERVAL',
+                                      intervalMinutes: fp.frequency === 'INTERVAL' && ![60, 120, 180].includes(fp.intervalMinutes) ? fp.intervalMinutes : 90
+                                    })
+                                  else updateParameter(index, { frequency: 'INTERVAL', intervalMinutes: Number(v) })
+                                }}
+                              />
+                              {frequencyChoice(fp) === 'CUSTOM' ? (
+                                <Input
+                                  label={`Every (minutes): ${name}`}
+                                  value={String(fp.intervalMinutes)}
+                                  onChangeText={(v) => updateParameter(index, { intervalMinutes: Number(v.replace(/[^0-9]/g, '')) || 0 })}
+                                  keyboardType="number-pad"
+                                  maxLength={4}
+                                />
+                              ) : null}
+                            </View>
+                          )}
                         </View>
                         <View className="flex-row justify-end gap-2">
                             <IconButton icon="arrow-up" accessibilityLabel={`Move ${name} up`} disabled={index === 0} onPress={() => moveParameter(index, -1)} />

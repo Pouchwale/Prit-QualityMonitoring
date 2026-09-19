@@ -1,13 +1,57 @@
 import type { ParameterType, CheckResult, QualityCheckStatus } from '../types'
 
-export const formatDateTime = (iso: string | null | undefined) =>
-  iso ? new Date(iso).toLocaleString([], { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+/*
+ * Display formats used everywhere in the panel: dates as DD/MM/YYYY and times as 12-hour with
+ * AM/PM (e.g. 18/09/2026, 2:30 PM). Only what is shown changes: the API still sends and receives
+ * ISO timestamps, YYYY-MM-DD date keys and HH:MM shift times.
+ */
+const pad2 = (n: number) => String(n).padStart(2, '0')
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
-export const formatTime = (iso: string | null | undefined) =>
-  iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'
+const toDate = (value: string | Date) => {
+  if (value instanceof Date) return value
+  // A bare date key is a local calendar day, not midnight UTC.
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? keyToLocalDate(value) : new Date(value)
+}
+const keyToLocalDate = (key: string) => {
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
 
-export const formatDate = (iso: string | Date | null | undefined) =>
-  iso ? new Date(iso).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+/** "14:30" → "2:30 PM"; seconds are added when asked, e.g. "2:30:05 PM". */
+export function formatClock(hhmm: string | null | undefined, withSeconds = false): string {
+  const match = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(hhmm ?? '')
+  if (!match) return hhmm || '—'
+  const hour = Number(match[1]) % 24
+  return `${hour % 12 || 12}:${match[2]}${withSeconds ? `:${match[3] ?? '00'}` : ''} ${hour < 12 ? 'AM' : 'PM'}`
+}
+
+/** 18/09/2026 */
+export const formatDate = (iso: string | Date | null | undefined) => {
+  if (!iso) return '—'
+  const d = toDate(iso)
+  return Number.isNaN(d.getTime()) ? '—' : `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`
+}
+
+/** 2:30 PM */
+export const formatTime = (iso: string | Date | null | undefined, withSeconds = false) => {
+  if (!iso) return '—'
+  const d = toDate(iso)
+  return Number.isNaN(d.getTime()) ? '—' : formatClock(`${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`, withSeconds)
+}
+
+/** 18/09/2026, 2:30 PM */
+export const formatDateTime = (iso: string | Date | null | undefined) => (iso ? `${formatDate(iso)}, ${formatTime(iso)}` : '—')
+
+/** A YYYY-MM-DD key for display: 18/09/2026. */
+export const formatDateKey = (key: string | null | undefined) => (key ? formatDate(key) : '—')
+
+/** Friday, 18/09/2026 */
+export const formatLongDate = (iso: string | Date | null | undefined) => (iso ? `${WEEKDAYS[toDate(iso).getDay()]}, ${formatDate(iso)}` : '—')
+
+/** "08:00–16:00" shift or window times as "8:00 AM – 4:00 PM". */
+export const formatClockRange = (start: string | null | undefined, end: string | null | undefined) =>
+  `${formatClock(start)} – ${formatClock(end)}`
 
 /** Local date as YYYY-MM-DD, the format the API expects. */
 export function dateKey(date = new Date()) {
@@ -27,7 +71,8 @@ export const PARAMETER_TYPE_LABEL: Record<ParameterType, string> = {
   TEXT: 'Text',
   DROPDOWN: 'Dropdown',
   YES_NO: 'Yes / No',
-  PASS_FAIL: 'Pass / Fail'
+  PASS_FAIL: 'Pass / Fail',
+  PHOTO: 'Photo'
 }
 
 export const RESULT_LABEL: Record<CheckResult, string> = {

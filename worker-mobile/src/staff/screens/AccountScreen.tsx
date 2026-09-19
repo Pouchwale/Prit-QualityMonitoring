@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Text } from 'react-native'
 import type { ModuleInfo } from '../types'
-import { API_URL, changePassword } from '../../services/api'
+import { getApiUrl, changePassword } from '../../services/api'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
 import { ROLE_LABEL } from '../format'
@@ -93,7 +93,7 @@ export const AccountScreen: React.FC = () => {
           }}
         />
       </ActionList>
-      <Text className="-mt-3 px-4 text-[12px] leading-[16px] text-staff-muted">Server: {API_URL}</Text>
+      <Text className="-mt-3 px-4 text-[12px] leading-[16px] text-staff-muted">Server: {getApiUrl()}</Text>
     </Screen>
   )
 }

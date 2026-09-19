@@ -1,6 +1,6 @@
-import { and, asc, eq, gte, inArray, isNull, lt, lte, max, min, or } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNull, lt, lte, max, min, notInArray, or, type SQL } from 'drizzle-orm'
 import { db } from '../db/client'
-import { plantClosures, qualityChecks, settings } from '../db/schema'
+import { machineDayPlanMachines, machineDayPlans, plantClosures, qualityChecks, settings } from '../db/schema'
 import { addDays, dateKey, parseDateKey, startOfDay, weekdayOf } from '../lib/time'
 import { CALENDAR_V2_START, WEEKDAY_NAMES, ruleCloses, rulesBetween } from './weeklyRules'
 
@@ -25,6 +25,10 @@ export { WEEKDAY_NAMES }
  *  - the due-alert sender skips the date as well, in case a check slips through.
  * Submitted checks (Completed / Exception) are real records and are never removed.
  * Removing a closure lets the day's checks be generated again from the schedules.
+ *
+ * Machine day plans (services/machineDays.ts) refine this per machine: on a date with a plan,
+ * exactly the listed machines run, whatever the plant calendar says, and the others do not.
+ * Every "does this check's machine run that day?" decision therefore goes through machineOffFn.
  */
 
 export type ClosureType = (typeof plantClosures.type.enumValues)[number]
@@ -133,13 +137,43 @@ export async function closureOn(day: Date) {
   return { id: null, date: state.date, type: 'CLOSED' as const, reason: null, label: state.label!, weeklyOff: true }
 }
 
-/** Removes unsubmitted checks on whichever of these dates are closed now. */
-export async function removeChecksIfClosed(keys: string[]) {
-  const unique = [...new Set(keys)].sort()
-  if (unique.length === 0) return 0
-  const closed = await closedDateKeys(parseDateKey(unique[0]), parseDateKey(unique[unique.length - 1]))
-  return removeChecksOnClosedDays(unique.filter((k) => closed.has(k)))
+// ---- Machine day plans ----
+
+/** The machines that run on each planned date between two date keys (inclusive). Unplanned dates are absent. */
+export async function plansBetween(fromKey: string, toKey: string): Promise<Map<string, Set<string>>> {
+  const [plans, links] = await Promise.all([
+    db
+      .select({ date: machineDayPlans.date })
+      .from(machineDayPlans)
+      .where(and(gte(machineDayPlans.date, fromKey), lte(machineDayPlans.date, toKey))),
+    db
+      .select({ date: machineDayPlanMachines.date, machineId: machineDayPlanMachines.machineId })
+      .from(machineDayPlanMachines)
+      .where(and(gte(machineDayPlanMachines.date, fromKey), lte(machineDayPlanMachines.date, toKey)))
+  ])
+  const map = new Map<string, Set<string>>(plans.map((p) => [p.date, new Set<string>()]))
+  for (const l of links) map.get(l.date)?.add(l.machineId)
+  return map
 }
+
+/**
+ * Whether a machine is off on a date: a machine day plan decides when the date has one (listed
+ * machines run even on a closed day, unlisted ones are off), otherwise the plant calendar does.
+ */
+export function machineOffFn(closed: Set<string>, plans: Map<string, Set<string>>) {
+  return (machineId: string, key: string) => {
+    const plan = plans.get(key)
+    return plan ? !plan.has(machineId) : closed.has(key)
+  }
+}
+
+/** Closed dates and machine day plans between two instants, as one "is this machine off?" test. */
+export async function machineOffBetween(from: Date, to: Date) {
+  const [closed, plans] = await Promise.all([closedDateKeys(from, to), plansBetween(dateKey(from), dateKey(to))])
+  return machineOffFn(closed, plans)
+}
+
+// ---- Removing checks nobody should do ----
 
 /** Checks on these dates that were never submitted: open ones and ones already marked Missed. */
 function unsubmittedOn(keys: string[]) {
@@ -147,24 +181,77 @@ function unsubmittedOn(keys: string[]) {
   return and(
     or(...days.map((day) => and(gte(qualityChecks.scheduledAt, day), lt(qualityChecks.scheduledAt, addDays(day, 1)))))!,
     isNull(qualityChecks.submittedAt),
-    inArray(qualityChecks.status, ['PENDING', 'DUE', 'IN_PROGRESS', 'MISSED'])
-  )
+    inArray(qualityChecks.status, ['PENDING', 'DUE', 'IN_PROGRESS', 'MISSED']),
+    // A job's start and end checks belong to the job, whatever the date: the job waits for them.
+    notInArray(qualityChecks.kind, ['JOB_START', 'JOB_END'])
+  )!
 }
 
-/** Removes the unsubmitted checks on closed dates. Returns how many were removed. */
-export async function removeChecksOnClosedDays(keys: string[]) {
-  if (keys.length === 0) return 0
+/**
+ * Removes the unsubmitted checks of machines that do not run on these dates. On a date with a
+ * machine day plan the unlisted machines' checks go (on a closed date, or on an open date from
+ * today on: past open dates keep their history) and the listed machines keep theirs. On a date
+ * without a plan every unsubmitted check goes when the date is closed. Returns how many were removed.
+ */
+async function removeUnrunChecks(keys: string[], closed: Set<string>, plans?: Map<string, Set<string>>) {
+  const unique = [...new Set(keys)].sort()
+  if (unique.length === 0) return 0
+  plans ??= await plansBetween(unique[0], unique[unique.length - 1])
+  const today = dateKey(new Date())
+
+  const plain: string[] = []
+  const planned: { key: string; running: string[] }[] = []
+  for (const key of unique) {
+    const plan = plans.get(key)
+    if (plan) {
+      if (closed.has(key) || key >= today) planned.push({ key, running: [...plan] })
+    } else if (closed.has(key)) {
+      plain.push(key)
+    }
+  }
+
   let removed = 0
-  for (let i = 0; i < keys.length; i += 50) {
-    const rows = await db.delete(qualityChecks).where(unsubmittedOn(keys.slice(i, i + 50))).returning({ id: qualityChecks.id })
+  const remove = async (where: SQL) => {
+    const rows = await db.delete(qualityChecks).where(where).returning({ id: qualityChecks.id })
     removed += rows.length
+  }
+  for (let i = 0; i < plain.length; i += 50) await remove(unsubmittedOn(plain.slice(i, i + 50)))
+  for (const { key, running } of planned) {
+    await remove(running.length ? and(unsubmittedOn([key]), notInArray(qualityChecks.machineId, running))! : unsubmittedOn([key]))
   }
   return removed
 }
 
 /**
- * Run before statuses are refreshed: nothing on a closed day may become Due or Missed. Looks at
- * the dates of the checks that are still open (and would change status next), however old.
+ * Removes unsubmitted checks on whichever of these dates are closed now, and those of machines a
+ * machine day plan turns off. Machines a plan runs on a closed date keep their checks.
+ */
+export async function removeChecksIfClosed(keys: string[]) {
+  const unique = [...new Set(keys)].sort()
+  if (unique.length === 0) return 0
+  const closed = await closedDateKeys(parseDateKey(unique[0]), parseDateKey(unique[unique.length - 1]))
+  return removeUnrunChecks(unique, closed)
+}
+
+/**
+ * Removes the unsubmitted checks on closed dates. Returns how many were removed. Machines that a
+ * machine day plan runs on one of these dates keep their checks.
+ */
+export async function removeChecksOnClosedDays(keys: string[]) {
+  if (keys.length === 0) return 0
+  return removeUnrunChecks(keys, new Set(keys))
+}
+
+/** Closed dates and planned dates in a range: every date on which some machine may not run. */
+async function unrunKeys(from: Date, to: Date) {
+  const [closed, plans] = await Promise.all([closedDateKeys(from, to), plansBetween(dateKey(from), dateKey(to))])
+  return { keys: [...new Set([...closed, ...plans.keys()])], closed, plans }
+}
+
+/**
+ * Run before statuses are refreshed: nothing on a closed day, or of a machine that a machine day
+ * plan turns off, may become Due or Missed. Looks at the dates of the checks that are still open
+ * (and would change status next), however old.
  */
 export async function purgeClosedDays() {
   const [range] = await db
@@ -172,13 +259,14 @@ export async function purgeClosedDays() {
     .from(qualityChecks)
     .where(and(isNull(qualityChecks.submittedAt), inArray(qualityChecks.status, ['PENDING', 'DUE', 'IN_PROGRESS'])))
   if (!range?.from || !range.to) return 0
-  const keys = await closedDateKeys(startOfDay(new Date(range.from)), new Date(range.to))
-  return removeChecksOnClosedDays([...keys])
+  const { keys, closed, plans } = await unrunKeys(startOfDay(new Date(range.from)), new Date(range.to))
+  return removeUnrunChecks(keys, closed, plans)
 }
 
 /**
  * Every closed date that still holds unsubmitted checks, back to the oldest one. Used at startup
  * and when the weekly off days change, which can close many past and future dates at once.
+ * Machine day plans apply as in purgeClosedDays.
  */
 export async function purgeAllClosedDays() {
   const [oldest] = await db
@@ -187,8 +275,8 @@ export async function purgeAllClosedDays() {
     .where(and(isNull(qualityChecks.submittedAt), inArray(qualityChecks.status, ['PENDING', 'DUE', 'IN_PROGRESS', 'MISSED'])))
   if (!oldest?.at) return 0
   const today = startOfDay(new Date())
-  const keys = await closedDateKeys(startOfDay(new Date(oldest.at)), addDays(today, PURGE_AHEAD_DAYS))
-  return removeChecksOnClosedDays([...keys])
+  const { keys, closed, plans } = await unrunKeys(startOfDay(new Date(oldest.at)), addDays(today, PURGE_AHEAD_DAYS))
+  return removeUnrunChecks(keys, closed, plans)
 }
 
 /** Closures in a date range, oldest first. */

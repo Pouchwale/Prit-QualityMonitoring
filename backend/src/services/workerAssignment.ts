@@ -89,7 +89,8 @@ export async function reassignOpenChecks() {
     })
     .from(qualityChecks)
     .leftJoin(schedules, eq(qualityChecks.scheduleId, schedules.id))
-    .where(and(inArray(qualityChecks.status, ['PENDING', 'DUE', 'IN_PROGRESS']), isNull(qualityChecks.submittedAt)))
+    // Job checks follow the job's assigned worker (services/jobMonitoring.ts), not the shift rota.
+    .where(and(inArray(qualityChecks.status, ['PENDING', 'DUE', 'IN_PROGRESS']), isNull(qualityChecks.submittedAt), eq(qualityChecks.kind, 'SCHEDULED')))
   if (open.length === 0) return { moved: 0, removed: 0 }
   return settle(open, await loadWorkers())
 }
@@ -174,7 +175,7 @@ export async function repairCheckWorkers() {
     })
     .from(qualityChecks)
     .leftJoin(schedules, eq(qualityChecks.scheduleId, schedules.id))
-    .where(and(isNull(qualityChecks.workerId), isNull(qualityChecks.submittedAt)))
+    .where(and(isNull(qualityChecks.workerId), isNull(qualityChecks.submittedAt), eq(qualityChecks.kind, 'SCHEDULED')))
 
   const settled = missed.length ? await settle(missed, await loadWorkers()) : { moved: 0, removed: 0 }
   const open = await reassignOpenChecks()
@@ -199,9 +200,14 @@ function inShift(minutes: number, start: string, end: string) {
 
 /** The active shift running at a moment, used for one-off checks. */
 export async function shiftAt(moment: Date) {
-  const minutes = minutesOfDay(moment)
   const rows = await db.select().from(shifts).where(eq(shifts.isActive, true))
-  return rows.find((s) => inShift(minutes, s.startTime, s.endTime)) ?? null
+  return shiftFor(rows, moment)
+}
+
+/** The shift of a list running at a moment, without a query (e.g. inside a transaction). */
+export function shiftFor<T extends { startTime: string; endTime: string }>(list: T[], moment: Date): T | null {
+  const minutes = minutesOfDay(moment)
+  return list.find((s) => inShift(minutes, s.startTime, s.endTime)) ?? null
 }
 
 /** Active schedules that cannot create checks because no worker covers their machine and shift. */

@@ -4,7 +4,7 @@ import type { Department, Machine, Role, Shift, User } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { ROLE_LABEL, useAuth } from '../../lib/auth'
-import { formatDateTime } from '../../lib/format'
+import { formatClockRange, formatDateTime } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
 import { DataState } from '../../components/common/DataState'
@@ -405,7 +405,7 @@ export const WorkersPage: React.FC = () => {
                 <option value="">No shift</option>
                 {shiftOptions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {`${s.name} (${s.startTime}–${s.endTime})${s.isActive ? '' : ' (inactive)'}`}
+                    {`${s.name} (${formatClockRange(s.startTime, s.endTime)})${s.isActive ? '' : ' (inactive)'}`}
                   </option>
                 ))}
               </Select>

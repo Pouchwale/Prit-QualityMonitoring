@@ -20,16 +20,17 @@ import { api, download, errorText, fetchBlob, upload } from '../../../lib/api'
 import { useApi } from '../../../lib/useApi'
 import { useCanManage } from '../../../lib/auth'
 import { CLOSURE_TYPES, WEEKDAY_NAMES } from '../../../lib/closureTypes'
-import { formatDateTime } from '../../../lib/format'
+import { formatDateKey, formatDateTime } from '../../../lib/format'
 import { Button } from '../../../components/common/Button'
 import { ConfirmModal } from '../../../components/common/ConfirmModal'
 import { DataState } from '../../../components/common/DataState'
 import { Field, FormError, Select, TextInput } from '../../../components/common/Form'
 import { Modal } from '../../../components/common/Modal'
 import { useToast } from '../../../components/common/Toast'
+import { DateInput } from '../../../components/common/DateTimeInputs'
 
 const toDate = (iso: string) => new Date(`${iso}T00:00:00`)
-const fullDate = (iso: string) => toDate(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+const fullDate = (iso: string) => formatDateKey(iso)
 const weekdayName = (iso: string) => WEEKDAY_NAMES[toDate(iso).getDay()]
 
 const METHOD_LABEL: Record<string, string> = {
@@ -706,7 +707,7 @@ const ItemModal: React.FC<{
         </fieldset>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Date" required hint={form.date ? weekdayName(form.date) : undefined}>
-            <TextInput type="date" value={form.date} min={`${year}-01-01`} max={`${year}-12-31`} onChange={(e) => set('date', e.target.value)} required />
+            <DateInput value={form.date} min={`${year}-01-01`} max={`${year}-12-31`} onChange={(e) => set('date', e.target.value)} required />
           </Field>
           {form.type === 'WORKING' && (
             <Field label="Replaces holiday" hint="The holiday this working day makes up for">

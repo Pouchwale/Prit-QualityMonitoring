@@ -1,32 +1,14 @@
 import React, { useEffect, useRef } from 'react'
-import {
-  LayoutDashboard,
-  ClipboardCheck,
-  Cpu,
-  Workflow,
-  SlidersHorizontal,
-  CalendarClock,
-  CalendarOff,
-  GaugeCircle,
-  Users,
-  Link2,
-  Clock3,
-  AlertOctagon,
-  FileSpreadsheet,
-  History,
-  Settings,
-  Building2,
-  Factory,
-  ShieldCheck,
-  UserRound,
-  X
-} from 'lucide-react'
+import { AlertOctagon, Briefcase, Building2, CalendarClock, CalendarOff, ClipboardCheck, Clock3, Cpu, Factory, FileSpreadsheet, GaugeCircle, History, LayoutDashboard, Link2, Settings, ShieldCheck, SlidersHorizontal, UserRound, Users, Workflow, X } from 'lucide-react'
 import type { ModuleKey } from '../../types'
 import { useAuth } from '../../lib/auth'
+import { Link } from 'react-router-dom'
+import { NAV_PATH } from '../../lib/routes'
 
 export type NavTab =
   | 'dashboard'
   | 'checks'
+  | 'jobs'
   | 'exceptions'
   | 'reports'
   | 'machines'
@@ -48,6 +30,7 @@ export type NavTab =
 export const NAV_LABEL: Record<NavTab, string> = {
   dashboard: 'Dashboard',
   checks: 'Quality Checks',
+  jobs: 'Jobs',
   exceptions: 'Exceptions',
   reports: 'Reports',
   parameters: 'Parameters',
@@ -70,6 +53,8 @@ export const NAV_LABEL: Record<NavTab, string> = {
 export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
   dashboard: 'dashboard',
   checks: 'checks',
+  // Jobs are part of Quality Checks: view to follow them, manage to plan / hand over / close.
+  jobs: 'checks',
   exceptions: 'exceptions',
   reports: 'reports',
   parameters: 'parameters',
@@ -89,7 +74,7 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
 
 /** Pages in menu order, used to find where to land when the current page is not allowed. */
 export const NAV_ORDER: NavTab[] = [
-  'dashboard', 'checks', 'exceptions', 'reports', 'parameters', 'activities', 'machines', 'schedules', 'monitoring-setup', 'calendar',
+  'dashboard', 'checks', 'jobs', 'exceptions', 'reports', 'parameters', 'activities', 'machines', 'schedules', 'monitoring-setup', 'calendar',
   'workers', 'assignments', 'departments', 'shifts', 'audit-logs', 'settings', 'access', 'account'
 ]
 
@@ -106,7 +91,9 @@ export function useCanOpen() {
 }
 
 interface SidebarProps {
-  currentTab: NavTab
+  /** The page being shown; null for an unknown address. */
+  currentTab: NavTab | null
+  /** A menu item was chosen (the link itself changes the page). */
   onSelectTab: (tab: NavTab) => void
   missedCount: number
   exceptionCount: number
@@ -163,6 +150,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           badge: missedCount || undefined,
           badgeColor: 'bg-red-100 text-red-700 border-red-200'
         },
+        { id: 'jobs', icon: <Briefcase className="w-4 h-4" /> },
         {
           id: 'exceptions',
           icon: <AlertOctagon className="w-4 h-4" />,
@@ -220,8 +208,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {group.items.map((item) => {
             const isActive = currentTab === item.id
             return (
-              <button
+              <Link
                 key={item.id}
+                to={NAV_PATH[item.id]}
                 onClick={() => onSelectTab(item.id)}
                 aria-current={isActive ? 'page' : undefined}
                 className={`w-full flex items-center justify-between px-2.5 py-2.5 lg:py-2 rounded text-[14px] lg:text-[13px] font-medium transition-colors text-left ${
@@ -237,7 +226,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {item.badge !== undefined && (
                   <span className={`text-[11px] font-mono font-bold px-1.5 rounded border ${item.badgeColor}`}>{item.badge}</span>
                 )}
-              </button>
+              </Link>
             )
           })}
         </div>

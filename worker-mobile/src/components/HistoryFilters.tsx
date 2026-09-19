@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { Modal, View, Text, Pressable, ScrollView } from 'react-native'
+import { Modal, View, Text, Pressable, ScrollView, Platform } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { HistoryFilterOptions, HistoryQuery } from '../types'
 import { dateKey, daysAgo, formatDateKey, parseDateKey } from '../utils/dates'
@@ -32,6 +32,9 @@ function presets(): Preset[] {
     { label: 'Last 30 days', from: dateKey(daysAgo(29)), to: today }
   ]
 }
+
+/** Whether a filter's dates are exactly those of a preset. */
+const matchesPreset = (p: Preset, q: HistoryQuery) => (q.from ?? '') === (p.from ?? '') && (q.to ?? '') === (p.to ?? '')
 
 const Row: React.FC<{ label: string; selected: boolean; onPress: () => void }> = ({ label, selected, onPress }) => (
   <Pressable
@@ -66,18 +69,26 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
   const insets = useSafeAreaInsets()
   const [draft, setDraft] = useState<HistoryQuery>(query)
   const [picker, setPicker] = useState<'from' | 'to' | null>(null)
+  /**
+   * "Choose dates" is its own mode. It used to be worked out from the dates alone, so choosing it
+   * while "Last 7 days" was selected (or from "Any time", which filled in the last 7 days) still
+   * matched a preset and the From / To fields never appeared.
+   */
+  const [choosing, setChoosing] = useState(false)
 
-  // Start from the current filters each time the sheet opens.
+  const options_ = presets()
+
+  // Start from the current filters each time the sheet opens; a range that is not a preset opens
+  // in "Choose dates".
   useEffect(() => {
     if (visible) {
       setDraft(query)
       setPicker(null)
+      setChoosing(!presets().some((p) => matchesPreset(p, query)))
     }
   }, [visible, query])
 
-  const options_ = presets()
-  const matchesPreset = (p: Preset) => (draft.from ?? '') === (p.from ?? '') && (draft.to ?? '') === (p.to ?? '')
-  const isCustom = !options_.some(matchesPreset)
+  const isCustom = choosing
 
   const setDate = (which: 'from' | 'to', date: Date) => {
     const key = dateKey(date)
@@ -101,7 +112,10 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
           </Pressable>
           <Text className="text-[17px] font-semibold text-ink">Filters</Text>
           <Pressable
-            onPress={() => onApply({ kind: draft.kind })}
+            onPress={() => {
+              setChoosing(false)
+              onApply({ kind: draft.kind })
+            }}
             accessibilityRole="button"
             className="h-12 min-w-[88px] items-end justify-center px-3 active:opacity-50"
           >
@@ -118,14 +132,20 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
                   <Chip
                     key={p.label}
                     label={p.label}
-                    selected={matchesPreset(p)}
-                    onPress={() => setDraft((d) => ({ ...d, from: p.from, to: p.to }))}
+                    selected={!isCustom && matchesPreset(p, draft)}
+                    onPress={() => {
+                      setChoosing(false)
+                      setPicker(null)
+                      setDraft((d) => ({ ...d, from: p.from, to: p.to }))
+                    }}
                   />
                 ))}
                 <Chip
                   label="Choose dates"
                   selected={isCustom}
                   onPress={() => {
+                    // Start from the range shown now (or the last 7 days) and open the start date.
+                    setChoosing(true)
                     setDraft((d) => ({ ...d, from: d.from ?? dateKey(daysAgo(6)), to: d.to ?? dateKey(new Date()) }))
                     setPicker('from')
                   }}
@@ -134,9 +154,18 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
 
               {isCustom && (
                 <View className="mt-3">
+                  <Text className="mb-2 px-4 text-[15px] text-ink-secondary" accessibilityLiveRegion="polite">
+                    {draft.from && draft.to
+                      ? draft.from === draft.to
+                        ? formatDateKey(draft.from)
+                        : `${formatDateKey(draft.from)} – ${formatDateKey(draft.to)}`
+                      : 'Choose a start and an end date'}
+                  </Text>
                   <ListGroup>
                     <Pressable
                       onPress={() => setPicker(picker === 'from' ? null : 'from')}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Start date: ${draft.from ? formatDateKey(draft.from) : 'not set'}`}
                       className="h-14 flex-row items-center justify-between px-4 active:bg-subtle"
                     >
                       <Text className="text-[17px] text-ink">From</Text>
@@ -146,6 +175,8 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
                     </Pressable>
                     <Pressable
                       onPress={() => setPicker(picker === 'to' ? null : 'to')}
+                      accessibilityRole="button"
+                      accessibilityLabel={`End date: ${draft.to ? formatDateKey(draft.to) : 'not set'}`}
                       className="h-14 flex-row items-center justify-between px-4 active:bg-subtle"
                     >
                       <Text className="text-[17px] text-ink">To</Text>
@@ -155,13 +186,39 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
                     </Pressable>
                   </ListGroup>
 
-                  {picker ? (
-                    <View className="mt-3 items-center rounded-2xl bg-surface px-4 py-3">
+                  {picker && Platform.OS === 'android' ? (
+                    // Android: the system date dialog. Start date, then end date, then back to the sheet.
+                    <DatePicker
+                      key={picker}
+                      value={parseDateKey((picker === 'from' ? draft.from : draft.to) ?? dateKey(new Date()))}
+                      minimumDate={picker === 'to' && draft.from ? parseDateKey(draft.from) : undefined}
+                      maximumDate={picker === 'from' && draft.to ? parseDateKey(draft.to) : new Date()}
+                      onChange={(date) => {
+                        setDate(picker, date)
+                        setPicker(picker === 'from' ? 'to' : null)
+                      }}
+                      onDismiss={() => setPicker(null)}
+                    />
+                  ) : picker ? (
+                    <View className="mt-3 rounded-2xl bg-surface px-4 py-3">
+                      <Text className="mb-2 text-[15px] font-semibold text-ink-muted">{picker === 'from' ? 'Start date' : 'End date'}</Text>
                       <DatePicker
+                        key={picker}
                         value={parseDateKey((picker === 'from' ? draft.from : draft.to) ?? dateKey(new Date()))}
-                        maximumDate={new Date()}
+                        // The end date cannot be before the start date, and neither can be in the future.
+                        minimumDate={picker === 'to' && draft.from ? parseDateKey(draft.from) : undefined}
+                        maximumDate={picker === 'from' && draft.to ? parseDateKey(draft.to) : new Date()}
                         onChange={(date) => setDate(picker, date)}
                       />
+                      {picker === 'from' ? (
+                        <Pressable onPress={() => setPicker('to')} accessibilityRole="button" className="mt-2 h-11 justify-center self-end px-2 active:opacity-50">
+                          <Text className="text-[16px] font-semibold text-accent">Next: end date</Text>
+                        </Pressable>
+                      ) : (
+                        <Pressable onPress={() => setPicker(null)} accessibilityRole="button" className="mt-2 h-11 justify-center self-end px-2 active:opacity-50">
+                          <Text className="text-[16px] font-semibold text-accent">Done</Text>
+                        </Pressable>
+                      )}
                     </View>
                   ) : null}
                 </View>
@@ -209,7 +266,14 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
         </ScrollView>
 
         <View className="border-t border-line bg-surface px-5 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
-          <Button label="Show results" onPress={() => onApply(draft)} />
+          <Button
+            label="Show results"
+            onPress={() => {
+              // Never send an end date before the start date (the pickers already prevent it).
+              if (draft.from && draft.to && draft.from > draft.to) onApply({ ...draft, from: draft.to, to: draft.from })
+              else onApply(draft)
+            }}
+          />
         </View>
       </View>
     </Modal>

@@ -1,6 +1,9 @@
 import { badRequest } from '../lib/http'
 
-export type ParameterType = 'NUMBER' | 'TEXT' | 'DROPDOWN' | 'YES_NO' | 'PASS_FAIL'
+export type ParameterType = 'NUMBER' | 'TEXT' | 'DROPDOWN' | 'YES_NO' | 'PASS_FAIL' | 'PHOTO'
+
+/** Stored as the value of a Photo parameter (e.g. Ink Photo) once its photo is attached. */
+export const PHOTO_VALUE = 'Photo attached'
 
 export interface ParameterConfig {
   name: string
@@ -28,6 +31,8 @@ export function ruleText(p: ParameterConfig): string | null {
       return 'Yes or No'
     case 'DROPDOWN':
       return p.options.length ? `Choose one: ${p.options.join(', ')}` : null
+    case 'PHOTO':
+      return 'Photo'
     default:
       return null
   }
@@ -81,6 +86,9 @@ export function evaluateValue(p: ParameterConfig, raw: unknown): { value: string
       if (!p.options.includes(text)) throw badRequest(`${p.name}: choose one of the listed options`)
       return { value: text, result: 'NA' }
     }
+    case 'PHOTO':
+      // The answer is the photo itself; the submit route checks that it is attached.
+      return { value: PHOTO_VALUE, result: 'NA' }
     case 'TEXT':
     default:
       if (text.length > 1000) throw badRequest(`${p.name} is too long`)

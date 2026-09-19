@@ -14,7 +14,7 @@ import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { Field, FormError, Select, TextArea, TextInput, Toggle, inputClass } from '../../components/common/Form'
 
-const PARAMETER_TYPES: ParameterType[] = ['NUMBER', 'TEXT', 'DROPDOWN', 'YES_NO', 'PASS_FAIL']
+const PARAMETER_TYPES: ParameterType[] = ['NUMBER', 'TEXT', 'DROPDOWN', 'YES_NO', 'PASS_FAIL', 'PHOTO']
 
 /** Request body for POST / PUT /api/parameters. */
 interface ParameterBody {
@@ -497,6 +497,12 @@ export const ParametersPage: React.FC = () => {
               </div>
               <p className="text-[11px] text-ink-muted">Leave empty if there is no limit. Use the company-approved SOP limits.</p>
             </div>
+          )}
+
+          {form.type === 'PHOTO' && (
+            <p className="p-3 bg-slate-50 border border-line rounded text-xs text-ink-secondary">
+              The worker takes a photo with the app camera instead of typing a value. When the parameter is Required on a check type, the photo is required.
+            </p>
           )}
 
           {form.type === 'DROPDOWN' && (

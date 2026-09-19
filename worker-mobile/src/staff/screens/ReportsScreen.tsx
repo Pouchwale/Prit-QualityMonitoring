@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react'
 import { Text, View } from 'react-native'
-import type { QualityCheck } from '../types'
+import type { QualityCheck, TraceReport } from '../types'
 import { fileUrl } from '../../services/api'
 import { downloadAndShare, shareText } from '../../services/files'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
 import { FilterPanel, filterQuery, todayFilters, type MonitoringFilters } from '../Filters'
+import { DetailedRecords, TraceBlock, TraceError, itemCodeOf, jobNoOf } from './ReportTrace'
 import { RESULT_LABEL, RESULT_OPTIONS, addDaysKey, checkStatusLabel, dateKey, formatDateTime, formatKey, plural, toCsv } from '../format'
 import {
   Badge,
@@ -108,6 +109,17 @@ export const ReportsScreen: React.FC = () => {
   const [downloading, setDownloading] = useState(false)
   const { data, error, loading, reload } = useQuery<QualityCheck[]>('/api/quality-checks', { ...filterQuery(filters), result: filters.status })
   const checks = useMemo(() => data ?? [], [data])
+  /** An Item Code, Job No. or worker report: adds the traceability sections. */
+  const traced = !!(filters.itemCode || filters.jobNo || filters.workerId)
+  const trace = useQuery<TraceReport>(traced ? '/api/reports/trace' : null, { ...filterQuery(filters), result: filters.status })
+  const workerName = filters.workerId
+    ? (trace.data?.workers.find((w) => w.workerId === filters.workerId)?.name ??
+      checks.find((c) => c.submittedById === filters.workerId || c.workerId === filters.workerId)?.workerName ??
+      'selected worker')
+    : null
+  const traceScope = [filters.itemCode && `Item Code ${filters.itemCode}`, filters.jobNo && `Job No. ${filters.jobNo}`, workerName]
+    .filter(Boolean)
+    .join(' · ')
 
   const totals = useMemo(() => {
     const t = empty()
@@ -184,7 +196,7 @@ export const ReportsScreen: React.FC = () => {
       ],
       checks.map((c) => [
         c.code, formatDateTime(c.scheduledAt), c.machineName, c.machineCode, c.departmentName, c.activityName, c.shiftName, workerOf(c), c.submittedByEmployeeId ?? c.workerEmployeeId,
-        checkStatusLabel(c.status), c.result ? RESULT_LABEL[c.result] : '', c.submissionType === 'MANUAL' ? 'Manual' : 'Notification', c.itemCode ?? c.job?.itemCode ?? '', c.job?.jobNo ?? c.jobNo,
+        checkStatusLabel(c.status), c.result ? RESULT_LABEL[c.result] : '', c.submissionType === 'MANUAL' ? 'Manual' : 'Notification', itemCodeOf(c), jobNoOf(c),
         c.submittedAt ? formatDateTime(c.submittedAt) : '', c.nextDueAt ? formatDateTime(c.nextDueAt) : '', naList(c).join('; '),
         c.values.filter((v) => v.result === 'FAIL').map((v) => `${v.parameterName}=${v.value ?? ''}${v.unit ? ` ${v.unit}` : ''}`).join('; '),
         ...params.map((p) => {
@@ -204,7 +216,11 @@ export const ReportsScreen: React.FC = () => {
   }
 
   // Refresh stays a visible button because pull-to-refresh is not available in the web app.
-  const actions: HeaderAction[] = [{ label: 'Refresh', icon: 'refresh-outline', onPress: reload }]
+  const refresh = () => {
+    reload()
+    if (traced) trace.reload()
+  }
+  const actions: HeaderAction[] = [{ label: 'Refresh', icon: 'refresh-outline', onPress: refresh }]
   if (checks.length) actions.push({ label: 'CSV', icon: 'download-outline', onPress: exportCsv })
 
   return (
@@ -212,7 +228,7 @@ export const ReportsScreen: React.FC = () => {
       title="Reports"
       subtitle={period}
       right={actions}
-      onRefresh={reload}
+      onRefresh={refresh}
       refreshing={loading && !!data}
       footer={<PrimaryButton label="Download Report (PDF)" icon="document-text-outline" onPress={downloadPdf} loading={downloading} />}
     >
@@ -222,7 +238,7 @@ export const ReportsScreen: React.FC = () => {
         onChange={setFilters}
         onReset={() => setFilters(todayFilters())}
         presets={PRESETS}
-        fields={['status', 'machine', 'worker', 'activity', 'shift', 'department']}
+        fields={['itemCode', 'jobNo', 'worker', 'status', 'machine', 'activity', 'shift', 'department']}
         statusLabel="Result"
         statusOptions={RESULT_OPTIONS}
       />
@@ -248,6 +264,16 @@ export const ReportsScreen: React.FC = () => {
           <MiniStat label="Missed" value={totals.missed} tone="missed" />
           <MiniStat label="Exception" value={totals.exceptions} tone="exception" />
         </MetricCard>
+
+        {traced && trace.data ? (
+          <TraceBlock
+            trace={trace.data}
+            scope={traceScope}
+            onPickItem={(itemCode) => setFilters((f) => ({ ...f, itemCode }))}
+            onPickJob={(jobNo) => setFilters((f) => ({ ...f, jobNo }))}
+          />
+        ) : null}
+        {traced && trace.error ? <TraceError message={trace.error} /> : null}
 
         <Section title="How checks were submitted" detail="Manual checks are started by the worker; notification checks come from the schedule">
           <List>
@@ -365,6 +391,8 @@ export const ReportsScreen: React.FC = () => {
             />
           )}
         </Section>
+
+        <DetailedRecords checks={checks} onOpen={(id) => push('checkDetail', { id })} />
       </DataState>
     </Screen>
   )

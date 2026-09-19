@@ -30,7 +30,7 @@ import {
 } from '../ui'
 import { ActionGroup, ActionItem, SummaryHeader, facts } from './adminParts'
 
-const PARAMETER_TYPES: ParameterType[] = ['NUMBER', 'TEXT', 'DROPDOWN', 'YES_NO', 'PASS_FAIL']
+const PARAMETER_TYPES: ParameterType[] = ['NUMBER', 'TEXT', 'DROPDOWN', 'YES_NO', 'PASS_FAIL', 'PHOTO']
 
 /** Request body for POST / PUT /api/parameters. */
 interface ParameterBody {
@@ -409,6 +409,15 @@ export const ParameterFormScreen: React.FC<{ params: { parameter?: Parameter; ne
               <Input label="Maximum" value={form.maxValue} onChangeText={(v) => update('maxValue', v)} placeholder="No limit" keyboardType="numbers-and-punctuation" />
             </View>
           </View>
+        </FormSection>
+      ) : null}
+
+      {form.type === 'PHOTO' ? (
+        <FormSection
+          title="Rule"
+          description="The worker takes a photo with the app camera instead of typing a value. When the parameter is Required on a check type, the photo is required."
+        >
+          {null}
         </FormSection>
       ) : null}
 

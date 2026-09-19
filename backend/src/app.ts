@@ -15,9 +15,11 @@ import { parametersRouter } from './routes/parameters'
 import { activitiesRouter } from './routes/activities'
 import { schedulesRouter } from './routes/schedules'
 import { plantCalendarRouter } from './routes/plantCalendar'
+import { machineDaysRouter } from './routes/machineDays'
 import { calendarYearsRouter, weeklyRulesRouter } from './routes/calendarYears'
 import { usersRouter } from './routes/users'
 import { monitoringRouter } from './routes/monitoring'
+import { jobsRouter } from './routes/jobs'
 import { workerRouter } from './routes/worker'
 import { accessRouter } from './routes/access'
 import { HttpError } from './lib/http'
@@ -61,15 +63,17 @@ export function createApp() {
   )
   admin.use('/departments', masterData('departments', ['machines', 'parameters', 'activities', 'workers', 'checks', 'exceptions', 'reports']), departmentsRouter)
   admin.use('/shifts', masterData('shifts', ['schedules', 'workers', 'checks', 'exceptions', 'reports']), shiftsRouter)
-  admin.use('/machines', masterData('machines', ['activities', 'schedules', 'workers', 'assignments', 'checks', 'exceptions', 'reports']), machinesRouter)
+  admin.use('/machines', masterData('machines', ['activities', 'schedules', 'workers', 'assignments', 'checks', 'exceptions', 'reports', 'calendar']), machinesRouter)
   admin.use('/parameters', masterData('parameters', ['activities']), parametersRouter)
   admin.use('/activities', masterData('activities', ['machines', 'schedules', 'checks', 'exceptions', 'reports']), activitiesRouter)
   admin.use('/schedules', masterData('schedules', ['assignments']), schedulesRouter)
   admin.use('/plant-closures', plantCalendarRouter)
+  admin.use('/machine-days', machineDaysRouter)
   admin.use('/calendar-years', calendarYearsRouter)
   admin.use('/weekly-rules', weeklyRulesRouter)
   admin.use('/users', usersRouter)
   admin.use('/access', accessRouter)
+  admin.use('/jobs', jobsRouter)
   admin.use('/', monitoringRouter)
   app.use('/api', admin)
 

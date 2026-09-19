@@ -11,6 +11,7 @@ import { SectionHeader } from '../components/ui/SectionHeader'
 import { ListGroup } from '../components/ui/ListGroup'
 import { Icon } from '../components/ui/Icon'
 import { EmptyState, ErrorState, Loading } from '../components/ui/LoadState'
+import { formatClockRange } from '../utils/datetime'
 
 export type { AssignedMachine } from '../types'
 
@@ -21,8 +22,11 @@ interface Props {
 }
 
 /** The checks the worker can submit on this machine right now. */
-const dueChecks = (machine: AssignedMachine) =>
-  machine.checkTypes.map((t) => t.openCheck).filter((c): c is NonNullable<typeof c> => !!c?.canSubmit)
+const dueChecks = (machine: AssignedMachine) => [
+  ...machine.checkTypes.map((t) => t.openCheck).filter((c): c is NonNullable<typeof c> => !!c?.canSubmit),
+  // A job's Job Start / Job End check waiting for this worker counts as due too.
+  ...(machine.jobChecks ?? []).filter((c) => c.canSubmit && (c.kind === 'JOB_START' || c.kind === 'JOB_END'))
+]
 
 /** The earliest upcoming check on a machine that is not due yet. */
 const nextAt = (machine: AssignedMachine) =>
@@ -31,10 +35,19 @@ const nextAt = (machine: AssignedMachine) =>
     .filter((at): at is string => !!at)
     .sort()[0] ?? null
 
+/**
+ * False when the machine does not run today: the plant is closed or today's machine day plan leaves
+ * it out. Older servers do not send runsToday, so the plant status decides there.
+ */
+const runsToday = (machine: AssignedMachine, plantClosed: boolean) => machine.runsToday ?? !plantClosed
+
 /** Only what is worth saying about a machine that is not due: null when there is nothing informative. */
 function quietStatus(machine: AssignedMachine, plantClosed: boolean): { text: string; tone: 'muted' | 'success' } | null {
-  if (plantClosed) return { text: 'Plant closed', tone: 'muted' }
+  if (!runsToday(machine, plantClosed)) {
+    return { text: machine.notRunning?.planned ? 'Not running today' : 'Plant closed', tone: 'muted' }
+  }
   if (machine.runningJob) return { text: `Job running · ${machine.runningJob.jobNo}`, tone: 'success' }
+  if (machine.plannedJobs?.length) return { text: `${machine.plannedJobs.length} job${machine.plannedJobs.length === 1 ? '' : 's'} assigned`, tone: 'muted' }
   const next = nextAt(machine)
   if (next) return { text: `Next at ${formatTime(next)}`, tone: 'muted' }
   return null
@@ -91,11 +104,20 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
     setRefreshing(false)
   }
 
-  const due = (machines ?? []).filter((m) => dueChecks(m).length > 0)
+  const running = (m: AssignedMachine) => runsToday(m, plant.closed)
+  const due = (machines ?? []).filter((m) => running(m) && dueChecks(m).length > 0)
   const dueTotal = due.reduce((n, m) => n + dueChecks(m).length, 0)
-  const others = (machines ?? []).filter((m) => dueChecks(m).length === 0).sort(byUrgency)
+  // Machines that do not run today sort to the end, by name.
+  const others = [
+    ...(machines ?? []).filter((m) => running(m) && dueChecks(m).length === 0).sort(byUrgency),
+    ...(machines ?? []).filter((m) => !running(m)).sort((a, b) => a.name.localeCompare(b.name))
+  ]
+  /** Today's machine day plan leaves out every machine of this worker. */
+  const noneScheduled = plant.closed && !!plant.planned
+  /** The plant is closed today, but the machine day plan runs some of this worker's machines. */
+  const runsByPlan = !plant.closed && !!plant.plantClosed && !!plant.machinePlan?.count
   const shift = profile.shiftName
-    ? `${profile.shiftName}${profile.shiftStartTime ? ` · ${profile.shiftStartTime} – ${profile.shiftEndTime}` : ''}`
+    ? `${profile.shiftName}${profile.shiftStartTime ? ` · ${formatClockRange(profile.shiftStartTime, profile.shiftEndTime)}` : ''}`
     : profile.name
 
   return (
@@ -133,13 +155,33 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
                   <Icon name="moon-outline" size={20} color="secondary" />
                 </View>
                 <View className="flex-1">
-                  <Text className="text-[17px] font-semibold text-ink">
-                    Plant closed today{plant.label ? ` · ${plant.label}` : ''}
-                  </Text>
-                  <Text className="mt-0.5 text-[15px] leading-[20px] text-ink-muted">
-                    {plant.reason ? `${plant.reason}. ` : ''}No quality checks are scheduled today.
-                  </Text>
+                  {noneScheduled ? (
+                    <>
+                      <Text className="text-[17px] font-semibold text-ink">None of your machines runs today</Text>
+                      <Text className="mt-0.5 text-[15px] leading-[20px] text-ink-muted">
+                        Today's machine plan does not include your machines. No quality checks are scheduled today.
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text className="text-[17px] font-semibold text-ink">
+                        Plant closed today{plant.label ? ` · ${plant.label}` : ''}
+                      </Text>
+                      <Text className="mt-0.5 text-[15px] leading-[20px] text-ink-muted">
+                        {plant.reason ? `${plant.reason}. ` : ''}No quality checks are scheduled today.
+                      </Text>
+                    </>
+                  )}
                 </View>
+              </View>
+            ) : null}
+
+            {runsByPlan ? (
+              <View className="-mb-4 flex-row items-center px-1" accessibilityRole="summary">
+                <Icon name="calendar-outline" size={16} color="muted" />
+                <Text className="ml-1.5 flex-1 text-[14px] text-ink-muted" numberOfLines={2}>
+                  Running today by plan · plant otherwise closed
+                </Text>
               </View>
             ) : null}
 

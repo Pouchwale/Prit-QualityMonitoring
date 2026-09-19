@@ -1,10 +1,11 @@
-import React from 'react'
+import React, { useId, useState } from 'react'
 import { RotateCcw } from 'lucide-react'
 import type { Activity, Department, Machine, Shift, User } from '../../types'
 import { useApi } from '../../lib/useApi'
 import { addDaysKey, dateKey } from '../../lib/format'
 import { Button } from './Button'
 import { inputClass } from './Form'
+import { DateInput } from './DateTimeInputs'
 
 /** Filters shared by the monitoring pages. Empty string means "all". */
 export interface MonitoringFilters {
@@ -16,9 +17,12 @@ export interface MonitoringFilters {
   activityId: string
   departmentId: string
   status: string
+  /** Whole Item Code / Job No. (case-insensitive); only on pages that show these fields. */
+  itemCode?: string
+  jobNo?: string
 }
 
-export type FilterField = 'shift' | 'machine' | 'worker' | 'activity' | 'department' | 'status'
+export type FilterField = 'shift' | 'machine' | 'worker' | 'activity' | 'department' | 'status' | 'itemCode' | 'jobNo'
 
 interface FilterBarProps {
   value: MonitoringFilters
@@ -45,6 +49,11 @@ export const FilterBar: React.FC<FilterBarProps> = ({ value, onChange, onReset, 
   const workers = useApi<User[]>(has('worker') ? '/api/users' : null, { role: 'WORKER' })
   const activities = useApi<Activity[]>(has('activity') ? '/api/activities' : null)
   const departments = useApi<Department[]>(has('department') ? '/api/departments' : null)
+  // Item Codes and Job Nos. recorded in the period, offered as suggestions (typing any value works too).
+  const jobValues = useApi<{ itemCodes: string[]; jobNos: string[] }>(
+    has('itemCode') || has('jobNo') ? '/api/reports/filter-values' : null,
+    { from: value.from, to: value.to }
+  )
 
   const set = (patch: Partial<MonitoringFilters>) => onChange({ ...value, ...patch })
 
@@ -72,11 +81,11 @@ export const FilterBar: React.FC<FilterBarProps> = ({ value, onChange, onReset, 
           <>
             <label className="min-w-0">
               <span className="block text-[11px] font-semibold text-ink-secondary mb-1">From</span>
-              <input type="date" value={value.from} max={value.to} onChange={(e) => setFrom(e.target.value)} className={`${inputClass} sm:w-[160px] lg:w-[132px]`} />
+              <DateInput value={value.from} max={value.to} onChange={(e) => setFrom(e.target.value)} className="sm:w-[160px] lg:w-[132px]" />
             </label>
             <label className="min-w-0">
               <span className="block text-[11px] font-semibold text-ink-secondary mb-1">To</span>
-              <input type="date" value={value.to} min={value.from} onChange={(e) => setTo(e.target.value)} className={`${inputClass} sm:w-[160px] lg:w-[132px]`} />
+              <DateInput value={value.to} min={value.from} onChange={(e) => setTo(e.target.value)} className="sm:w-[160px] lg:w-[132px]" />
             </label>
             <div className="col-span-2 grid grid-cols-3 sm:flex items-center rounded border border-line-strong overflow-hidden h-[40px] lg:h-8">
               {presets.map((p) => {
@@ -96,6 +105,25 @@ export const FilterBar: React.FC<FilterBarProps> = ({ value, onChange, onReset, 
               })}
             </div>
           </>
+        )}
+
+        {has('itemCode') && (
+          <FilterText
+            label="Item Code"
+            value={value.itemCode ?? ''}
+            suggestions={jobValues.data?.itemCodes ?? []}
+            placeholder="All item codes"
+            onCommit={(itemCode) => set({ itemCode })}
+          />
+        )}
+        {has('jobNo') && (
+          <FilterText
+            label="Job No."
+            value={value.jobNo ?? ''}
+            suggestions={jobValues.data?.jobNos ?? []}
+            placeholder="All job numbers"
+            onCommit={(jobNo) => set({ jobNo })}
+          />
         )}
 
         {has('shift') && (
@@ -179,3 +207,61 @@ const FilterSelect: React.FC<{
     </select>
   </label>
 )
+
+/**
+ * A typed filter with suggestions from the recorded values. It applies when the user picks a
+ * suggestion, presses Enter or leaves the field, not on every keystroke.
+ */
+const FilterText: React.FC<{
+  label: string
+  value: string
+  suggestions: string[]
+  placeholder: string
+  onCommit: (value: string) => void
+}> = ({ label, value, suggestions, placeholder, onCommit }) => {
+  const [text, setText] = useState(value)
+  const [shown, setShown] = useState(value)
+  // A new value from outside (e.g. Reset) replaces what is typed.
+  if (shown !== value) {
+    setShown(value)
+    setText(value)
+  }
+  const listId = useId()
+  const commit = (next: string) => {
+    const trimmed = next.trim()
+    if (trimmed !== value) onCommit(trimmed)
+  }
+  return (
+    <label className="min-w-0">
+      <span className="block text-[11px] font-semibold text-ink-secondary mb-1">{label}</span>
+      <span className="relative block">
+        <input
+          type="search"
+          value={text}
+          list={listId}
+          placeholder={placeholder}
+          aria-label={label}
+          onChange={(e) => {
+            setText(e.target.value)
+            // Picked from the suggestion list, or cleared with the search box's ×: apply at once.
+            const native = e.nativeEvent as InputEvent
+            if (!e.target.value || native.inputType === 'insertReplacementText' || !native.inputType) commit(e.target.value)
+          }}
+          onBlur={() => commit(text)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              commit(text)
+            }
+          }}
+          className={`${inputClass} sm:w-[150px] lg:w-[130px] ${value ? 'border-accent' : ''}`}
+        />
+        <datalist id={listId}>
+          {suggestions.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      </span>
+    </label>
+  )
+}

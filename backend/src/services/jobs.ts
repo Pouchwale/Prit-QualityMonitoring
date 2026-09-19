@@ -1,13 +1,12 @@
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/client'
 import { jobs, users } from '../db/schema'
-import { conflict } from '../lib/http'
-import { invalidateCheckGeneration, removePendingJobChecks } from './checkGenerator'
+import { RUNNING_STATUSES } from './jobMonitoring'
 
 /**
- * Production jobs. The worker starts a job on the machine and ends it when the run is over.
- * JOB schedules only create checks while a job runs (services/checkGenerator.ts), and every
- * submission records the job it belongs to.
+ * Production jobs: planned by an Admin/Manager or started by the worker, then checked at start,
+ * at intervals and at end (services/jobMonitoring.ts). Every check done during a job records it.
  */
 
 export type Job = typeof jobs.$inferSelect
@@ -17,80 +16,84 @@ export interface JobDto {
   machineId: string
   itemCode: string | null
   jobNo: string
-  startedAt: Date
+  status: Job['status']
+  startedAt: Date | null
   startedById: string | null
   startedByName: string | null
+  /** When the Job Start check was completed and interval checks began. */
+  activatedAt: Date | null
+  endRequestedAt: Date | null
   endedAt: Date | null
   endedById: string | null
+  /** The worker responsible now (notifications and job checks go to them). */
+  assignedWorkerId: string | null
+  assignedWorkerName: string | null
+  plannedFor: string | null
+  note: string | null
+  forceClosed: boolean
 }
 
-export function jobDto(job: Job, startedByName: string | null = null): JobDto {
+export function jobDto(job: Job, names: { startedByName?: string | null; assignedWorkerName?: string | null } = {}): JobDto {
   return {
     id: job.id,
     machineId: job.machineId,
     itemCode: job.itemCode,
     jobNo: job.jobNo,
+    status: job.status,
     startedAt: job.startedAt,
     startedById: job.startedById,
-    startedByName,
+    startedByName: names.startedByName ?? null,
+    activatedAt: job.activatedAt,
+    endRequestedAt: job.endRequestedAt,
     endedAt: job.endedAt,
-    endedById: job.endedById
+    endedById: job.endedById,
+    assignedWorkerId: job.assignedWorkerId,
+    assignedWorkerName: names.assignedWorkerName ?? null,
+    plannedFor: job.plannedFor,
+    note: job.note,
+    forceClosed: job.forceClosed
   }
 }
 
-/** The job running on a machine, if any. */
-export async function runningJob(machineId: string) {
-  const [row] = await db
-    .select({ job: jobs, startedByName: users.name })
+const starter = alias(users, 'starter')
+const assignee = alias(users, 'assignee')
+
+async function withNames(where: ReturnType<typeof and>) {
+  const rows = await db
+    .select({ job: jobs, startedByName: starter.name, assignedWorkerName: assignee.name })
     .from(jobs)
-    .leftJoin(users, eq(jobs.startedById, users.id))
-    .where(and(eq(jobs.machineId, machineId), isNull(jobs.endedAt)))
+    .leftJoin(starter, eq(jobs.startedById, starter.id))
+    .leftJoin(assignee, eq(jobs.assignedWorkerId, assignee.id))
+    .where(where)
     .orderBy(desc(jobs.startedAt))
-    .limit(1)
-  return row ? jobDto(row.job, row.startedByName) : null
+  return rows.map((r) => jobDto(r.job, r))
+}
+
+/** The job running on a machine (starting, active or ending), if any. */
+export async function runningJob(machineId: string) {
+  const [job] = await withNames(and(eq(jobs.machineId, machineId), inArray(jobs.status, [...RUNNING_STATUSES])))
+  return job ?? null
 }
 
 /** The jobs running on these machines, by machine id. */
 export async function runningJobs(machineIds: string[]) {
   if (machineIds.length === 0) return new Map<string, JobDto>()
-  const rows = await db
-    .select({ job: jobs, startedByName: users.name })
-    .from(jobs)
-    .leftJoin(users, eq(jobs.startedById, users.id))
-    .where(and(inArray(jobs.machineId, machineIds), isNull(jobs.endedAt)))
-  return new Map(rows.map((r) => [r.job.machineId, jobDto(r.job, r.startedByName)]))
+  const rows = await withNames(and(inArray(jobs.machineId, machineIds), inArray(jobs.status, [...RUNNING_STATUSES])))
+  return new Map(rows.map((r) => [r.machineId, r]))
 }
 
-/** Starts a job. Only one job can run on a machine at a time (unique index). */
-export async function startJob(machineId: string, jobNo: string, userId: string, itemCode: string | null = null): Promise<JobDto> {
-  const [row] = await db
-    .insert(jobs)
-    .values({ machineId, itemCode, jobNo, startedAt: new Date(), startedById: userId })
-    .onConflictDoNothing()
-    .returning()
-  if (!row) throw conflict('A job is already running on this machine. End it before starting a new one.')
-  // JOB schedules can create their first check straight away.
-  invalidateCheckGeneration()
-  return jobDto(row)
-}
-
-/**
- * Ends a job. Checks of JOB schedules that were never notified are removed, so nothing is
- * counted as Missed on a machine that is not running; checks already due stay until their
- * window closes.
- */
-export async function endJob(jobId: string, userId: string): Promise<{ job: JobDto; removedChecks: number }> {
-  const [row] = await db
-    .update(jobs)
-    .set({ endedAt: new Date(), endedById: userId })
-    .where(and(eq(jobs.id, jobId), isNull(jobs.endedAt)))
-    .returning()
-  if (!row) throw conflict('This job is already finished')
-  const removedChecks = await removePendingJobChecks(row.machineId)
-  return { job: jobDto(row), removedChecks }
+/** Planned jobs of these machines, for the worker's "Start Job" list. */
+export async function plannedJobs(machineIds: string[]) {
+  if (machineIds.length === 0) return []
+  return withNames(and(inArray(jobs.machineId, machineIds), eq(jobs.status, 'PLANNED')))
 }
 
 export async function jobById(jobId: string) {
   const [row] = await db.select().from(jobs).where(eq(jobs.id, jobId))
   return row ?? null
+}
+
+export async function jobDtoById(jobId: string) {
+  const [job] = await withNames(and(eq(jobs.id, jobId)))
+  return job ?? null
 }

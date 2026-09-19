@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { CalendarDays, Check, FileSpreadsheet, FileText, Printer, RefreshCw, RotateCcw } from 'lucide-react'
-import type { CheckResult, QualityCheck } from '../../types'
+import type { CheckResult, QualityCheck, TraceReport } from '../../types'
 import { useApi } from '../../lib/useApi'
 import { download, errorText, mediaUrl } from '../../lib/api'
 import { RESULT_HINT, checkStatusLabel, RESULT_LABEL, RESULT_OPTIONS, addDaysKey, dateKey, downloadCsv, formatDate, formatDateTime } from '../../lib/format'
@@ -10,12 +10,17 @@ import { DataState } from '../../components/common/DataState'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { FilterBar, type MonitoringFilters } from '../../components/common/FilterBar'
 import { useToast } from '../../components/common/Toast'
-import { inputClass } from '../../components/common/Form'
+import { DateInput } from '../../components/common/DateTimeInputs'
+import { DetailedRecords, TraceChanges, TraceGroupTable, TraceSummary, TraceWorkers } from './reports/TraceSections'
+import { itemCodeOf, jobNoOf } from './reports/checkFields'
+
+/** Above this many checks the detailed records are left to the CSV / PDF unless a report is traced. */
+const MAX_RECORDS_ON_SCREEN = 300
 
 /** The page opens on today's report. */
 const defaultFilters = (): MonitoringFilters => {
   const today = dateKey()
-  return { from: today, to: today, shiftId: '', machineId: '', workerId: '', activityId: '', departmentId: '', status: '' }
+  return { from: today, to: today, shiftId: '', machineId: '', workerId: '', activityId: '', departmentId: '', status: '', itemCode: '', jobNo: '' }
 }
 
 interface DateRange {
@@ -184,6 +189,8 @@ export const ReportsPage: React.FC = () => {
         workerId: filters.workerId,
         activityId: filters.activityId,
         departmentId: filters.departmentId,
+        itemCode: filters.itemCode,
+        jobNo: filters.jobNo,
         result: filters.status
       }, `QMR-${filters.from.replace(/-/g, '')}-${filters.to.replace(/-/g, '')}.pdf`)
       notify('success', 'Report downloaded', name)
@@ -194,6 +201,22 @@ export const ReportsPage: React.FC = () => {
     }
   }
 
+  const reportQuery = {
+    from: filters.from,
+    to: filters.to,
+    shiftId: filters.shiftId,
+    machineId: filters.machineId,
+    workerId: filters.workerId,
+    activityId: filters.activityId,
+    departmentId: filters.departmentId,
+    itemCode: filters.itemCode,
+    jobNo: filters.jobNo,
+    result: filters.status
+  }
+  /** An Item Code, Job No. or worker report: adds the traceability sections. */
+  const traced = !!(filters.itemCode || filters.jobNo || filters.workerId)
+  const trace = useApi<TraceReport>(traced ? '/api/reports/trace' : null, reportQuery)
+
   const { data, error, loading, reload } = useApi<QualityCheck[]>('/api/quality-checks', {
     from: filters.from,
     to: filters.to,
@@ -202,11 +225,21 @@ export const ReportsPage: React.FC = () => {
     workerId: filters.workerId,
     activityId: filters.activityId,
     departmentId: filters.departmentId,
+    itemCode: filters.itemCode,
+    jobNo: filters.jobNo,
     // On this page the status select filters by overall result.
     result: filters.status
   })
 
   const checks = useMemo(() => data ?? [], [data])
+  const workerName = filters.workerId
+    ? (trace.data?.workers.find((w) => w.workerId === filters.workerId)?.name ??
+      checks.find((c) => c.submittedById === filters.workerId || c.workerId === filters.workerId)?.workerName ??
+      'selected worker')
+    : null
+  const traceScope = [filters.itemCode && `Item Code ${filters.itemCode}`, filters.jobNo && `Job No. ${filters.jobNo}`, workerName && `Worker ${workerName}`]
+    .filter(Boolean)
+    .join(' · ')
 
   const totals = useMemo(() => {
     const t = emptyTotals()
@@ -227,7 +260,16 @@ export const ReportsPage: React.FC = () => {
   const parameters = useMemo(() => parameterResults(checks), [checks])
   const nonConformances = useMemo(() => checks.filter((c) => c.result === 'MISSED' || c.result === 'EXCEPTION'), [checks])
 
-  const hasOtherFilters = !!(filters.shiftId || filters.machineId || filters.workerId || filters.activityId || filters.departmentId || filters.status)
+  const hasOtherFilters = !!(
+    filters.shiftId ||
+    filters.machineId ||
+    filters.workerId ||
+    filters.activityId ||
+    filters.departmentId ||
+    filters.status ||
+    filters.itemCode ||
+    filters.jobNo
+  )
   const period = filters.from === filters.to ? keyDate(filters.from) : `${keyDate(filters.from)} – ${keyDate(filters.to)}`
 
   const exportCsv = () => {
@@ -285,8 +327,8 @@ export const ReportsPage: React.FC = () => {
         checkStatusLabel(c.status),
         c.result ? RESULT_LABEL[c.result] : '',
         c.submissionType ? SUBMISSION_LABEL[c.submissionType] : '',
-        c.itemCode ?? c.job?.itemCode ?? '',
-        c.jobNo,
+        itemCodeOf(c),
+        jobNoOf(c),
         c.submittedAt ? formatDateTime(c.submittedAt) : '',
         outsideLimitsText(c),
         notApplicableText(c),
@@ -304,7 +346,8 @@ export const ReportsPage: React.FC = () => {
       ]
     })
 
-    downloadCsv(`quality-report_${filters.from}_${filters.to}.csv`, headers, rows)
+    const scope = [filters.itemCode && `item-${filters.itemCode}`, filters.jobNo && `job-${filters.jobNo}`].filter(Boolean).join('_').replace(/[^\w.-]+/g, '-')
+    downloadCsv(`quality-report_${filters.from}_${filters.to}${scope ? `_${scope}` : ''}.csv`, headers, rows)
   }
 
   return (
@@ -315,7 +358,16 @@ export const ReportsPage: React.FC = () => {
           description="Summaries and exports of scheduled quality checks for any period"
           actions={
             <>
-              <Button size="sm" variant="ghost" onClick={() => reload()} loading={loading && data !== null} icon={<RefreshCw className="w-3.5 h-3.5" />}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  reload()
+                  if (traced) trace.reload()
+                }}
+                loading={loading && data !== null}
+                icon={<RefreshCw className="w-3.5 h-3.5" />}
+              >
                 Refresh
               </Button>
               <Button
@@ -350,22 +402,20 @@ export const ReportsPage: React.FC = () => {
         >
           <label className="min-w-0">
             <span className="block text-[11px] font-semibold text-ink-secondary mb-1">From Date</span>
-            <input
-              type="date"
+            <DateInput
               value={draft.from}
               onChange={(e) => setDraft((d) => ({ ...d, from: e.target.value }))}
               aria-invalid={!!draftError}
-              className={`${inputClass} sm:w-[160px] lg:w-[140px] ${draftError ? 'border-failed' : ''}`}
+              className="sm:w-[160px] lg:w-[140px]"
             />
           </label>
           <label className="min-w-0">
             <span className="block text-[11px] font-semibold text-ink-secondary mb-1">To Date</span>
-            <input
-              type="date"
+            <DateInput
               value={draft.to}
               onChange={(e) => setDraft((d) => ({ ...d, to: e.target.value }))}
               aria-invalid={!!draftError}
-              className={`${inputClass} sm:w-[160px] lg:w-[140px] ${draftError ? 'border-failed' : ''}`}
+              className="sm:w-[160px] lg:w-[140px]"
             />
           </label>
           <Button type="submit" size="field" variant={draftChanged ? 'primary' : 'outline'} disabled={!!draftError} icon={<Check className="w-3.5 h-3.5" />}>
@@ -413,7 +463,7 @@ export const ReportsPage: React.FC = () => {
       <FilterBar
         value={filters}
         onChange={setFilters}
-        fields={['machine', 'worker', 'shift', 'activity', 'department', 'status']}
+        fields={['itemCode', 'jobNo', 'worker', 'machine', 'shift', 'activity', 'department', 'status']}
         statusOptions={RESULT_OPTIONS}
         statusLabel="Result"
         showDates={false}
@@ -424,6 +474,8 @@ export const ReportsPage: React.FC = () => {
         <h1 className="text-lg font-bold">Quality Report: {period}</h1>
         <p className="text-xs">
           Period: {period}
+          {filters.itemCode ? ` · Item Code: ${filters.itemCode}` : ''}
+          {filters.jobNo ? ` · Job No.: ${filters.jobNo}` : ''}
           {filters.status ? ` · Result: ${RESULT_LABEL[filters.status as CheckResult] ?? filters.status}` : ''} · Generated {formatDateTime(new Date().toISOString())}
         </p>
       </div>
@@ -441,6 +493,21 @@ export const ReportsPage: React.FC = () => {
             hint={`${totals.notification} from a notification`}
           />
         </div>
+
+        {traced && trace.data && (
+          <>
+            <TraceSummary trace={trace.data} scope={traceScope} />
+            <TraceGroupTable kind="item" rows={trace.data.items} onPick={(itemCode) => setFilters((f) => ({ ...f, itemCode }))} />
+            <TraceGroupTable kind="job" rows={trace.data.jobs} onPick={(jobNo) => setFilters((f) => ({ ...f, jobNo }))} />
+            <TraceWorkers workers={trace.data.workers} onPickItem={(itemCode) => setFilters((f) => ({ ...f, itemCode }))} />
+            <TraceChanges changes={trace.data.changes} />
+          </>
+        )}
+        {traced && trace.error && (
+          <p className="text-xs text-failed" role="alert">
+            Could not load the traceability sections: {trace.error}
+          </p>
+        )}
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
           <BreakdownTable title="By machine" nameHeader="Machine" rows={byMachine} />
@@ -498,6 +565,14 @@ export const ReportsPage: React.FC = () => {
             </div>
           )}
         </section>
+
+        {traced || checks.length <= MAX_RECORDS_ON_SCREEN ? (
+          <DetailedRecords checks={checks} />
+        ) : (
+          <p className="text-xs text-ink-muted no-print">
+            {checks.length} checks in this period. Choose an Item Code, Job No. or Worker to see every record here, or download the CSV / PDF for all of them.
+          </p>
+        )}
       </DataState>
     </div>
   )

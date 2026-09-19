@@ -4,7 +4,7 @@ import type { Activity, Machine, Schedule, ScheduleMode, Shift, User } from '../
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
-import { formatDateTime, frequencyLabel } from '../../lib/format'
+import { formatClockRange, formatDateTime, frequencyLabel } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
 import { DataState } from '../../components/common/DataState'
@@ -14,6 +14,7 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { WorkerCoverageAlert } from '../../components/common/WorkerCoverageAlert'
+import { TimeInput } from '../../components/common/DateTimeInputs'
 
 const PRESETS: { minutes: number; label: string }[] = [
   { minutes: 15, label: 'Every 15 min' },
@@ -346,14 +347,12 @@ export const SchedulesPage: React.FC = () => {
                       <td className="py-2.5 px-3.5 whitespace-nowrap">
                         <span className="text-slate-700">{s.shiftName}</span>
                         <span className="ml-1.5 font-mono text-[11px] text-ink-muted">
-                          {s.shiftStartTime}–{s.shiftEndTime}
+                          {formatClockRange(s.shiftStartTime, s.shiftEndTime)}
                         </span>
                       </td>
                       <td className="py-2.5 px-3.5 whitespace-nowrap">
                         {s.startTime && s.endTime ? (
-                          <span className="font-mono text-ink">
-                            {s.startTime}–{s.endTime}
-                          </span>
+                          <span className="font-mono text-ink">{formatClockRange(s.startTime, s.endTime)}</span>
                         ) : (
                           <span className="text-ink-muted">Whole shift</span>
                         )}
@@ -474,7 +473,7 @@ export const SchedulesPage: React.FC = () => {
                 <option value="">Choose a shift…</option>
                 {shiftOptions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {`${s.name} (${s.startTime}–${s.endTime})${s.isActive ? '' : ' (inactive)'}`}
+                    {`${s.name} (${formatClockRange(s.startTime, s.endTime)})${s.isActive ? '' : ' (inactive)'}`}
                   </option>
                 ))}
               </Select>
@@ -532,17 +531,17 @@ export const SchedulesPage: React.FC = () => {
               label="Only part of the shift"
               description={
                 selectedShift
-                  ? `Off: checks run across the whole shift (${selectedShift.startTime}–${selectedShift.endTime}).`
+                  ? `Off: checks run across the whole shift (${formatClockRange(selectedShift.startTime, selectedShift.endTime)}).`
                   : 'Off: checks run across the whole shift.'
               }
             />
             {form.useWindow && (
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Window start" required>
-                  <input type="time" value={form.startTime} onChange={(e) => set('startTime', e.target.value)} className={`${inputClass} font-mono`} />
+                  <TimeInput label="Window start" value={form.startTime} onChange={(v) => set('startTime', v)} />
                 </Field>
                 <Field label="Window end" required>
-                  <input type="time" value={form.endTime} onChange={(e) => set('endTime', e.target.value)} className={`${inputClass} font-mono`} />
+                  <TimeInput label="Window end" value={form.endTime} onChange={(v) => set('endTime', v)} />
                 </Field>
               </div>
             )}

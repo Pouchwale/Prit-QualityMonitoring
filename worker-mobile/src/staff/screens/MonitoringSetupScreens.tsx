@@ -30,6 +30,7 @@ import {
   type IconName
 } from '../ui'
 import { ActionGroup, ActionItem, facts } from './adminParts'
+import { formatClockRange } from '../../utils/datetime'
 
 // ---------------------------------------------------------------- labels
 
@@ -63,7 +64,7 @@ const scheduleLine = (s: OverviewSchedule) =>
   [
     s.shiftName,
     s.mode === 'JOB' ? 'Job-based' : `Every ${s.intervalMinutes} min`,
-    s.startTime && s.endTime ? `${s.startTime}–${s.endTime}` : 'Whole shift',
+    s.startTime && s.endTime ? `${formatClockRange(s.startTime, s.endTime)}` : 'Whole shift',
     s.workerName ? `Worker ${s.workerName}` : null,
     s.isActive ? null : 'Paused'
   ]
@@ -619,16 +620,16 @@ export const MonitoringJobsScreen: React.FC<{ params: Record<string, unknown> }>
 
   const endJob = async (job: Job) => {
     const ok = await confirm(
-      'End job?',
-      `Job ${job.jobNo} on ${job.machineName} will be closed. Job-based checks that were never notified are removed, so nothing is counted as Missed.`,
-      'End job',
+      'Force close job?',
+      `Job ${job.jobNo} on ${job.machineName} is closed without its remaining checks. Open checks are removed; submitted records stay with the job. Workers normally end a job with its Job End check.`,
+      'Force close',
       true
     )
     if (!ok) return
     setEnding(job.id)
     try {
       await api.post(`/api/jobs/${job.id}/end`, {})
-      notify('success', 'Job ended', `${job.jobNo} on ${job.machineName}`)
+      notify('success', 'Job closed', `${job.jobNo} on ${job.machineName}`)
       reload()
     } catch (err) {
       notify('error', 'Could not end the job', errorText(err))
@@ -690,8 +691,8 @@ export const MonitoringJobsScreen: React.FC<{ params: Record<string, unknown> }>
               {!job.endedAt && canEnd ? (
                 <ActionGroup>
                   <ActionItem
-                    label={ending === job.id ? 'Ending…' : 'End job'}
-                    accessibilityLabel={`End job ${job.jobNo}`}
+                    label={ending === job.id ? 'Closing…' : 'Force close'}
+                    accessibilityLabel={`Force close job ${job.jobNo}`}
                     description="Closes the run; un-notified job checks are removed."
                     tone="danger"
                     onPress={() => endJob(job)}

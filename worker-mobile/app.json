@@ -47,7 +47,15 @@
           "defaultChannel": "due-checks"
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "scheme": "qualityworker",
     "web": {

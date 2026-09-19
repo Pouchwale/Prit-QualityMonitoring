@@ -7,22 +7,27 @@ import {
   CheckRecord,
   CheckSummary,
   EvidenceUpload,
+  HandoverOptions,
   HistoryFilterOptions,
   HistoryPage,
   HistoryQuery,
   Job,
+  JobDetail,
   Profile,
   SubmitResult,
   SubmitValue
 } from '../types'
 import { tokenStorage } from './storage'
+import { normalizeServerUrl } from './serverUrl'
+
+export { normalizeServerUrl }
 
 /**
- * Backend address. Set EXPO_PUBLIC_API_URL for a fixed server. The web app is served by the
- * backend itself, so it uses the address it was opened from. During development the phone
- * app uses the computer running Expo (the same PC normally runs the backend) on port 4000.
+ * The server the app was built for: EXPO_PUBLIC_API_URL (eas.json) in an APK. The web app is
+ * served by the backend itself, so it uses the address it was opened from. During development the
+ * phone app uses the computer running Expo (the same PC normally runs the backend) on port 4000.
  */
-function resolveApiUrl() {
+function defaultApiUrl() {
   const fromEnv = process.env.EXPO_PUBLIC_API_URL
   if (fromEnv) return fromEnv.replace(/\/$/, '')
   if (Platform.OS === 'web' && typeof window !== 'undefined') return window.location.origin
@@ -30,7 +35,63 @@ function resolveApiUrl() {
   return `http://${host ?? 'localhost'}:4000`
 }
 
-export const API_URL = resolveApiUrl()
+export const DEFAULT_API_URL = defaultApiUrl()
+const SERVER_KEY = 'quality.serverUrl'
+
+/**
+ * The server every request goes to. It is the built-in address unless one was set on this
+ * device (Sign in -> Server settings), which is kept after the app restarts, so the same APK
+ * works when the server's IP address changes.
+ */
+let apiUrl = DEFAULT_API_URL
+export const getApiUrl = () => apiUrl
+/**
+ * The phone app can be pointed at another server. The web app cannot: it is served by the
+ * backend and may only talk to the site it was opened from (the backend's security policy), so
+ * its server is simply the address it was opened at. Development builds allow it for testing.
+ */
+export const canChangeServer = Platform.OS !== 'web' || __DEV__
+/** Whether this device uses an address set in the app instead of the built-in one. */
+export const usesCustomServer = () => apiUrl !== DEFAULT_API_URL
+
+/** Reads the address saved on this device. Called once when the app starts. */
+export async function loadServerUrl() {
+  const saved = canChangeServer ? await tokenStorage.get(SERVER_KEY).catch(() => null) : null
+  apiUrl = saved || DEFAULT_API_URL
+  return apiUrl
+}
+
+/**
+ * Checks that a Quality Monitoring backend answers at this address (GET /api/health), within
+ * `timeoutMs`. Throws an ApiError with a message for the worker when it does not.
+ */
+export async function testServer(url: string, timeoutMs = 8000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let res: Response
+  try {
+    res = await fetch(`${url}/api/health`, { headers: { Accept: 'application/json' }, signal: controller.signal })
+  } catch {
+    throw new ApiError(0, `No answer from ${url}. Check the address, that the server is running and that this phone is on the same network.`)
+  } finally {
+    clearTimeout(timer)
+  }
+  const body = await res.json().catch(() => null)
+  if (!res.ok || body?.ok !== true) {
+    throw new ApiError(res.status, `${url} answered, but it is not the Quality Monitoring server. Check the address and port (usually 4000).`)
+  }
+}
+
+/**
+ * Uses this server from now on and keeps it on the device; null goes back to the built-in
+ * address. The sign-in stays: it keeps working when the same server only got a new address,
+ * and a different server simply asks to sign in again.
+ */
+export async function setServerUrl(url: string | null) {
+  if (url && url !== DEFAULT_API_URL) await tokenStorage.set(SERVER_KEY, url)
+  else await tokenStorage.remove(SERVER_KEY)
+  apiUrl = url || DEFAULT_API_URL
+}
 
 const ACCESS_KEY = 'quality.accessToken'
 const REFRESH_KEY = 'quality.refreshToken'
@@ -69,7 +130,7 @@ async function clearTokens() {
 
 async function send(path: string, init: RequestInit): Promise<Response> {
   try {
-    return await fetch(`${API_URL}${path}`, init)
+    return await fetch(`${apiUrl}${path}`, init)
   } catch (err) {
     console.warn(`Request to ${path} failed`, err)
     throw new ApiError(0, 'Cannot reach the server. Check the Wi-Fi and try again.')
@@ -131,7 +192,7 @@ export type UploadProgress = (fraction: number) => void
 function sendForm(path: string, form: FormData, onProgress?: UploadProgress): Promise<{ status: number; text: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest()
-    xhr.open('POST', `${API_URL}${path}`)
+    xhr.open('POST', `${apiUrl}${path}`)
     xhr.setRequestHeader('Accept', 'application/json')
     if (accessToken) xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`)
     xhr.timeout = 15 * 60_000
@@ -188,6 +249,7 @@ export async function login(employeeId: string, password: string): Promise<Profi
 
 /** Restores a saved session. Returns null when the user needs to sign in. */
 export async function restoreSession(): Promise<Profile | null> {
+  await loadServerUrl()
   accessToken = await tokenStorage.get(ACCESS_KEY)
   refreshToken = await tokenStorage.get(REFRESH_KEY)
   if (!accessToken && !refreshToken) return null
@@ -287,11 +349,17 @@ export interface PlantStatus {
   closed: boolean
   label?: string
   reason?: string | null
+  /** True when today's machine day plan decides this status. */
+  planned?: boolean
+  /** Only when the worker's machines run by plan: whether the plant itself is closed today. */
+  plantClosed?: boolean
+  /** Today's machine day plan for this worker's machines; null when there is no plan. */
+  machinePlan?: { planned: boolean; runningMachineIds: string[]; count: number } | null
 }
 export const getPlantStatus = () => request<PlantStatus>('GET', '/api/worker/plant-status')
 
 /** Full address of a photo or video returned by the API. */
-export const fileUrl = (url: string) => (/^https?:\/\//.test(url) ? url : `${API_URL}${url}`)
+export const fileUrl = (url: string) => (/^https?:\/\//.test(url) ? url : `${apiUrl}${url}`)
 
 export function getHistory(query: HistoryQuery = {}) {
   const params = new URLSearchParams()
@@ -317,12 +385,25 @@ export const getMyMachines = () => request<AssignedMachine[]>('GET', '/api/worke
 export const startManualCheck = (machineId: string, activityId: string) =>
   request<CheckSummary & { created: boolean }>('POST', `/api/worker/machines/${machineId}/checks`, { activityId })
 
-/** Starts a job on the machine: job-based checks become due and record this job number. */
-export const startJob = (machineId: string, jobNo: string, itemCode = '') =>
-  request<Job>('POST', `/api/worker/machines/${machineId}/jobs`, { itemCode, jobNo })
+/**
+ * Start Job: a planned job, or a new one with its Job No. and Item Code. The job waits for the
+ * returned Job Start check(s) before its scheduled checks begin.
+ */
+export const startJob = (machineId: string, job: { plannedJobId: string } | { jobNo: string; itemCode?: string }) =>
+  request<{ job: Job; startChecks: CheckSummary[] }>('POST', `/api/worker/machines/${machineId}/jobs`, job)
 
-/** Ends the running job. Job-based checks nobody was told about disappear with it. */
-export const endJob = (jobId: string) => request<Job>('POST', `/api/worker/jobs/${jobId}/end`)
+/** End Job: returns the Job End check(s); the job completes when they are submitted. */
+export const endJob = (jobId: string) => request<{ job: Job; endChecks: CheckSummary[] }>('POST', `/api/worker/jobs/${jobId}/end`)
+
+/** A job with its history, handovers and this worker's open checks. */
+export const getJob = (jobId: string) => request<JobDetail>('GET', `/api/worker/jobs/${jobId}`)
+
+/** The shifts and the workers on this machine who can take the job over. */
+export const getHandoverOptions = (jobId: string) => request<HandoverOptions>('GET', `/api/worker/jobs/${jobId}/handover-options`)
+
+/** Handover Job: the job and its open checks move to that worker, who is notified. */
+export const handoverJob = (jobId: string, data: { toUserId: string; shiftId: string | null; note: string }) =>
+  request<{ job: Job; movedChecks: number }>('POST', `/api/worker/jobs/${jobId}/handover`, data)
 
 export const registerPushToken = (token: string, platform: string) =>
   request<void>('PUT', '/api/worker/push-token', { token, platform })

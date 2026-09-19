@@ -5,13 +5,14 @@ import { api, errorText } from '../../../lib/api'
 import { useApi } from '../../../lib/useApi'
 import { useCanManage } from '../../../lib/auth'
 import { WEEKDAY_NAMES } from '../../../lib/closureTypes'
-import { addDaysKey, dateKey } from '../../../lib/format'
+import { addDaysKey, dateKey, formatDateKey } from '../../../lib/format'
 import { Button } from '../../../components/common/Button'
 import { ConfirmModal } from '../../../components/common/ConfirmModal'
 import { DataState } from '../../../components/common/DataState'
 import { Field, FormError, Select, TextInput } from '../../../components/common/Form'
 import { Modal } from '../../../components/common/Modal'
 import { useToast } from '../../../components/common/Toast'
+import { DateInput } from '../../../components/common/DateTimeInputs'
 
 interface RulesResponse {
   startsOn: string
@@ -19,8 +20,7 @@ interface RulesResponse {
   rules: WeeklyRule[]
 }
 
-const fullDate = (iso: string) =>
-  new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+const fullDate = (iso: string) => formatDateKey(iso)
 
 type RuleStatus = 'ACTIVE' | 'SCHEDULED' | 'ENDED'
 const statusOf = (rule: WeeklyRule, today: string): RuleStatus =>
@@ -70,7 +70,7 @@ export const WeeklyRulesTab: React.FC = () => {
         <div className="min-w-0">
           <h2 className="text-base font-bold text-ink">Weekly rules</h2>
           <p className="text-xs text-ink-muted">
-            The plant is closed on these weekdays from {data ? fullDate(data.startsOn) : '1 Jan 2027'} onwards, in every year, unless a date in the annual
+            The plant is closed on these weekdays from {data ? fullDate(data.startsOn) : '01/01/2027'} onwards, in every year, unless a date in the annual
             calendar says otherwise (an Adjustment Working Day opens it).
           </p>
         </div>
@@ -132,7 +132,7 @@ export const WeeklyRulesTab: React.FC = () => {
       <div className="flex items-start gap-2.5 px-4 py-3 rounded-lg border border-line bg-slate-50 text-xs text-ink-secondary">
         <Lock className="w-4 h-4 shrink-0 mt-px text-ink-muted" />
         <div>
-          <div className="font-semibold text-ink">Up to 31 Dec 2026</div>
+          <div className="font-semibold text-ink">Up to 31/12/2026</div>
           <div>
             {legacy.data
               ? legacy.data.weeklyOffDays.length
@@ -239,10 +239,10 @@ const RuleModal: React.FC<{ earliest: string; onClose: () => void; onSaved: (rem
         </Field>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="From" required hint={`${fullDate(earliest)} at the earliest`}>
-            <TextInput type="date" value={from} min={earliest} onChange={(e) => setFrom(e.target.value)} required />
+            <DateInput value={from} min={earliest} onChange={(e) => setFrom(e.target.value)} required />
           </Field>
           <Field label="Until" hint="Leave empty for no end date">
-            <TextInput type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
+            <DateInput value={to} min={from} onChange={(e) => setTo(e.target.value)} />
           </Field>
         </div>
         <Field label="Note" hint="Optional">
@@ -298,7 +298,7 @@ const EndRuleModal: React.FC<{ rule: WeeklyRule; earliest: string; onClose: () =
       <form id="end-rule-form" onSubmit={submit} className="space-y-4">
         <FormError message={error} />
         <Field label={`Last closed ${WEEKDAY_NAMES[rule.weekday]} on or before`} required hint={`${fullDate(minEnd)} at the earliest — dates already passed keep this rule`}>
-          <TextInput type="date" value={to} min={minEnd} disabled={openEnded} onChange={(e) => setTo(e.target.value)} required={!openEnded} />
+          <DateInput value={to} min={minEnd} disabled={openEnded} onChange={(e) => setTo(e.target.value)} required={!openEnded} />
         </Field>
         {rule.effectiveTo && (
           <label className="flex items-center gap-2 text-xs text-ink">

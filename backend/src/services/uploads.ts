@@ -1,9 +1,7 @@
-import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { createHash } from 'node:crypto'
 import multer from 'multer'
-import { inArray } from 'drizzle-orm'
+import { inArray, or } from 'drizzle-orm'
 import { config } from '../config'
 import { db } from '../db/client'
 import { media } from '../db/schema'
@@ -11,6 +9,7 @@ import { HttpError, badRequest, conflict } from '../lib/http'
 import { MINUTE } from '../lib/time'
 import { storage } from '../storage'
 import type { StorageCategory } from '../storage/StorageService'
+import { optimizePhoto, sha256File, videoOptimizationEnabled, type MediaProcessing } from './mediaOptimizer'
 
 const UUID = '[0-9a-fA-F-]{36}'
 const FIELD_REGEX = new RegExp(`^(photo|video)(:${UUID})?$`)
@@ -76,16 +75,6 @@ function allFiles(files: UploadedFiles | undefined): Express.Multer.File[] {
   return [...(files.photo ?? []), ...(files.video ?? [])]
 }
 
-function sha256(filePath: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const hash = createHash('sha256')
-    fs.createReadStream(filePath)
-      .on('data', (chunk) => hash.update(chunk))
-      .on('end', () => resolve(hash.digest('hex')))
-      .on('error', reject)
-  })
-}
-
 /**
  * Server-side checks for live evidence. The app only offers the camera, but the backend
  * still requires a fresh capture time and rejects files that were uploaded before.
@@ -118,9 +107,17 @@ export interface StoredEvidence {
   path: string
   mimeType: string
   sizeBytes: number
+  /** Hash of the stored file. */
   sha256: string
   capturedAt: Date
   durationSeconds: number | null
+  /** Compression (services/mediaOptimizer.ts): photos are done here, videos wait (PENDING). */
+  processing: MediaProcessing
+  originalSizeBytes: number
+  /** Hash of the file as received, used to refuse a capture that is sent again. */
+  originalSha256: string
+  width: number | null
+  height: number | null
 }
 
 const extensionFor = (file: Express.Multer.File) =>
@@ -140,7 +137,7 @@ export async function storeEvidence(items: EvidenceInput[], category: StorageCat
         item,
         label,
         capturedAt: parseCapturedAt(item.capturedAt, label),
-        hash: await sha256(item.file.path)
+        hash: await sha256File(item.file.path)
       }
     })
   )
@@ -152,33 +149,50 @@ export async function storeEvidence(items: EvidenceInput[], category: StorageCat
       if (hashes.has(p.hash)) throw conflict(`${p.label} was already used. Please take a new one.`)
       hashes.add(p.hash)
     }
+    // Compared with the files as received and as stored (a stored photo may be compressed).
+    const hashList = prepared.map((p) => p.hash)
     const reused = await db
       .select({ kind: media.kind })
       .from(media)
-      .where(inArray(media.sha256, prepared.map((p) => p.hash)))
+      .where(or(inArray(media.sha256, hashList), inArray(media.originalSha256, hashList)))
     if (reused.length) {
       throw conflict(`This ${reused[0].kind === 'VIDEO' ? 'video' : 'photo'} was already used. Please take a new one.`)
     }
   }
 
+  // Photos are compressed now (in parallel, off the main thread); videos after the check is saved.
+  const photos = await Promise.all(
+    prepared.map((p) => (p.item.kind === 'PHOTO' ? optimizePhoto(p.item.file, extensionFor(p.item.file)) : null))
+  )
+  const videosWait = videoOptimizationEnabled()
+
   const stored: StoredEvidence[] = []
   try {
-    for (const p of prepared) {
-      const saved = await storage.save(p.item.file.path, { category, extension: extensionFor(p.item.file) })
+    for (const [i, p] of prepared.entries()) {
+      const photo = photos[i]
+      const saved = await storage.save(photo?.path ?? p.item.file.path, { category, extension: photo?.extension ?? extensionFor(p.item.file) })
       stored.push({
         kind: p.item.kind,
         parameterId: p.item.parameterId ?? null,
         path: saved.path,
-        mimeType: p.item.file.mimetype,
-        sizeBytes: p.item.file.size,
-        sha256: p.hash,
+        mimeType: photo?.mimeType ?? p.item.file.mimetype,
+        sizeBytes: photo?.sizeBytes ?? p.item.file.size,
+        sha256: photo?.processing === 'COMPRESSED' ? await sha256File(storage.localPath(saved.path)) : p.hash,
         capturedAt: p.capturedAt,
-        durationSeconds: p.item.durationSeconds ?? null
+        durationSeconds: p.item.durationSeconds ?? null,
+        processing: photo?.processing ?? (videosWait ? 'PENDING' : 'ORIGINAL'),
+        originalSizeBytes: p.item.file.size,
+        originalSha256: p.hash,
+        width: photo?.width ?? null,
+        height: photo?.height ?? null
       })
     }
   } catch (err) {
     await removeStored(stored)
     throw err
+  } finally {
+    // Compressed copies that were not moved into storage (the uploads are cleaned by cleanupTemp).
+    await Promise.all(photos.map((ph, i) => (ph && ph.path !== prepared[i].item.file.path ? fsp.rm(ph.path, { force: true }) : undefined)))
   }
   return stored
 }

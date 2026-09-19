@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Modal, View, Text, Pressable, Image } from 'react-native'
+import { Modal, View, Text, Pressable, Image, Platform } from 'react-native'
 import { StatusBar } from 'expo-status-bar'
 import { CameraView, useCameraPermissions } from 'expo-camera'
 import { VideoView, useVideoPlayer } from 'expo-video'
@@ -8,6 +8,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Capture } from '../types'
 import { Button } from './ui/Button'
 import { CameraTopBar, ReviewBar, Shutter, ShutterCaption } from './CameraControls'
+import { compressPhoto } from '../services/photoCompress'
+
+/**
+ * Video bitrate while recording (720p): clear enough for inspection, a third of what phones
+ * record by default. The backend compresses it further before storing (README "Photo and video
+ * storage").
+ */
+const VIDEO_BITRATE = 3_500_000
 
 cssInterop(CameraView, { className: 'style' })
 cssInterop(VideoView, { className: 'style' })
@@ -62,8 +70,10 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
     if (!cameraRef.current || busy) return
     setBusy(true)
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.8 })
-      if (photo?.uri) setResult({ uri: photo.uri, capturedAt: new Date().toISOString() })
+      const capturedAt = new Date().toISOString()
+      // Taken at high quality and compressed once, to the size that is stored.
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.92 })
+      if (photo?.uri) setResult(await compressPhoto({ uri: photo.uri, capturedAt }, { width: photo.width, height: photo.height }))
     } catch (err) {
       console.error('Camera capture error', err)
     } finally {
@@ -79,7 +89,8 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
     setRecording(true)
     try {
       // Resolves when stopRecording() is called or the time limit is reached.
-      const video = await cameraRef.current.recordAsync({ maxDuration: maxVideoSeconds })
+      // H.264 on iPhones too (plays everywhere); needed there for the bitrate to apply.
+      const video = await cameraRef.current.recordAsync({ maxDuration: maxVideoSeconds, ...(Platform.OS === 'ios' ? { codec: 'avc1' as const } : {}) })
       const durationSeconds = Math.min((Date.now() - startedAt.current) / 1000, maxVideoSeconds)
       if (video?.uri) setResult({ uri: video.uri, capturedAt, durationSeconds: Math.round(durationSeconds) })
     } catch (err) {
@@ -138,6 +149,7 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
           facing="back"
           mode={isPhoto ? 'picture' : 'video'}
           videoQuality="720p"
+          videoBitrate={VIDEO_BITRATE}
           mute
           onCameraReady={() => setReady(true)}
         />
@@ -163,7 +175,7 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
             <Shutter kind="record" label="Record Video" onPress={startRecording} disabled={!ready} />
           )}
           <ShutterCaption
-            text={isPhoto ? (busy ? 'Taking photo…' : 'Photo') : recording ? 'Tap to stop' : `Up to ${maxVideoSeconds} seconds`}
+            text={isPhoto ? (busy ? 'Saving photo…' : 'Photo') : recording ? 'Tap to stop' : `Up to ${maxVideoSeconds} seconds`}
           />
         </View>
       </View>

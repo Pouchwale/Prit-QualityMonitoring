@@ -1,12 +1,13 @@
 import { Router, type Request } from 'express'
 import { z } from 'zod'
-import { and, asc, desc, eq, gte, ilike, inArray, lt, or, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, or, type SQL } from 'drizzle-orm'
 import { db } from '../db/client'
 import {
   activities,
   auditLogs,
   checkExceptions,
   departments,
+  jobs,
   machineActivities,
   machines,
   monitoringReasons,
@@ -22,17 +23,17 @@ import { badRequest, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
 import { requireAnyView, requireModule } from '../lib/permissions'
 import { CHECK_RESULTS, RESULT_LABEL, RESULT_STATUSES, resultOf } from '../lib/result'
-import { PLANT_TIMEZONE, addDays, parseDateKey, startOfDay } from '../lib/time'
+import { addDays, dateKey, formatLocalDate, parseDateKey, startOfDay } from '../lib/time'
 import { listChecks } from '../services/checks'
 import { buildQualityReport } from '../services/reportData'
+import { buildTraceReport } from '../services/traceReport'
 import { renderQualityReport } from '../services/reportPdf'
 import { config } from '../config'
 import { coverageGaps, eligibleWorkers, loadWorkers, shiftAt } from '../services/workerAssignment'
-import { closureOn } from '../services/plantCalendar'
-import { invalidateCheckGeneration, makeCheckCode, prepareChecks } from '../services/checkGenerator'
-import { endJob, jobById } from '../services/jobs'
+import { closureOn, plansBetween } from '../services/plantCalendar'
+import { machineClosureOn } from '../services/machineDays'
+import { makeCheckCode, prepareChecks } from '../services/checkGenerator'
 import {
-  listJobs,
   listMonitoringReasons,
   monitoringOverview,
   monitoringReasonById,
@@ -55,8 +56,7 @@ async function gapDetails() {
     .orderBy(asc(machines.name), asc(shifts.startTime))
 }
 
-const formatDay = (d: Date) =>
-  d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: PLANT_TIMEZONE })
+const formatDay = (d: Date) => formatLocalDate(d)
 
 /** The only statuses that can be filtered on or shown. Unfinished checks have no status yet. */
 const CHECK_STATUSES = ['COMPLETED', 'MISSED', 'EXCEPTION'] as const
@@ -101,7 +101,10 @@ const checkFilters = z.object({
   workerId: z.uuid().optional(),
   shiftId: z.uuid().optional(),
   activityId: z.uuid().optional(),
-  departmentId: z.uuid().optional()
+  departmentId: z.uuid().optional(),
+  /** Whole Item Code / Job No., case-insensitive (the check's own, or its job's). */
+  itemCode: z.string().trim().max(60).optional(),
+  jobNo: z.string().trim().max(60).optional()
 })
 
 /**
@@ -147,7 +150,13 @@ monitoringRouter.post('/quality-checks', requireModule('checks', 'manage'), asyn
     if (scheduledAt <= now) throw badRequest('A later check must start in the future. Use "Start now" to open it immediately.')
   }
 
-  const closure = await closureOn(scheduledAt)
+  // The plant calendar, or that day's machine day plan, decides whether this machine runs.
+  const closure = await machineClosureOn(body.machineId, scheduledAt)
+  if (closure?.planned) {
+    throw badRequest(
+      `This machine is not scheduled to run on ${formatDay(scheduledAt)}. Add it to that day's machine plan in the Plant Calendar to create a check.`
+    )
+  }
   if (closure) {
     throw badRequest(
       `The plant is closed on ${formatDay(scheduledAt)} (${closure.label}${closure.reason ? `: ${closure.reason}` : ''}). Remove the date from the Plant Calendar to create a check.`
@@ -301,8 +310,68 @@ monitoringRouter.get('/dashboard', requireAnyView('dashboard', 'checks', 'except
 
   // Plant Calendar: tells the dashboard when the chosen day is a closed day.
   const closure = await closureOn(from)
+  // Machine day plan of the chosen day: exactly these machines run (null: the plant calendar decides).
+  const fromKey = dateKey(from)
+  const plan = (await plansBetween(fromKey, fromKey)).get(fromKey)
+  const machinePlan = plan ? { machineIds: [...plan], count: plan.size } : null
   const workerGaps = await gapDetails()
-  res.json({ from, to, kpi, byMachine: [...byMachine.values()], recent, closure, workerGaps })
+  res.json({ from, to, kpi, byMachine: [...byMachine.values()], recent, closure, machinePlan, workerGaps })
+})
+
+/**
+ * Traceability for the Quality Reports: per Item Code, Job No. and worker, and every reading
+ * change and correction, for the same filters as the report. The detailed records themselves
+ * come from /quality-checks with the same filters.
+ */
+monitoringRouter.get('/reports/trace', requireModule('reports', 'view'), async (req, res) => {
+  const { from, to } = dateRange(req)
+  const f = checkFilters.parse(req.query)
+  await prepareRange(from, to)
+  const base = {
+    from,
+    to,
+    machineId: f.machineId,
+    shiftId: f.shiftId,
+    activityId: f.activityId,
+    departmentId: f.departmentId,
+    itemCode: f.itemCode,
+    jobNo: f.jobNo
+  }
+  const [checks, context] = await Promise.all([
+    listChecks({ ...base, workerId: f.workerId, ...statusScope(f) }),
+    // What can come before a reported reading: the same item/job/machine by any worker, any result.
+    f.workerId || f.status.length || f.result.length ? listChecks(base) : null
+  ])
+  res.json(buildTraceReport(checks, context ?? checks))
+})
+
+/**
+ * Item Codes and Job Nos. recorded in a period, for the report filters' suggestion lists: from
+ * the checks (submitted values) and from the jobs that ran in the period.
+ */
+monitoringRouter.get('/reports/filter-values', requireModule('reports', 'view'), async (req, res) => {
+  const { from, to } = dateRange(req)
+  const [fromChecks, fromJobs] = await Promise.all([
+    db
+      .selectDistinct({ itemCode: qualityChecks.itemCode, jobNo: qualityChecks.jobNo })
+      .from(qualityChecks)
+      .where(and(gte(qualityChecks.scheduledAt, from), lt(qualityChecks.scheduledAt, to))),
+    db
+      .selectDistinct({ itemCode: jobs.itemCode, jobNo: jobs.jobNo })
+      .from(jobs)
+      .where(and(lt(jobs.startedAt, to), or(isNull(jobs.endedAt), gte(jobs.endedAt, from))))
+  ])
+  const rows = [...fromChecks, ...fromJobs]
+  // Distinct ignoring case and spaces; the first spelling seen is kept.
+  const distinct = (values: (string | null)[]) => {
+    const seen = new Map<string, string>()
+    for (const v of values) {
+      const t = v?.trim()
+      if (t && !seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t)
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  }
+  res.json({ itemCodes: distinct(rows.map((r) => r.itemCode)), jobNos: distinct(rows.map((r) => r.jobNo)) })
 })
 
 /**
@@ -337,15 +406,45 @@ monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports',
     const [row] = await db.select({ name: departments.name }).from(departments).where(eq(departments.id, f.departmentId))
     if (row) labels.push(`Department: ${row.name}`)
   }
+  if (f.itemCode) labels.push(`Item Code: ${f.itemCode}`)
+  if (f.jobNo) labels.push(`Job No.: ${f.jobNo}`)
   if (f.status.length) labels.push(`Status: ${f.status.map((s) => RESULT_LABEL[s]).join(', ')}`)
   if (f.result.length) labels.push(`Result: ${f.result.map((r) => RESULT_LABEL[r]).join(', ')}`)
 
+  // An Item Code, Job No. or worker report also gets the traceability sections. With a worker or
+  // result filter, the readings that come before (by anyone) are needed to find the changes.
+  const traced = !!(f.itemCode || f.jobNo || f.workerId)
+  const traceContext =
+    traced && (f.workerId || f.status.length || f.result.length)
+      ? await listChecks({
+          from,
+          to,
+          machineId: f.machineId,
+          shiftId: f.shiftId,
+          activityId: f.activityId,
+          departmentId: f.departmentId,
+          itemCode: f.itemCode,
+          jobNo: f.jobNo
+        })
+      : undefined
   const report = await buildQualityReport(
-    { from, to, ...statusScope(f), machineId: f.machineId, workerId: f.workerId, shiftId: f.shiftId, activityId: f.activityId, departmentId: f.departmentId },
+    {
+      from,
+      to,
+      ...statusScope(f),
+      machineId: f.machineId,
+      workerId: f.workerId,
+      shiftId: f.shiftId,
+      activityId: f.activityId,
+      departmentId: f.departmentId,
+      itemCode: f.itemCode,
+      jobNo: f.jobNo
+    },
     {
       preparedBy: `${req.user!.name} (${req.user!.employeeId})`,
       uploadDir: config.uploadDir,
-      filterLabels: labels
+      filterLabels: labels,
+      trace: traced ? { context: traceContext } : undefined
     }
   )
 
@@ -430,56 +529,7 @@ monitoringRouter.delete('/monitoring-reasons/:id', requireModule('activities', '
   res.json({ result: 'disabled', ...reasonDto(row) })
 })
 
-/** Optional from/to day filter. Unlike the checks list this does not default to today. */
-function optionalRange(q: { from?: string; to?: string }) {
-  try {
-    const from = q.from ? parseDateKey(q.from) : undefined
-    const to = q.to ? addDays(parseDateKey(q.to), 1) : undefined
-    if (from && to && to <= from) throw badRequest('"to" date must be on or after "from" date')
-    return { from, to }
-  } catch (err) {
-    if (err instanceof Error && err.message.startsWith('Invalid date')) throw badRequest(err.message)
-    throw err
-  }
-}
-
-/** The production jobs log. Same data the worker app records when it starts and ends a job. */
-monitoringRouter.get('/jobs', requireModule('checks', 'view'), async (req, res) => {
-  const q = z
-    .object({
-      from: z.string().optional(),
-      to: z.string().optional(),
-      machineId: z.uuid().optional(),
-      running: z
-        .enum(['true', 'false'])
-        .optional()
-        .transform((v) => (v === undefined ? undefined : v === 'true'))
-    })
-    .parse(req.query)
-  res.json(await listJobs({ ...optionalRange(q), machineId: q.machineId, running: q.running }))
-})
-
-/**
- * Ends a job from the admin panel, e.g. when a worker left it running. Exactly like the worker
- * endpoint: the JOB-schedule checks nobody was told about are removed, so nothing is counted as
- * Missed on a machine that is not running (services/jobs.ts → removePendingJobChecks).
- */
-monitoringRouter.post('/jobs/:id/end', requireModule('checks', 'manage'), async (req, res) => {
-  const id = idParam(req)
-  const job = await jobById(id)
-  if (!job) throw notFound('Job')
-  if (job.endedAt) throw badRequest('This job is already finished')
-  const ended = await endJob(id, req.user!.id)
-  // The generator must forget its plan: a JOB schedule stops producing checks from here.
-  invalidateCheckGeneration()
-  await audit(req, 'END_JOB', 'Job', id, {
-    oldValue: { jobNo: job.jobNo, startedAt: job.startedAt },
-    newValue: { endedAt: ended.job.endedAt, removedChecks: ended.removedChecks }
-  })
-  // Answer with the same shape the jobs list uses, so the screen can refresh one row.
-  const row = (await listJobs({ machineId: job.machineId })).find((r) => r.id === id)
-  res.json(row ?? ended.job)
-})
+// Jobs (list, plan, detail, handover, force close) are in routes/jobs.ts.
 
 /**
  * Machine-wise monitoring configuration for the admin Monitoring Setup screen: the check types on

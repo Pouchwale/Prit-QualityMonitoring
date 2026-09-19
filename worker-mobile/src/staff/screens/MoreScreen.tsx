@@ -25,6 +25,7 @@ const GROUPS: { title: string; detail?: string; entries: Entry[] }[] = [
     title: 'Monitoring',
     entries: [
       { label: 'Quality Checks', description: 'Scheduled checks, values and evidence', screen: 'checks', icon: 'clipboard-outline', module: 'checks', tab: 'checks' },
+      { label: 'Jobs', description: 'Planned and running jobs, handovers', screen: 'jobs', icon: 'briefcase-outline', module: 'checks' },
       { label: 'Exceptions', description: 'Checks workers could not perform', screen: 'exceptions', icon: 'alert-circle-outline', module: 'exceptions', tab: 'exceptions' },
       { label: 'Reports', description: 'Summaries, CSV and PDF', screen: 'reports', icon: 'bar-chart-outline', module: 'reports', tab: 'reports' },
       { label: 'Plant Calendar', description: 'Holidays and working days', screen: 'calendar', icon: 'calendar-outline', module: 'calendar' }

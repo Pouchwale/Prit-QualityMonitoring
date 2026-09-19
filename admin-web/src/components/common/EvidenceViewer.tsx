@@ -84,10 +84,7 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerNam
             </div>
             <div className="p-3 grid grid-cols-2 gap-2 text-xs">
               <Meta label={file.kind === 'PHOTO' ? 'Photo captured' : 'Video captured'} value={formatDateTime(file.capturedAt)} />
-              <Meta
-                label="Size"
-                value={`${formatBytes(file.sizeBytes)}${file.durationSeconds != null ? ` · ${Math.round(file.durationSeconds)} s` : ''}`}
-              />
+              <Meta label="Size" value={sizeText(file)} title={storageNote(file)} />
               <Meta label="SHA-256" value={`${file.sha256.slice(0, 16)}…`} mono title={file.sha256} />
               <Meta label="Uploaded" value={formatDateTime(file.createdAt)} />
             </div>
@@ -105,6 +102,25 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerNam
       {preview && <PreviewModal file={preview} onClose={() => setPreview(null)} />}
     </div>
   )
+}
+
+/** "420 KB · 1420×3072 · 12 s" */
+function sizeText(file: MediaFile) {
+  return [
+    formatBytes(file.sizeBytes),
+    file.width && file.height ? `${file.width}×${file.height}` : null,
+    file.durationSeconds != null ? `${Math.round(file.durationSeconds)} s` : null
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/** How the file was stored, shown on hover: "Compressed from 2.0 MB". */
+function storageNote(file: MediaFile) {
+  if (file.processing === 'PENDING') return 'Being compressed; the uploaded video is shown until then.'
+  if (file.processing === 'COMPRESSED' && file.originalSizeBytes) return `Compressed for storage from ${formatBytes(file.originalSizeBytes)}`
+  if (file.processing === 'FAILED') return 'Stored as uploaded (it could not be compressed).'
+  return 'Stored as uploaded.'
 }
 
 const Meta: React.FC<{ label: string; value: string; mono?: boolean; title?: string }> = ({ label, value, mono, title }) => (

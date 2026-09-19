@@ -1,3 +1,5 @@
+import { formatDate } from './datetime'
+
 /** Local date as YYYY-MM-DD, the format the API expects. */
 export function dateKey(date: Date) {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -15,6 +17,7 @@ export function daysAgo(days: number) {
   return d
 }
 
+/** 18/09/2026 */
 export function formatDateKey(key: string) {
-  return parseDateKey(key).toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDate(parseDateKey(key))
 }

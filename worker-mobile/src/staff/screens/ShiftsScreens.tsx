@@ -4,8 +4,9 @@ import type { Shift } from '../types'
 import { api } from '../../services/api'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
-import { Badge, DataState, FormError, FormSection, Input, List, PrimaryButton, Row, Screen, ToggleField, confirm, useToast } from '../ui'
+import { Badge, DataState, FormError, FormSection, Input, List, PrimaryButton, Row, Screen, TimeField, ToggleField, confirm, useToast } from '../ui'
 import { ActionGroup, ActionItem, facts } from './adminParts'
+import { formatClockRange } from '../../utils/datetime'
 
 interface FormState {
   name: string
@@ -39,12 +40,6 @@ const durationLabel = (minutes: number) => {
 
 const isOvernight = (s: { startTime: string; endTime: string }) => toMinutes(s.endTime) <= toMinutes(s.startTime)
 
-/** Formats typed digits as HH:MM (e.g. "0830" → "08:30") so a number pad is enough. */
-const typeTime = (text: string) => {
-  const digits = text.replace(/\D/g, '').slice(0, 4)
-  return digits.length > 2 ? `${digits.slice(0, 2)}:${digits.slice(2)}` : digits
-}
-
 /** Shifts: working shifts define when scheduled quality checks are generated. */
 export const ShiftsScreen: React.FC<{ params: Record<string, unknown> }> = () => {
   const { can, push } = useStaff()
@@ -62,7 +57,7 @@ export const ShiftsScreen: React.FC<{ params: Record<string, unknown> }> = () =>
               title={s.name}
               titleClassName={s.isActive ? '' : 'text-staff-muted'}
               subtitle={facts(
-                `${s.startTime}–${s.endTime}${isOvernight(s) ? ' (next day)' : ''}`,
+                `${formatClockRange(s.startTime, s.endTime)}${isOvernight(s) ? ' (next day)' : ''}`,
                 durationLabel(shiftLength(s.startTime, s.endTime)),
                 `Code ${s.code}`,
                 `Grace ${s.graceMinutes} min`
@@ -104,7 +99,7 @@ export const ShiftFormScreen: React.FC<{ params: { shift?: Shift } }> = ({ param
   const submit = async () => {
     const grace = Number(form.graceMinutes)
     if (!form.name.trim() || !form.code.trim()) return setFormError('Name and code are required')
-    if (!HHMM.test(form.startTime) || !HHMM.test(form.endTime)) return setFormError('Enter start and end times in 24-hour format, e.g. 08:00')
+    if (!HHMM.test(form.startTime) || !HHMM.test(form.endTime)) return setFormError('Choose a start and an end time')
     if (form.startTime === form.endTime) return setFormError('Start and end time cannot be the same')
     if (form.graceMinutes.trim() === '' || !Number.isInteger(grace) || grace < 0 || grace > 240) {
       return setFormError('Grace period must be a whole number between 0 and 240 minutes')
@@ -162,7 +157,6 @@ export const ShiftFormScreen: React.FC<{ params: { shift?: Shift } }> = ({ param
   }
 
   const formValid = HHMM.test(form.startTime) && HHMM.test(form.endTime) && form.startTime !== form.endTime
-  const timeError = (v: string) => (v.length >= 5 && !HHMM.test(v) ? 'Use 24-hour HH:MM, e.g. 08:00' : null)
 
   return (
     <Screen
@@ -176,27 +170,9 @@ export const ShiftFormScreen: React.FC<{ params: { shift?: Shift } }> = ({ param
         <Input label="Code" required value={form.code} onChangeText={(v) => set('code', v)} placeholder="e.g. A" maxLength={30} autoCapitalize="characters" />
       </FormSection>
 
-      <FormSection title="Hours" description="Times use the 24-hour clock of the plant server">
-        <Input
-          label="Start time"
-          required
-          value={form.startTime}
-          onChangeText={(v) => set('startTime', typeTime(v))}
-          placeholder="HH:MM"
-          keyboardType="number-pad"
-          maxLength={5}
-          error={timeError(form.startTime)}
-        />
-        <Input
-          label="End time"
-          required
-          value={form.endTime}
-          onChangeText={(v) => set('endTime', typeTime(v))}
-          placeholder="HH:MM"
-          keyboardType="number-pad"
-          maxLength={5}
-          error={timeError(form.endTime)}
-        />
+      <FormSection title="Hours" description="Plant time">
+        <TimeField label="Start time" required value={form.startTime} onChange={(v) => set('startTime', v)} />
+        <TimeField label="End time" required value={form.endTime} onChange={(v) => set('endTime', v)} />
         {formValid ? (
           <View className="rounded-xl bg-staff-fill px-3.5 py-2.5">
             <Text className="text-[14px] leading-[19px] text-staff-ink2">

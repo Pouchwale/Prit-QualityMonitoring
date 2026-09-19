@@ -5,6 +5,7 @@ import { useQuery } from './useQuery'
 import { addDaysKey, dateKey, formatKey } from './format'
 import { Icon } from './Icon'
 import { DateField, PrimaryButton, SelectField, Sheet, SmallButton, type Option } from './ui'
+import { formatClockRange } from '../utils/datetime'
 
 /** Filters shared by the monitoring screens, the same as the web panel's FilterBar. Empty string = all. */
 export interface MonitoringFilters {
@@ -16,9 +17,12 @@ export interface MonitoringFilters {
   activityId: string
   departmentId: string
   status: string
+  /** Whole Item Code / Job No. (case-insensitive); only on screens that show these fields. */
+  itemCode?: string
+  jobNo?: string
 }
 
-export type FilterField = 'shift' | 'machine' | 'worker' | 'activity' | 'department' | 'status'
+export type FilterField = 'shift' | 'machine' | 'worker' | 'activity' | 'department' | 'status' | 'itemCode' | 'jobNo'
 
 export const todayFilters = (days = 1): MonitoringFilters => {
   const today = dateKey()
@@ -32,7 +36,9 @@ export const filterQuery = (f: MonitoringFilters) => ({
   machineId: f.machineId,
   workerId: f.workerId,
   activityId: f.activityId,
-  departmentId: f.departmentId
+  departmentId: f.departmentId,
+  itemCode: f.itemCode ?? '',
+  jobNo: f.jobNo ?? ''
 })
 
 interface Props {
@@ -51,7 +57,7 @@ const DEFAULT_PRESETS = [
   { label: '30 days', range: () => ({ from: addDaysKey(dateKey(), -29), to: dateKey() }) }
 ]
 
-const NO_FIELDS = { shiftId: '', machineId: '', workerId: '', activityId: '', departmentId: '', status: '' }
+const NO_FIELDS = { shiftId: '', machineId: '', workerId: '', activityId: '', departmentId: '', status: '', itemCode: '', jobNo: '' }
 
 /** A small preset chip: accent fill when chosen, white otherwise. */
 const Chip: React.FC<{ label: string; on: boolean; onPress: () => void; icon?: boolean }> = ({ label, on, onPress, icon }) => (
@@ -84,6 +90,17 @@ export const FilterPanel: React.FC<Props> = ({ value, onChange, onReset, fields,
   const workers = useQuery<User[]>(want('worker', value.workerId) ? '/api/users' : null, { role: 'WORKER' })
   const activities = useQuery<Activity[]>(want('activity', value.activityId) ? '/api/activities' : null)
   const departments = useQuery<Department[]>(want('department', value.departmentId) ? '/api/departments' : null)
+  // Item Codes and Job Nos. recorded in the dates being chosen, for the two pickers.
+  const jobValues = useQuery<{ itemCodes: string[]; jobNos: string[] }>(
+    (has('itemCode') || has('jobNo')) && open ? '/api/reports/filter-values' : null,
+    { from: draft.from, to: draft.to }
+  )
+  /** The recorded values as options, keeping a chosen value that is not in the list. */
+  const valueOptions = (values: string[] | undefined, current: string | undefined) =>
+    [...(current && !(values ?? []).some((v) => v.toLowerCase() === current.toLowerCase()) ? [current] : []), ...(values ?? [])].map((v) => ({
+      value: v,
+      label: v
+    }))
 
   const set = (patch: Partial<MonitoringFilters>) => onChange({ ...value, ...patch })
   const setDraftPart = (patch: Partial<MonitoringFilters>) => setDraft((d) => ({ ...d, ...patch }))
@@ -101,6 +118,8 @@ export const FilterPanel: React.FC<Props> = ({ value, onChange, onReset, fields,
 
   const nameOf = <T extends { id: string; name: string }>(list: T[] | null, id: string) => list?.find((x) => x.id === id)?.name
   const chips: { key: string; label: string; clear: Partial<MonitoringFilters> }[] = []
+  if (has('itemCode') && value.itemCode) chips.push({ key: 'itemCode', label: `Item Code ${value.itemCode}`, clear: { itemCode: '' } })
+  if (has('jobNo') && value.jobNo) chips.push({ key: 'jobNo', label: `Job No. ${value.jobNo}`, clear: { jobNo: '' } })
   if (has('status') && value.status) chips.push({ key: 'status', label: statusOptions.find((o) => o.value === value.status)?.label ?? statusLabel, clear: { status: '' } })
   if (has('machine') && value.machineId) chips.push({ key: 'machine', label: nameOf(machines.data, value.machineId) ?? 'Machine', clear: { machineId: '' } })
   if (has('worker') && value.workerId) chips.push({ key: 'worker', label: nameOf(workers.data, value.workerId) ?? 'Worker', clear: { workerId: '' } })
@@ -196,6 +215,26 @@ export const FilterPanel: React.FC<Props> = ({ value, onChange, onReset, fields,
                 <DateField label="To" value={draft.to} min={draft.from} onChange={(to) => to && setDraftPart({ to, from: draft.from > to ? to : draft.from })} />
               </View>
             </View>
+            {has('itemCode') ? (
+              <SelectField
+                label="Item Code"
+                value={draft.itemCode ?? ''}
+                emptyLabel="All item codes"
+                hint={jobValues.data && !jobValues.data.itemCodes.length ? 'No item codes recorded in these dates' : null}
+                options={valueOptions(jobValues.data?.itemCodes, draft.itemCode)}
+                onChange={(itemCode) => setDraftPart({ itemCode })}
+              />
+            ) : null}
+            {has('jobNo') ? (
+              <SelectField
+                label="Job No."
+                value={draft.jobNo ?? ''}
+                emptyLabel="All job numbers"
+                hint={jobValues.data && !jobValues.data.jobNos.length ? 'No job numbers recorded in these dates' : null}
+                options={valueOptions(jobValues.data?.jobNos, draft.jobNo)}
+                onChange={(jobNo) => setDraftPart({ jobNo })}
+              />
+            ) : null}
             {has('status') ? (
               <SelectField label={statusLabel} value={draft.status} emptyLabel="All" options={statusOptions} onChange={(status) => setDraftPart({ status })} />
             ) : null}
@@ -231,7 +270,7 @@ export const FilterPanel: React.FC<Props> = ({ value, onChange, onReset, fields,
                 label="Shift"
                 value={draft.shiftId}
                 emptyLabel="All shifts"
-                options={(shifts.data ?? []).map((s) => ({ value: s.id, label: s.name, detail: `${s.startTime}–${s.endTime}` }))}
+                options={(shifts.data ?? []).map((s) => ({ value: s.id, label: s.name, detail: `${formatClockRange(s.startTime, s.endTime)}` }))}
                 onChange={(shiftId) => setDraftPart({ shiftId })}
               />
             ) : null}

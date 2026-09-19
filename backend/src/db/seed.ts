@@ -13,6 +13,7 @@ import {
   workerMachines
 } from './schema'
 import { passwordColumns } from '../lib/auth'
+import { NEW_PARAMETERS } from './ensureNewParameters'
 
 /**
  * Starter data. Safe to run more than once: it only inserts when the users table is empty.
@@ -65,7 +66,9 @@ async function main() {
         { name: 'TEAP Test', code: 'TEAP', type: 'PASS_FAIL', sortOrder: 3 },
         { name: 'Deep Punching', code: 'DEEP-PUNCHING', type: 'PASS_FAIL', sortOrder: 4 },
         { name: 'Registration', code: 'REGISTRATION', type: 'PASS_FAIL', sortOrder: 5 },
-        { name: 'Print Prachar', code: 'PRINT-PRACHAR', type: 'PASS_FAIL', sortOrder: 6 }
+        { name: 'Print Prachar', code: 'PRINT-PRACHAR', type: 'PASS_FAIL', sortOrder: 6 },
+        // Optional on the check form until the admin sets their rules in Check Types.
+        ...NEW_PARAMETERS.map((p, i) => ({ ...p, isRequired: false, sortOrder: 7 + i }))
       ])
       .returning()
 
@@ -100,7 +103,7 @@ async function main() {
         activityId: routine.id,
         parameterId: p.id,
         sortOrder: index,
-        isRequired: true,
+        isRequired: p.isRequired,
         ...evidenceRules[p.code]
       }))
     )

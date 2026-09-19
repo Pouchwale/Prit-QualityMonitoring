@@ -10,11 +10,13 @@ import { ASSIGNMENTS_SCREENS } from './AssignmentsScreens'
 import { MANAGER_ACCESS_SCREENS } from './ManagerAccessScreens'
 import { CALENDAR_SCREENS } from './CalendarScreens'
 import { CALENDAR_YEARS_SCREENS } from './CalendarYearsScreens'
+import { MACHINE_DAY_SCREENS } from './MachineDayScreens'
 import { MACHINES_SCREENS } from './MachinesScreens'
 import { ACTIVITIES_SCREENS } from './ActivitiesScreens'
 import { PARAMETERS_SCREENS } from './ParametersScreens'
 import { SCHEDULES_SCREENS } from './SchedulesScreens'
 import { MONITORING_SCREENS } from './MonitoringSetupScreens'
+import { JOBS_SCREENS } from './JobsScreens'
 import { DEPARTMENTS_SCREENS } from './DepartmentsScreens'
 import { SHIFTS_SCREENS } from './ShiftsScreens'
 import { AUDIT_LOGS_SCREENS } from './AuditLogsScreens'
@@ -40,11 +42,13 @@ const GROUPS: Record<string, AnyScreen>[] = [
   MANAGER_ACCESS_SCREENS,
   CALENDAR_SCREENS,
   CALENDAR_YEARS_SCREENS,
+  MACHINE_DAY_SCREENS,
   MACHINES_SCREENS,
   ACTIVITIES_SCREENS,
   PARAMETERS_SCREENS,
   SCHEDULES_SCREENS,
   MONITORING_SCREENS,
+  JOBS_SCREENS,
   DEPARTMENTS_SCREENS,
   SHIFTS_SCREENS,
   AUDIT_LOGS_SCREENS,

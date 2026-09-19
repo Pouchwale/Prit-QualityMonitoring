@@ -39,7 +39,7 @@ export interface ManagerAccess {
   lastLoginAt: string | null
   permissions: Permissions
 }
-export type ParameterType = 'NUMBER' | 'TEXT' | 'DROPDOWN' | 'YES_NO' | 'PASS_FAIL'
+export type ParameterType = 'NUMBER' | 'TEXT' | 'DROPDOWN' | 'YES_NO' | 'PASS_FAIL' | 'PHOTO'
 export type MachineStatus = 'ACTIVE' | 'MAINTENANCE' | 'IDLE'
 /**
  * Internal check state from the API. Only COMPLETED, MISSED and EXCEPTION are ever shown as a
@@ -127,6 +127,9 @@ export interface Parameter {
   activityIds: string[]
 }
 
+/** When a parameter of a job-based check type is checked. */
+export type ParameterFrequency = 'JOB_START' | 'INTERVAL' | 'JOB_END'
+
 export interface ActivityParameter {
   parameterId: string
   sortOrder: number
@@ -139,6 +142,9 @@ export interface ActivityParameter {
   /** The worker may mark this parameter Not Applicable with a reason. */
   allowNa: boolean
   appliesWhen: AppliesWhen
+  /** Job-based check types: when this parameter is checked. */
+  frequency: ParameterFrequency
+  intervalMinutes: number
   name: string
   code: string
   type: ParameterType
@@ -161,6 +167,10 @@ export interface Activity {
   requireJobNo: boolean
   /** Workers may start this check themselves, without waiting for a notification. */
   allowManual: boolean
+  /** SHIFT: shift schedules. JOB: checked per job (start, intervals, end). */
+  monitoring: 'SHIFT' | 'JOB'
+  /** Job interval checks count as Missed this long after they are due. */
+  graceMinutes: number
   isActive: boolean
   parameters: ActivityParameter[]
   machineIds: string[]
@@ -230,6 +240,12 @@ export interface MediaFile {
   mimeType: string
   sizeBytes: number
   sha256: string
+  /** Compression before storage; null for files stored before it existed. */
+  processing?: 'PENDING' | 'COMPRESSED' | 'ORIGINAL' | 'FAILED' | null
+  /** Size as the phone sent it. */
+  originalSizeBytes?: number | null
+  width?: number | null
+  height?: number | null
   durationSeconds: number | null
   capturedAt: string | null
   createdAt: string
@@ -296,6 +312,10 @@ export interface QualityCheck {
   values: CheckValue[]
   media: MediaFile[]
   exception: CheckException | null
+  /** SCHEDULED (shift schedule) or a job check (older servers leave it out). */
+  kind?: CheckKind
+  /** Job checks: the parameters this check asks for. */
+  parameterIds?: string[] | null
   /** The job this check belongs to, on the single-check endpoint. */
   job?: Job | null
 }
@@ -318,7 +338,8 @@ export interface Job {
   machineCode?: string | null
   itemCode?: string | null
   jobNo: string
-  startedAt: string
+  /** Null while the job is only planned. */
+  startedAt: string | null
   startedById: string | null
   startedByName: string | null
   endedAt: string | null
@@ -328,6 +349,43 @@ export interface Job {
   checkCount?: number
   /** Minutes from start to end, or to now while the job runs. */
   durationMinutes?: number | null
+  status?: JobStatus
+}
+
+/** PLANNED → STARTING (Job Start check) → ACTIVE → ENDING (Job End check) → COMPLETED. */
+export type JobStatus = 'PLANNED' | 'STARTING' | 'ACTIVE' | 'ENDING' | 'COMPLETED' | 'CANCELLED'
+
+/** SCHEDULED: shift schedule check. JOB_*: a job's start, interval or end check. */
+export type CheckKind = 'SCHEDULED' | 'JOB_START' | 'JOB_INTERVAL' | 'JOB_END'
+
+/** A job in the admin Jobs list (GET /api/jobs). */
+export interface JobRow extends Job {
+  machineName: string
+  machineCode: string
+  status: JobStatus
+  activatedAt: string | null
+  endRequestedAt: string | null
+  assignedWorkerId: string | null
+  assignedWorkerName: string | null
+  plannedFor: string | null
+  note: string | null
+  forceClosed: boolean
+  /** NONE: no Job Start / Job End parameters. PENDING: open. DONE: submitted. */
+  startCheck: 'NONE' | 'PENDING' | 'DONE'
+  endCheck: 'NONE' | 'PENDING' | 'DONE'
+  handovers: number
+  counts: { total: number; pending: number; due: number; overdue: number; completed: number; missed: number; exception: number }
+}
+
+export interface JobHandover {
+  id: string
+  at: string
+  fromName: string | null
+  toName: string | null
+  byName: string | null
+  shiftName: string | null
+  note: string | null
+  movedChecks: number
 }
 
 /** One parameter's evidence rules inside a check type (GET /api/monitoring-overview). */
@@ -463,6 +521,18 @@ export interface DayState {
   weeklyClosed: boolean
   entry: { id: string; type: ClosureType; reason: string | null; calendarYearId: string | null } | null
   label: string | null
+  /** The date has a machine day plan: only these machines run (null: the plant calendar decides). */
+  machinePlan?: { count: number; machineIds: string[] } | null
+}
+
+/** Machines that run on one date. Without a plan every machine follows the plant calendar. */
+export interface MachineDayPlan {
+  date: string
+  note: string | null
+  machineIds: string[]
+  machines: { id: string; name: string; code: string }[]
+  updatedAt: string
+  updatedByName: string | null
 }
 
 /** A recurring weekly closure from 2027 onwards (inclusive dates; no end date = open-ended). */
@@ -537,3 +607,65 @@ export interface PlantClosure {
 }
 
 export type Settings = Record<string, unknown>
+
+/** Traceability for an Item Code / Job No. / worker report (GET /api/reports/trace). */
+export interface TraceCounts {
+  checks: number
+  completed: number
+  missed: number
+  exceptions: number
+  open: number
+  readings: number
+  outsideLimits: number
+  notApplicable: number
+  changes: number
+  corrections: number
+}
+
+export interface TraceGroup extends TraceCounts {
+  key: string
+  itemCodes: string[]
+  jobNos: string[]
+  workers: string[]
+  machines: string[]
+  firstAt: string | null
+  lastAt: string | null
+}
+
+export interface TraceWorker extends TraceGroup {
+  workerId: string | null
+  name: string
+  employeeId: string | null
+  items: { itemCode: string; jobNos: string[]; checks: number; completed: number; missed: number; exceptions: number; changes: number }[]
+}
+
+export interface TraceChange {
+  at: string
+  checkId: string
+  checkCode: string
+  machineName: string
+  machineCode: string
+  itemCode: string
+  jobNo: string
+  parameterName: string
+  unit: string | null
+  from: string
+  to: string
+  fromResult: string
+  toResult: string
+  correction: boolean
+  wentOutside: boolean
+  byName: string
+  byEmployeeId: string | null
+  byId: string | null
+  previousAt: string
+  previousByName: string
+}
+
+export interface TraceReport {
+  counts: TraceCounts
+  items: TraceGroup[]
+  jobs: TraceGroup[]
+  workers: TraceWorker[]
+  changes: TraceChange[]
+}

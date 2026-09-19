@@ -24,11 +24,13 @@ import {
   Section,
   Segmented,
   SelectField,
+  TimeField,
   ToggleField,
   confirm,
   useToast
 } from '../ui'
 import { ActionGroup, ActionItem, facts } from './adminParts'
+import { formatClockRange } from '../../utils/datetime'
 
 const PRESETS: { minutes: number; label: string }[] = [
   { minutes: 15, label: 'Every 15 min' },
@@ -225,8 +227,8 @@ export const SchedulesScreen: React.FC<{ params: Record<string, unknown> }> = ()
                         titleClassName={s.isActive ? '' : 'text-staff-muted'}
                         subtitle={facts(
                           modeLabel(s),
-                          s.startTime && s.endTime ? `${s.startTime}–${s.endTime}` : 'Whole shift',
-                          `${s.shiftName} ${s.shiftStartTime}–${s.shiftEndTime}`
+                          s.startTime && s.endTime ? `${formatClockRange(s.startTime, s.endTime)}` : 'Whole shift',
+                          `${s.shiftName} ${formatClockRange(s.shiftStartTime, s.shiftEndTime)}`
                         )}
                         detail={facts(assigned ? `Assigned to ${assigned}` : `No worker on ${s.shiftName}`, timerLine(s))}
                         detailLines={2}
@@ -485,7 +487,7 @@ export const ScheduleFormScreen: React.FC<{ params: { schedule?: Schedule; id?: 
           required
           value={form.shiftId}
           placeholder="Choose a shift…"
-          options={shiftOptions.map((s) => ({ value: s.id, label: `${s.name} (${s.startTime}–${s.endTime})${s.isActive ? '' : ' (inactive)'}` }))}
+          options={shiftOptions.map((s) => ({ value: s.id, label: `${s.name} (${formatClockRange(s.startTime, s.endTime)})${s.isActive ? '' : ' (inactive)'}` }))}
           onChange={(v) => set('shiftId', v)}
         />
         <SelectField
@@ -508,35 +510,17 @@ export const ScheduleFormScreen: React.FC<{ params: { schedule?: Schedule; id?: 
         ) : null}
         <ToggleField
           label="Only part of the shift"
-          description={selectedShift ? `Off: checks run across the whole shift (${selectedShift.startTime}–${selectedShift.endTime}).` : 'Off: checks run across the whole shift.'}
+          description={selectedShift ? `Off: checks run across the whole shift (${formatClockRange(selectedShift.startTime, selectedShift.endTime)}).` : 'Off: checks run across the whole shift.'}
           value={form.useWindow}
           onChange={toggleWindow}
         />
         {form.useWindow ? (
           <View className="flex-row gap-3">
             <View className="flex-1">
-              <Input
-                label="Window start"
-                required
-                value={form.startTime}
-                onChangeText={(v) => set('startTime', v)}
-                placeholder="08:00"
-                keyboardType="numbers-and-punctuation"
-                maxLength={5}
-                error={form.startTime && !HHMM.test(form.startTime) ? 'HH:MM' : null}
-              />
+              <TimeField label="Window start" required value={form.startTime} onChange={(v) => set('startTime', v)} />
             </View>
             <View className="flex-1">
-              <Input
-                label="Window end"
-                required
-                value={form.endTime}
-                onChangeText={(v) => set('endTime', v)}
-                placeholder="16:00"
-                keyboardType="numbers-and-punctuation"
-                maxLength={5}
-                error={form.endTime && !HHMM.test(form.endTime) ? 'HH:MM' : null}
-              />
+              <TimeField label="Window end" required value={form.endTime} onChange={(v) => set('endTime', v)} />
             </View>
           </View>
         ) : null}

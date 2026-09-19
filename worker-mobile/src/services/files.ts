@@ -1,6 +1,6 @@
 import { Directory, File, Paths } from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
-import { API_URL, ApiError, authHeaders, withQuery, type Query } from './api'
+import { getApiUrl, ApiError, authHeaders, withQuery, type Query } from './api'
 
 /**
  * Downloads a protected file (report PDF, CSV) and opens the share sheet so it can be saved or
@@ -14,7 +14,7 @@ export async function downloadAndShare(path: string, fileName: string, query?: Q
   if (target.exists) target.delete()
   let file: File
   try {
-    file = await File.downloadFileAsync(`${API_URL}${withQuery(path, query)}`, target, { headers, idempotent: true })
+    file = await File.downloadFileAsync(`${getApiUrl()}${withQuery(path, query)}`, target, { headers, idempotent: true })
   } catch (err) {
     throw new ApiError(0, err instanceof Error ? err.message : 'Download failed')
   }

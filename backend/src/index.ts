@@ -6,6 +6,7 @@ import { config } from './config'
 import { createApp } from './app'
 import { removeLegacyPlantLabel } from './db/cleanupLegacy'
 import { ensureSuperAdmin } from './db/ensureSuperAdmin'
+import { ensureNewParameters } from './db/ensureNewParameters'
 import path from 'node:path'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { db } from './db/client'
@@ -16,6 +17,7 @@ import { ensureWeeklyOffSetting, purgeAllClosedDays } from './services/plantCale
 import { ensureDefaultWeeklyRules } from './services/weeklyRules'
 import { adoptExistingFutureEntries } from './services/calendarYears'
 import { checkPushReceipts, notifyDueChecks } from './services/notifications'
+import { cleanOldTempFiles, kickVideoOptimization, videoOptimizationEnabled } from './services/mediaOptimizer'
 
 // Bring the database up to date before serving requests. New code can reach a running backend
 // (e.g. `npm run dev` reloads on save) before anyone runs `npm run db:migrate`; without this the
@@ -70,8 +72,16 @@ http.createServer(app).listen(config.port, '0.0.0.0', () => {
     console.log(`Worker web app: ${lan[0]}/app/ (set HTTPS_KEY_FILE/HTTPS_CERT_FILE for iPhone camera preview and notifications)`)
   }
 
+  // Videos left waiting for compression by a restart, and old temporary upload files.
+  if (config.media.optimize && !videoOptimizationEnabled()) console.warn('Video compression is off: ffmpeg was not found (set FFMPEG_PATH).')
+  cleanOldTempFiles()
+    .then(() => kickVideoOptimization())
+    .catch((err) => console.error('Media clean-up failed', err))
   removeLegacyPlantLabel().catch((err) => console.error('Settings cleanup failed', err))
   ensureSuperAdmin().catch((err) => console.error('Super Admin check failed', err))
+  ensureNewParameters()
+    .then((added) => added && console.log(`Parameters: added ${added} new quality parameter(s) as optional on every check type.`))
+    .catch((err) => console.error('Adding the new parameters failed', err))
   // Load the 2026 company holiday calendar (once), then give every stored check its worker,
   // both before the first scheduler pass.
   ensureWeeklyOffSetting()

@@ -4,9 +4,11 @@ import { StatusBar } from 'expo-status-bar'
 import { Platform, View } from 'react-native'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { Profile } from './src/types'
-import { logout, onSessionExpired, restoreSession } from './src/services/api'
+import { canChangeServer, logout, onSessionExpired, restoreSession } from './src/services/api'
 import { registerServiceWorker } from './src/services/notifications'
 import { Loading, ErrorState } from './src/components/ui/LoadState'
+import { Button } from './src/components/ui/Button'
+import { ServerSettingsSheet } from './src/components/ServerSettingsSheet'
 import { LoginScreen } from './src/screens/LoginScreen'
 import { WorkerApp } from './src/worker/WorkerApp'
 import { StaffApp } from './src/staff/StaffApp'
@@ -23,6 +25,7 @@ export default function App() {
   const [booting, setBooting] = useState(true)
   const [bootError, setBootError] = useState<string | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [serverOpen, setServerOpen] = useState(false)
 
   const boot = useCallback(async () => {
     setBooting(true)
@@ -55,6 +58,21 @@ export default function App() {
     screen = (
       <View className="flex-1 justify-center px-5">
         <ErrorState message={bootError} onRetry={boot} />
+        {/* The server may have a new address: change it here, then the app starts again. */}
+        {canChangeServer ? (
+          <>
+            <Button label="Server settings" icon="server-outline" variant="plain" onPress={() => setServerOpen(true)} className="mt-3" />
+            <ServerSettingsSheet
+              visible={serverOpen}
+              problem={bootError}
+              onClose={() => setServerOpen(false)}
+              onSaved={() => {
+                setServerOpen(false)
+                boot()
+              }}
+            />
+          </>
+        ) : null}
       </View>
     )
   } else if (!profile) {

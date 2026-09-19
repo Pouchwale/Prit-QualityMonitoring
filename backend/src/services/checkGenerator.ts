@@ -3,8 +3,9 @@ import { randomBytes } from 'node:crypto'
 import { db } from '../db/client'
 import { activities, jobs, machines, qualityChecks, scheduleTimers, schedules, shifts } from '../db/schema'
 import { MINUTE, addDays, atTime, dateKey, startOfDay } from '../lib/time'
-import { closedDateKeys, purgeClosedDays } from './plantCalendar'
+import { machineOffBetween, purgeClosedDays } from './plantCalendar'
 import { eligibleWorkers, loadWorkers, pickWorker, reassignOpenChecks } from './workerAssignment'
+import { generateJobIntervalChecks } from './jobMonitoring'
 
 /**
  * The rolling scheduler: every schedule (machine + check type + shift) has **one open check at a
@@ -26,6 +27,8 @@ import { eligibleWorkers, loadWorkers, pickWorker, reassignOpenChecks } from './
 const REGENERATE_AFTER_MS = 60_000
 let lastGenerated = 0
 let running: Promise<void> | null = null
+/** A forced run queued behind the one in progress (see generateNextChecks). */
+let rerun: Promise<void> | null = null
 
 export function invalidateCheckGeneration() {
   lastGenerated = 0
@@ -107,7 +110,18 @@ interface AnchorEvent {
  * places at once: concurrent calls share one run and every insert is idempotent.
  */
 export async function generateNextChecks(force = false): Promise<void> {
-  if (running) return running
+  if (running) {
+    if (!force) return running
+    // A forced run follows a change (e.g. a submission). A run that is already going planned before
+    // that change and may miss it, so run once more after it ends. Forced callers share that rerun.
+    rerun ??= running
+      .catch(() => undefined)
+      .then(() => {
+        rerun = null
+        return generateNextChecks(true)
+      })
+    return rerun
+  }
   if (!force && Date.now() - lastGenerated < REGENERATE_AFTER_MS) return
   running = generate().finally(() => {
     running = null
@@ -116,10 +130,13 @@ export async function generateNextChecks(force = false): Promise<void> {
 }
 
 async function generate() {
-  const inserts = await planChecks(new Date(), { markGenerated: true })
+  const now = new Date()
+  const inserts = await planChecks(now, { markGenerated: true })
   for (let i = 0; i < inserts.length; i += 500) {
     await db.insert(qualityChecks).values(inserts.slice(i, i + 500)).onConflictDoNothing()
   }
+  // Then each active job: every parameter on its own frequency (services/jobMonitoring.ts).
+  await generateJobIntervalChecks(now)
 }
 
 /**
@@ -145,7 +162,9 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
         eq(shifts.isActive, true),
         eq(machines.isActive, true),
         eq(machines.status, 'ACTIVE'),
-        eq(activities.isActive, true)
+        eq(activities.isActive, true),
+        // Job-based check types are checked per job (services/jobMonitoring.ts), not by shift schedules.
+        eq(activities.monitoring, 'SHIFT')
       )
     )
   if (options.markGenerated) lastGenerated = Date.now()
@@ -175,7 +194,8 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
           gte(qualityChecks.scheduledAt, since)
         )
       ),
-    db.select().from(jobs).where(isNull(jobs.endedAt))
+    // Legacy JOB-mode schedules run while a job is active (after its Job Start check).
+    db.select().from(jobs).where(eq(jobs.status, 'ACTIVE'))
   ])
 
   const open = options.ignoreOpen ? new Set<string | null>() : new Set(openRows.map((r) => r.scheduleId))
@@ -188,7 +208,8 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
   }
 
   // Plant Calendar: no checks on closed dates (an overnight shift can run into the next day).
-  const closed = await closedDateKeys(addDays(startOfDay(now), -1), addDays(startOfDay(now), 10))
+  // A machine day plan decides per machine on its date: listed machines run even on a closed day.
+  const machineOff = await machineOffBetween(addDays(startOfDay(now), -1), addDays(startOfDay(now), 10))
   // Every check is created for the worker responsible for it (services/workerAssignment.ts).
   const workers = await loadWorkers()
   const load = new Map<string, number>()
@@ -212,7 +233,8 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
     for (const occurrence of occurrences(schedule, shift, now)) {
       if (occurrence.end <= now) continue
       // JOB schedules never look before the job started.
-      const from = schedule.mode === 'JOB' && job ? new Date(Math.max(occurrence.start.getTime(), job.startedAt.getTime())) : occurrence.start
+      const jobFrom = job ? (job.activatedAt ?? job.startedAt ?? occurrence.start) : null
+      const from = schedule.mode === 'JOB' && jobFrom ? new Date(Math.max(occurrence.start.getTime(), jobFrom.getTime())) : occurrence.start
       if (from >= occurrence.end) continue
 
       const events: AnchorEvent[] = []
@@ -243,10 +265,10 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
       }
 
       while (nextDue < occurrence.end) {
-        if (closed.has(dateKey(nextDue))) {
+        if (machineOff(schedule.machineId, dateKey(nextDue))) {
           // An overnight window can run into a closed date; the part before midnight still counts.
           const nextDay = startOfDay(addDays(nextDue, 1))
-          if (nextDay >= occurrence.end || closed.has(dateKey(nextDay))) break
+          if (nextDay >= occurrence.end || machineOff(schedule.machineId, dateKey(nextDay))) break
           nextDue = nextDay
           continue
         }

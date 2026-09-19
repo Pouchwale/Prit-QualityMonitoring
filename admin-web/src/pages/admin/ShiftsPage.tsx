@@ -12,6 +12,8 @@ import { Modal } from '../../components/common/Modal'
 import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
+import { formatClock } from '../../lib/format'
+import { TimeInput } from '../../components/common/DateTimeInputs'
 
 interface FormState {
   name: string
@@ -84,7 +86,7 @@ export const ShiftsPage: React.FC = () => {
     e.preventDefault()
     const grace = Number(form.graceMinutes)
     if (!form.name.trim() || !form.code.trim()) return setFormError('Name and code are required')
-    if (!HHMM.test(form.startTime) || !HHMM.test(form.endTime)) return setFormError('Enter start and end times in 24-hour format, e.g. 08:00')
+    if (!HHMM.test(form.startTime) || !HHMM.test(form.endTime)) return setFormError('Choose a start and an end time')
     if (form.startTime === form.endTime) return setFormError('Start and end time cannot be the same')
     if (!Number.isInteger(grace) || grace < 0 || grace > 240) return setFormError('Grace period must be a whole number between 0 and 240 minutes')
 
@@ -166,9 +168,9 @@ export const ShiftsPage: React.FC = () => {
                 <tr key={s.id} className="hover:bg-slate-50 transition-colors">
                   <td className="py-2.5 px-3.5 font-semibold text-ink whitespace-nowrap">{s.name}</td>
                   <td className="py-2.5 px-3.5 font-mono text-ink-secondary whitespace-nowrap">{s.code}</td>
-                  <td className="py-2.5 px-3.5 font-mono text-ink whitespace-nowrap">{s.startTime}</td>
+                  <td className="py-2.5 px-3.5 font-mono text-ink whitespace-nowrap">{formatClock(s.startTime)}</td>
                   <td className="py-2.5 px-3.5 font-mono text-ink whitespace-nowrap">
-                    {s.endTime}
+                    {formatClock(s.endTime)}
                     {isOvernight(s) && (
                       <span className="ml-1.5 inline-flex items-center gap-1 font-sans text-[11px] lg:text-[10px] text-ink-muted" title="Ends the next day">
                         <Moon className="w-3 h-3" />
@@ -202,7 +204,7 @@ export const ShiftsPage: React.FC = () => {
         isOpen={editing !== null}
         onClose={close}
         title={editing === 'new' ? 'Add Shift' : 'Edit Shift'}
-        subtitle="Times use the 24-hour clock of the plant server"
+        subtitle="Start and end times in plant time"
         footer={
           <>
             <Button size="sm" variant="outline" onClick={close} disabled={saving}>
@@ -224,10 +226,10 @@ export const ShiftsPage: React.FC = () => {
               <TextInput value={form.code} onChange={(e) => set('code', e.target.value)} placeholder="e.g. A" maxLength={30} className="font-mono" />
             </Field>
             <Field label="Start time" required>
-              <input type="time" value={form.startTime} onChange={(e) => set('startTime', e.target.value)} className={`${inputClass} font-mono`} required />
+              <TimeInput label="Start time" value={form.startTime} onChange={(v) => set('startTime', v)} />
             </Field>
             <Field label="End time" required>
-              <input type="time" value={form.endTime} onChange={(e) => set('endTime', e.target.value)} className={`${inputClass} font-mono`} required />
+              <TimeInput label="End time" value={form.endTime} onChange={(v) => set('endTime', v)} />
             </Field>
           </div>
           {formValid && (

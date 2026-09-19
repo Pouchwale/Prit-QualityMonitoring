@@ -39,7 +39,7 @@ export interface ManagerAccess {
   lastLoginAt: string | null
   permissions: Permissions
 }
-export type ParameterType = 'NUMBER' | 'TEXT' | 'DROPDOWN' | 'YES_NO' | 'PASS_FAIL'
+export type ParameterType = 'NUMBER' | 'TEXT' | 'DROPDOWN' | 'YES_NO' | 'PASS_FAIL' | 'PHOTO'
 export type MachineStatus = 'ACTIVE' | 'MAINTENANCE' | 'IDLE'
 /**
  * Internal check state from the API. Only COMPLETED, MISSED and EXCEPTION are ever shown as a
@@ -147,6 +147,9 @@ export interface ActivityParameter {
   allowNa: boolean
   /** JOB_RUNNING parameters are automatically Not applicable when no job runs on the machine. */
   appliesWhen: AppliesWhen
+  /** Job-based check types: when this parameter is checked. */
+  frequency?: 'JOB_START' | 'INTERVAL' | 'JOB_END'
+  intervalMinutes?: number
 }
 
 /** A quality check type (process): its parameters, evidence rules and machines. */
@@ -162,6 +165,9 @@ export interface Activity {
   requireJobNo: boolean
   /** The worker may start this check from the machine screen without waiting for a notification. */
   allowManual: boolean
+  /** SHIFT: shift schedules. JOB: checked per job (start, intervals, end). */
+  monitoring?: 'SHIFT' | 'JOB'
+  graceMinutes?: number
   isActive: boolean
   parameters: ActivityParameter[]
   machineIds: string[]
@@ -299,6 +305,10 @@ export interface QualityCheck {
   values: CheckValue[]
   media: MediaFile[]
   exception: CheckException | null
+  /** SCHEDULED (shift schedule) or a job check (older servers leave it out). */
+  kind?: CheckKind
+  /** Job checks: the parameters this check asks for. */
+  parameterIds?: string[] | null
 }
 
 export interface ExceptionRecord extends CheckException {
@@ -357,6 +367,8 @@ export interface DashboardData {
   /** Set when the plant is closed on the chosen day (Plant Calendar). */
   closure: { id: string | null; date: string; type: ClosureType; label: string; reason: string | null; weeklyOff?: boolean } | null
   workerGaps: WorkerGap[]
+  /** Set when the chosen day has a machine plan: only these machines run. */
+  machinePlan?: { machineIds: string[]; count: number } | null
 }
 
 /** Plant Calendar entry type. WORKING is an adjustment working day: the plant runs normally. */
@@ -371,6 +383,21 @@ export interface DayState {
   weeklyClosed: boolean
   entry: { id: string; type: ClosureType; reason: string | null; calendarYearId: string | null } | null
   label: string | null
+  /** Set when the date has a machine plan: exactly these machines run (GET /api/machine-days). */
+  machinePlan?: { count: number; machineIds: string[] } | null
+}
+
+/**
+ * The machines that run on one date (GET/PUT /api/machine-days). With a plan exactly the listed
+ * machines run, even on a closed day; without one the plant calendar decides for all machines.
+ */
+export interface MachineDayPlan {
+  date: string
+  note: string | null
+  machineIds: string[]
+  machines: { id: string; name: string; code: string }[]
+  updatedAt: string
+  updatedByName: string | null
 }
 
 /** A recurring weekly closure from 2027 onwards (inclusive dates; no end date = open-ended). */
@@ -466,7 +493,8 @@ export interface Job {
   machineCode: string
   itemCode?: string | null
   jobNo: string
-  startedAt: string
+  /** Null while the job is only planned. */
+  startedAt: string | null
   startedById: string | null
   startedByName: string | null
   endedAt: string | null
@@ -475,6 +503,40 @@ export interface Job {
   /** Checks submitted during the job. */
   checkCount: number
   durationMinutes: number
+  status?: JobStatus
+}
+
+/** PLANNED → STARTING (Job Start check) → ACTIVE → ENDING (Job End check) → COMPLETED. */
+export type JobStatus = 'PLANNED' | 'STARTING' | 'ACTIVE' | 'ENDING' | 'COMPLETED' | 'CANCELLED'
+
+/** SCHEDULED: shift schedule check. JOB_*: a job's start, interval or end check. */
+export type CheckKind = 'SCHEDULED' | 'JOB_START' | 'JOB_INTERVAL' | 'JOB_END'
+
+/** A job in the Jobs list (GET /api/jobs), the same as the web panel. */
+export interface JobRow extends Job {
+  status: JobStatus
+  activatedAt: string | null
+  endRequestedAt: string | null
+  assignedWorkerId: string | null
+  assignedWorkerName: string | null
+  plannedFor: string | null
+  note: string | null
+  forceClosed: boolean
+  startCheck: 'NONE' | 'PENDING' | 'DONE'
+  endCheck: 'NONE' | 'PENDING' | 'DONE'
+  handovers: number
+  counts: { total: number; pending: number; due: number; overdue: number; completed: number; missed: number; exception: number }
+}
+
+export interface JobHandover {
+  id: string
+  at: string
+  fromName: string | null
+  toName: string | null
+  byName: string | null
+  shiftName: string | null
+  note: string | null
+  movedChecks: number
 }
 
 /** The job running on a machine, as sent inside the monitoring overview. */
@@ -551,4 +613,65 @@ export interface OverviewMachine {
 /** Machine-centric view of the monitoring configuration (GET /api/monitoring-overview). */
 export interface MonitoringOverview {
   machines: OverviewMachine[]
+}
+/** Traceability for an Item Code / Job No. / worker report (GET /api/reports/trace). */
+export interface TraceCounts {
+  checks: number
+  completed: number
+  missed: number
+  exceptions: number
+  open: number
+  readings: number
+  outsideLimits: number
+  notApplicable: number
+  changes: number
+  corrections: number
+}
+
+export interface TraceGroup extends TraceCounts {
+  key: string
+  itemCodes: string[]
+  jobNos: string[]
+  workers: string[]
+  machines: string[]
+  firstAt: string | null
+  lastAt: string | null
+}
+
+export interface TraceWorker extends TraceGroup {
+  workerId: string | null
+  name: string
+  employeeId: string | null
+  items: { itemCode: string; jobNos: string[]; checks: number; completed: number; missed: number; exceptions: number; changes: number }[]
+}
+
+export interface TraceChange {
+  at: string
+  checkId: string
+  checkCode: string
+  machineName: string
+  machineCode: string
+  itemCode: string
+  jobNo: string
+  parameterName: string
+  unit: string | null
+  from: string
+  to: string
+  fromResult: string
+  toResult: string
+  correction: boolean
+  wentOutside: boolean
+  byName: string
+  byEmployeeId: string | null
+  byId: string | null
+  previousAt: string
+  previousByName: string
+}
+
+export interface TraceReport {
+  counts: TraceCounts
+  items: TraceGroup[]
+  jobs: TraceGroup[]
+  workers: TraceWorker[]
+  changes: TraceChange[]
 }

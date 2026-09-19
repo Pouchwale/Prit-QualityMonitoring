@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { Pressable, Text, View } from 'react-native'
-import type { CalendarYearSummary, ClosureType, DayState, PlantClosure, WeeklyRule } from '../types'
+import type { CalendarYearSummary, ClosureType, DayState, Machine, MachineDayPlan, PlantClosure, WeeklyRule } from '../types'
 import { api } from '../../services/api'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
@@ -31,6 +31,7 @@ import {
   useToast
 } from '../ui'
 import { ActionGroup, ActionItem } from './adminParts'
+import { formatDate, formatLongDate } from '../../utils/datetime'
 
 /** First date managed by annual calendars; earlier dates keep the original Plant Calendar setup. */
 const CALENDAR_V2_START = '2027-01-01'
@@ -54,9 +55,8 @@ const CLOSURE_TYPES: Record<ClosureType, { label: string; hint: string; cell: st
 const WEEKLY_OFF_STYLE = { label: 'Weekly Off', cell: '', dot: 'bg-staff-faint' }
 
 const isClosedType = (type: ClosureType) => type !== 'WORKING'
-const longDate = (key: string) => keyToDate(key).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-const shortDate = (key: string, withYear = true) =>
-  keyToDate(key).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) })
+const longDate = (key: string) => formatLongDate(key)
+const shortDate = (key: string) => formatDate(key)
 const monthTitle = (monthKey: string) => keyToDate(`${monthKey}-01`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
 const daysBetween = (from: string, to: string) => Math.round((keyToDate(to).getTime() - keyToDate(from).getTime()) / 86_400_000) + 1
 const shiftMonth = (monthKey: string, offset: number) => {
@@ -82,7 +82,7 @@ function groupRanges(rows: { date: string; type: ClosureType; reason: string | n
   return ranges
 }
 
-const rangeTitle = (from: string, to: string) => (from === to ? shortDate(from) : `${shortDate(from, from.slice(0, 4) !== to.slice(0, 4))} – ${shortDate(to)}`)
+const rangeTitle = (from: string, to: string) => (from === to ? shortDate(from) : `${shortDate(from)} – ${shortDate(to)}`)
 
 /**
  * The month and day the calendar showed, kept while the app runs so the calendar opens where the
@@ -169,6 +169,9 @@ export const CalendarScreen: React.FC<{ params: Record<string, unknown> }> = () 
   const years = useQuery<{ firstYear: number; years: CalendarYearSummary[] }>('/api/calendar-years')
   const rules = useQuery<{ rules: WeeklyRule[] }>('/api/weekly-rules')
   const legacy = useQuery<{ weeklyOffDays: number[] }>('/api/plant-closures/settings')
+  // Machine plans of the days shown (which machines run) and the active machines they are counted against.
+  const plans = useQuery<MachineDayPlan[]>('/api/machine-days', { from: grid[0], to: grid[grid.length - 1] })
+  const machines = useQuery<Machine[]>('/api/machines')
 
   const stateByDate = useMemo(() => new Map((monthData.data ?? []).map((s) => [s.date, s])), [monthData.data])
   const isWeeklyOff = (key: string) => stateByDate.get(key)?.weeklyClosed ?? false
@@ -181,6 +184,12 @@ export const CalendarScreen: React.FC<{ params: Record<string, unknown> }> = () 
   const viewedCalendar = viewedYear >= Number(CALENDAR_V2_START.slice(0, 4)) ? yearOf(monthKey) : null
   const selectedState = stateByDate.get(selected) ?? null
   const selectedEntry = selectedState?.entry ?? null
+  const planByDate = useMemo(() => new Map((plans.data ?? []).map((p) => [p.date, p])), [plans.data])
+  /** Machine plan of a date: the full plan when loaded, else the count from the day states. */
+  const planCount = (key: string) => planByDate.get(key)?.machineIds.length ?? stateByDate.get(key)?.machinePlan?.count ?? null
+  const activeMachines = machines.data ? machines.data.filter((m) => m.isActive).length : null
+  const selectedPlan = planByDate.get(selected) ?? null
+  const selectedPlanCount = planCount(selected)
   const monthRanges = useMemo(
     () => groupRanges(monthStates.filter((s) => s.entry).map((s) => ({ date: s.date, type: s.entry!.type, reason: s.entry!.reason }))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -194,6 +203,8 @@ export const CalendarScreen: React.FC<{ params: Record<string, unknown> }> = () 
     years.reload()
     rules.reload()
     legacy.reload()
+    plans.reload()
+    machines.reload()
   }
   const goToDate = (key: string) => {
     setMonthKey(key.slice(0, 7))
@@ -220,6 +231,10 @@ export const CalendarScreen: React.FC<{ params: Record<string, unknown> }> = () 
     if (managedByYear(selected)) return openYears(selected)
     remember(selected)
     push('calendarDayForm', { mode: 'edit', id: selectedEntry.id, date: selected, type: selectedEntry.type, reason: selectedEntry.reason ?? '', weeklyOff: isWeeklyOff(selected) })
+  }
+  const openMachines = () => {
+    remember(selected)
+    push('machineDayPlan', { date: selected, closed: selectedState?.closed ?? false })
   }
   const removeSelected = async () => {
     if (!selectedEntry) return
@@ -275,6 +290,50 @@ export const CalendarScreen: React.FC<{ params: Record<string, unknown> }> = () 
         <Text className="text-[16px] font-semibold leading-[21px] text-staff-ink">{title}</Text>
         {line}
       </View>
+    </View>
+  )
+
+  /** Which machines run on the selected day: the default from the calendar, or a custom machine plan. */
+  const machinesRunning = (
+    <View className="gap-2 border-t border-staff-line pt-3">
+      <Text className="text-[13px] font-medium leading-[18px] text-staff-muted" accessibilityRole="header">
+        Machines running
+      </Text>
+      <View className="flex-row items-start gap-3">
+        <View className="mt-[3px]">
+          <Icon name="hardware-chip-outline" size={18} color={selectedPlanCount !== null ? 'accent' : selectedState?.closed ? 'muted' : 'success'} />
+        </View>
+        <View className="flex-1">
+          <Text className="text-[15px] font-semibold leading-[20px] text-staff-ink">
+            {selectedPlanCount !== null
+              ? `${activeMachines !== null ? `${selectedPlanCount} of ${activeMachines}` : selectedPlanCount} machine${
+                  (activeMachines ?? selectedPlanCount) === 1 ? '' : 's'
+                } running · custom plan`
+              : selectedState?.closed
+                ? 'Plant closed · no machines'
+                : 'All machines (default)'}
+          </Text>
+          {selectedPlan ? (
+            <Text className="mt-0.5 text-[14px] leading-[19px] text-staff-ink2" numberOfLines={3}>
+              {selectedPlan.machines.length ? selectedPlan.machines.map((m) => m.name).join(', ') : 'No machine runs: no checks and no reminders'}
+            </Text>
+          ) : null}
+          {selectedPlan?.note ? <Text className="mt-0.5 text-[13px] leading-[18px] text-staff-muted">Note: {selectedPlan.note}</Text> : null}
+        </View>
+      </View>
+      {canEdit ? (
+        selected >= today ? (
+          <SmallButton
+            label={selectedPlanCount !== null ? 'Edit machines' : 'Choose machines'}
+            icon="options-outline"
+            tone="tinted"
+            onPress={openMachines}
+            className="self-start"
+          />
+        ) : (
+          <Text className="text-[13px] leading-[18px] text-staff-muted">Past dates are read-only. Choose today or a later date to change which machines run.</Text>
+        )
+      ) : null}
     </View>
   )
 
@@ -344,7 +403,10 @@ export const CalendarScreen: React.FC<{ params: Record<string, unknown> }> = () 
               const isSelected = key === selected
               const weeklyOff = !entry && (state?.weeklyClosed ?? false)
               const style = entry ? CLOSURE_TYPES[entry.type] : weeklyOff ? WEEKLY_OFF_STYLE : null
-              const label = `${longDate(key)}${entry ? `, ${CLOSURE_TYPES[entry.type].label}${entry.reason ? `: ${entry.reason}` : ''}` : weeklyOff ? ', Weekly Off' : ', plant open'}`
+              const planned = planCount(key)
+              const label = `${longDate(key)}${entry ? `, ${CLOSURE_TYPES[entry.type].label}${entry.reason ? `: ${entry.reason}` : ''}` : weeklyOff ? ', Weekly Off' : ', plant open'}${
+                planned !== null ? `, machine plan: ${planned} machine${planned === 1 ? '' : 's'}` : ''
+              }`
               return (
                 <Pressable
                   key={key}
@@ -365,6 +427,7 @@ export const CalendarScreen: React.FC<{ params: Record<string, unknown> }> = () 
                     >
                       {keyToDate(key).getDate()}
                     </Text>
+                    {planned !== null ? <View className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-staff-card bg-staff-accent" /> : null}
                   </View>
                   <View className={`mt-0.5 h-1.5 w-1.5 rounded-full ${style ? style.dot : ''}`} />
                 </Pressable>
@@ -389,6 +452,10 @@ export const CalendarScreen: React.FC<{ params: Record<string, unknown> }> = () 
           <View className="flex-row items-center gap-1">
             <View className="h-2.5 w-2.5 rounded-full border-2 border-staff-accent" />
             <Text className="text-[12px] leading-[16px] text-staff-muted">Today</Text>
+          </View>
+          <View className="flex-row items-center gap-1">
+            <View className="h-2 w-2 rounded-full bg-staff-accent" />
+            <Text className="text-[12px] leading-[16px] text-staff-muted">Machine plan</Text>
           </View>
         </View>
         {canEdit ? <Text className="px-4 pb-3 text-[12px] leading-[16px] text-staff-muted">Tap a day to mark or edit it</Text> : null}
@@ -440,6 +507,7 @@ export const CalendarScreen: React.FC<{ params: Record<string, unknown> }> = () 
               {managedYear ? yearLink : canEdit ? <SmallButton label="Add to calendar" icon="add" tone="primary" onPress={() => openNew(selected)} /> : null}
             </>
           )}
+          {monthData.data ? machinesRunning : null}
         </Card>
       </Section>
 
@@ -453,13 +521,13 @@ export const CalendarScreen: React.FC<{ params: Record<string, unknown> }> = () 
           <ActionItem
             label="Weekly rules"
             description={`Up to 2026: ${legacyDays === null ? '…' : legacyDays.length ? legacyDays.map((d) => WEEKDAY_NAMES[d]).join(', ') : 'None'} (locked)\nFrom 2027: ${
-              rules.data === null ? '…' : currentRules.length ? currentRules.map((r) => `${WEEKDAY_NAMES[r.weekday]}${r.effectiveTo ? ` until ${r.effectiveTo}` : ''}`).join(', ') : 'None'
+              rules.data === null ? '…' : currentRules.length ? currentRules.map((r) => `${WEEKDAY_NAMES[r.weekday]}${r.effectiveTo ? ` until ${shortDate(r.effectiveTo)}` : ''}`).join(', ') : 'None'
             }`}
             onPress={() => push('weeklyRules')}
           />
         </ActionGroup>
         {canEdit ? (
-          <Text className="px-1 text-[13px] leading-[18px] text-staff-muted">Dates up to 31 Dec 2026 are edited here. From 2027, dates come from the approved annual calendar.</Text>
+          <Text className="px-1 text-[13px] leading-[18px] text-staff-muted">Dates up to 31/12/2026 are edited here. From 2027, dates come from the approved annual calendar.</Text>
         ) : null}
       </View>
 
@@ -766,7 +834,7 @@ export const WeeklyRulesScreen: React.FC<{ params: Record<string, unknown> }> = 
       refreshing={loading && !!data}
     >
       <Text className="px-1 text-[14px] leading-[19px] text-staff-ink2">
-        The plant is closed on these weekdays from {data ? shortDate(data.startsOn) : '1 Jan 2027'} onwards, in every year, unless a date in the annual calendar says otherwise (an
+        The plant is closed on these weekdays from {data ? shortDate(data.startsOn) : '01/01/2027'} onwards, in every year, unless a date in the annual calendar says otherwise (an
         Adjustment Working Day opens it).
       </Text>
 
@@ -815,7 +883,7 @@ export const WeeklyRulesScreen: React.FC<{ params: Record<string, unknown> }> = 
         </View>
       </DataState>
 
-      <Notice title="Up to 31 Dec 2026" icon="lock-closed-outline">
+      <Notice title="Up to 31/12/2026" icon="lock-closed-outline">
         <Text className="mt-0.5 text-[14px] leading-[19px] text-staff-ink2">
           {legacy.data
             ? legacy.data.weeklyOffDays.length

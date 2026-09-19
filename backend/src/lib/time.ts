@@ -140,8 +140,22 @@ export function formatLocalDate(date: Date): string {
   return `${String(p.day).padStart(2, '0')}/${String(p.month).padStart(2, '0')}/${p.year}`
 }
 
-/** Plant-local time, HH:MM. */
+/** Plant-local time for display, 12-hour with AM/PM, e.g. "2:30 PM". */
 export function formatLocalTime(date: Date): string {
   const p = localParts(date)
-  return `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`
+  return formatClock(`${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`)
+}
+
+/** A stored "HH:MM" wall-clock time (e.g. a shift start) for display: "14:30" → "2:30 PM". */
+export function formatClock(hhmm: string): string {
+  const match = /^(\d{1,2}):(\d{2})/.exec(hhmm)
+  if (!match) return hhmm
+  const hour = Number(match[1]) % 24
+  return `${hour % 12 || 12}:${match[2]} ${hour < 12 ? 'AM' : 'PM'}`
+}
+
+/** A YYYY-MM-DD date key for display: "2026-09-18" → "18/09/2026". */
+export function formatDateKey(key: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(key)
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : key
 }

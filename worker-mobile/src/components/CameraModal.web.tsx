@@ -3,6 +3,13 @@ import { Modal, View, Text, Pressable } from 'react-native'
 import { Capture } from '../types'
 import { CameraTopBar, ReviewBar, Shutter, ShutterCaption } from './CameraControls'
 import { Icon, ICON_COLOR } from './ui/Icon'
+import { compressPhoto } from '../services/photoCompress'
+
+/**
+ * Recording bitrate: clear 720p for inspection at about a third of a phone's default; the backend
+ * compresses videos further before storing them (README "Photo and video storage").
+ */
+const VIDEO_BITS_PER_SECOND = 3_000_000
 
 interface Props {
   visible: boolean
@@ -73,7 +80,10 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
     setStage('starting')
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        // Photos at 1080p; videos at 720p like the phone app (the stored size).
+        video: isPhoto
+          ? { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+          : { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
       })
       streamRef.current = stream
@@ -89,7 +99,7 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
       )
       setStage('fallback')
     }
-  }, [])
+  }, [isPhoto])
 
   // Start when opened, clean up when closed.
   useEffect(() => {
@@ -153,7 +163,7 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
     const mimeType = preferredVideoType()
     let recorder: MediaRecorder
     try {
-      recorder = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined)
+      recorder = new MediaRecorder(streamRef.current, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: VIDEO_BITS_PER_SECOND })
     } catch {
       setFallbackReason('This browser cannot record video here.')
       stopStream()
@@ -194,7 +204,8 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
     }
     const uri = URL.createObjectURL(file)
     const capturedAt = new Date(Math.min(file.lastModified || Date.now(), Date.now())).toISOString()
-    if (isPhoto) return review({ uri, capturedAt, blob: file, mimeType: file.type })
+    // Camera-app photos are full size: made smaller here, before the upload.
+    if (isPhoto) return review(await compressPhoto({ uri, capturedAt, blob: file, mimeType: file.type }))
 
     const seconds = await videoDuration(uri)
     if (seconds > maxVideoSeconds + 1) {

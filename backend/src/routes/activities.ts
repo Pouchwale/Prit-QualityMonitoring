@@ -22,6 +22,10 @@ const input = z.object({
   requireJobNo: z.boolean().default(true),
   /** The worker may start this check from the machine screen. Left as it is when not sent. */
   allowManual: z.boolean().optional(),
+  /** SHIFT: shift schedules create the checks. JOB: checked per job (start, intervals, end). Kept when not sent. */
+  monitoring: z.enum(['SHIFT', 'JOB']).optional(),
+  /** Job interval checks stay open this long after they are due. Kept when not sent. */
+  graceMinutes: z.coerce.number().int().min(5, 'Grace must be at least 5 minutes').max(240).optional(),
   isActive: z.boolean().default(true),
   /** Parameters in the order they appear on the worker form, with their evidence rules. */
   parameters: z
@@ -34,7 +38,10 @@ const input = z.object({
         requirePhoto: z.boolean().optional(),
         requireVideo: z.boolean().optional(),
         allowNa: z.boolean().optional(),
-        appliesWhen: z.enum(['ALWAYS', 'JOB_RUNNING']).optional()
+        appliesWhen: z.enum(['ALWAYS', 'JOB_RUNNING']).optional(),
+        /** Job-based check types: when this parameter is checked. */
+        frequency: z.enum(['JOB_START', 'INTERVAL', 'JOB_END']).optional(),
+        intervalMinutes: z.coerce.number().int().min(5, 'The interval must be at least 5 minutes').max(1440, 'The interval can be at most 24 hours').optional()
       })
     )
     .default([]),
@@ -59,6 +66,8 @@ activitiesRouter.get('/', async (_req, res) => {
         requireVideo: activityParameters.requireVideo,
         allowNa: activityParameters.allowNa,
         appliesWhen: activityParameters.appliesWhen,
+        frequency: activityParameters.frequency,
+        intervalMinutes: activityParameters.intervalMinutes,
         name: parameters.name,
         code: parameters.code,
         type: parameters.type,
@@ -102,7 +111,9 @@ async function saveRelations(activityId: string, data: z.infer<typeof input>) {
         requirePhoto: p.requirePhoto ?? kept.get(p.parameterId)?.requirePhoto ?? false,
         requireVideo: p.requireVideo ?? kept.get(p.parameterId)?.requireVideo ?? false,
         allowNa: p.allowNa ?? kept.get(p.parameterId)?.allowNa ?? false,
-        appliesWhen: p.appliesWhen ?? kept.get(p.parameterId)?.appliesWhen ?? ('ALWAYS' as const)
+        appliesWhen: p.appliesWhen ?? kept.get(p.parameterId)?.appliesWhen ?? ('ALWAYS' as const),
+        frequency: p.frequency ?? kept.get(p.parameterId)?.frequency ?? ('INTERVAL' as const),
+        intervalMinutes: p.intervalMinutes ?? kept.get(p.parameterId)?.intervalMinutes ?? 60
       }))
     if (rows.length) await tx.insert(activityParameters).values(rows)
 
@@ -133,7 +144,8 @@ activitiesRouter.put('/:id', async (req, res) => {
   const beforeParams = await db.select().from(activityParameters).where(eq(activityParameters.activityId, id))
   const [row] = await db.update(activities).set(fields).where(eq(activities.id, id)).returning()
   await saveRelations(id, data)
-  if (before.isActive !== row.isActive) await removeUpcomingChecks({ activityId: id })
+  // Paused, or switched between shift schedules and job-based: the old plan's upcoming checks go.
+  if (before.isActive !== row.isActive || before.monitoring !== row.monitoring) await removeUpcomingChecks({ activityId: id })
   await audit(req, 'UPDATE_ACTIVITY', 'Activity', id, {
     oldValue: { ...snapshot(before), parameters: beforeParams },
     newValue: data

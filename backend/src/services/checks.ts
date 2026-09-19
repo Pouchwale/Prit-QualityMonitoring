@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray, lt, or, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, inArray, lt, or, sql, type SQL } from 'drizzle-orm'
 import { signedMediaUrl } from '../lib/mediaLinks'
 import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/client'
@@ -29,6 +29,9 @@ export interface CheckFilters {
   shiftId?: string
   activityId?: string
   departmentId?: string
+  /** Item Code / Job No. of the check or of the job it ran in; case-insensitive, whole value. */
+  itemCode?: string
+  jobNo?: string
   ids?: string[]
   /** Extra condition, e.g. a worker's visibility scope. */
   where?: SQL
@@ -45,6 +48,12 @@ export function mediaDto(row: typeof media.$inferSelect) {
     mimeType: row.mimeType,
     sizeBytes: row.sizeBytes,
     sha256: row.sha256,
+    /** Compression (services/mediaOptimizer.ts); null for files stored before it existed. */
+    processing: row.processing,
+    /** Size of the file as the phone sent it. */
+    originalSizeBytes: row.originalSizeBytes,
+    width: row.width,
+    height: row.height,
     durationSeconds: row.durationSeconds,
     capturedAt: row.capturedAt,
     createdAt: row.createdAt
@@ -57,6 +66,23 @@ export interface ListOptions {
   orderBy?: 'scheduledAt' | 'submittedAt'
   limit?: number
   offset?: number
+}
+
+/**
+ * The check's own Item Code / Job No., or, when it has none (e.g. a check missed during a job),
+ * the one of the job it belongs to. Compared trimmed and case-insensitive, as a whole value.
+ */
+function matchesJobValue(column: 'item_code' | 'job_no', value: string): SQL {
+  const wanted = value.trim().toLowerCase()
+  const own = column === 'item_code' ? qualityChecks.itemCode : qualityChecks.jobNo
+  const ofJob = column === 'item_code' ? jobs.itemCode : jobs.jobNo
+  return or(
+    sql`lower(trim(${own})) = ${wanted}`,
+    and(
+      sql`coalesce(trim(${own}), '') = ''`,
+      sql`exists (select 1 from ${jobs} where ${jobs.id} = ${qualityChecks.jobId} and lower(trim(${ofJob})) = ${wanted})`
+    )
+  )!
 }
 
 function buildWhere(filters: CheckFilters) {
@@ -72,6 +98,8 @@ function buildWhere(filters: CheckFilters) {
   if (filters.shiftId) where.push(eq(qualityChecks.shiftId, filters.shiftId))
   if (filters.activityId) where.push(eq(qualityChecks.activityId, filters.activityId))
   if (filters.departmentId) where.push(eq(machines.departmentId, filters.departmentId))
+  if (filters.itemCode?.trim()) where.push(matchesJobValue('item_code', filters.itemCode))
+  if (filters.jobNo?.trim()) where.push(matchesJobValue('job_no', filters.jobNo))
   if (filters.where) where.push(filters.where)
   if (filters.ids) where.push(inArray(qualityChecks.id, filters.ids.length ? filters.ids : ['00000000-0000-0000-0000-000000000000']))
 
@@ -170,6 +198,12 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
       jobNo: r.check.jobNo,
       /** MANUAL when the worker started the check, NOTIFICATION when the scheduler did. */
       submissionType: r.check.submissionType,
+      /** SCHEDULED (shift schedule) or a job check: JOB_START, JOB_INTERVAL, JOB_END. */
+      kind: r.check.kind,
+      /** When the "check is due" notification was sent (null: not sent). */
+      notifiedAt: r.check.notifiedAt,
+      /** Job checks: the parameters this check asks for (null: every parameter of the check type). */
+      parameterIds: r.check.parameterIds,
       jobId: r.check.jobId,
       /** The production job the check was done in, or null when no job was running. */
       job:

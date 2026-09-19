@@ -13,6 +13,7 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { WorkerCoverageAlert } from '../../components/common/WorkerCoverageAlert'
+import { formatDateTime } from '../../lib/format'
 
 /** A schedule that names a worker who is not assigned to that schedule's machine. */
 interface BrokenSchedule {
@@ -45,7 +46,7 @@ function noDeviceReason(name: string, report: AlertStatusReport | null | undefin
   if (!report) {
     return `${name} has not opened an app version that can register for alerts. Ask them to sign in again to the Android app or the worker web app.`
   }
-  const device = report.platform ? ` (${report.platform}, ${new Date(report.at).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })})` : ''
+  const device = report.platform ? ` (${report.platform}, ${formatDateTime(report.at)})` : ''
   switch (report.status) {
     case 'no-project-id':
       return `${name}'s app${device} is not linked to an Expo project, so it cannot get a notification token. On the server PC run "npx eas-cli login" and "npx eas-cli init" in worker-mobile (see PUSH_SETUP.md), restart Expo, and reopen the app.`

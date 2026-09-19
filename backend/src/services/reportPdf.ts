@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import pdfmake from 'pdfmake'
 import type { Content, TDocumentDefinitions, TableCell } from 'pdfmake/interfaces'
-import { dateKey, localParts } from '../lib/time'
+import { dateKey } from '../lib/time'
+import type { TraceGroup, TraceReport } from './traceReport'
 import {
   formatDate,
   formatDateTime,
@@ -109,7 +110,7 @@ const plainLayout = {
   paddingBottom: () => 1.5
 }
 
-const section = (number: number, title: string, note?: string): Content => ({
+const section = (number: number | string, title: string, note?: string): Content => ({
   stack: [
     {
       table: {
@@ -261,15 +262,138 @@ function imageData(filePath: string): string | null {
 
 const MAX_EVIDENCE_IMAGES = 40
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const longDate = (d: Date) => {
-  const p = localParts(d)
-  return `${String(p.day).padStart(2, '0')} ${MONTHS[p.month - 1]} ${p.year}`
-}
+const longDate = (d: Date) => formatDate(d)
 
-/** "01 Sep 2026 – 15 Sep 2026", or a single date when the report covers one day. */
+/** "01/09/2026 – 15/09/2026", or a single date when the report covers one day. */
 function longPeriod(from: Date, to: Date) {
   return dateKey(from) === dateKey(to) ? longDate(from) : `${longDate(from)} – ${longDate(to)}`
+}
+
+const NONE = '(none)'
+/** Pass/Fail and Yes/No readings as words ("Pass", "No"); other readings unchanged. */
+const readingText = (value: string) => (/^(PASS|FAIL|YES|NO)$/.test(value) ? value[0] + value.slice(1).toLowerCase() : value)
+const listText = (values: string[]) => (values.filter(Boolean).length ? values.filter(Boolean).join(', ') : NONE)
+const countCell = (n: number, color?: string): TableCell => ({ text: String(n), alignment: 'center', color: n && color ? color : INK })
+
+/** Per Item Code or per Job No.: checks, results, readings, changes, who and where. */
+function traceGroupTable(rows: TraceGroup[], first: 'Item Code' | 'Job No.'): Content {
+  if (rows.length === 0) return empty('No records.')
+  const other = first === 'Item Code' ? 'Job Nos.' : 'Item Codes'
+  return {
+    table: {
+      headerRows: 1,
+      keepWithHeaderRows: 1,
+      dontBreakRows: true,
+      // 10 columns: 356 fixed leaves the rest for workers / machines.
+      widths: gridWidths([58, 58, 30, 34, 30, 34, 36, 36, 40, '*']),
+      body: [
+        header([first, other, 'Checks', 'Compl.', 'Missed', 'Except.', 'Outside limits', 'Changes / Corr.', 'First / Last', 'Workers / Machines']),
+        ...rows.map((r) => [
+          { text: r.key || NONE, bold: true },
+          { text: listText(first === 'Item Code' ? r.jobNos : r.itemCodes), style: 'sub' },
+          countCell(r.checks),
+          countCell(r.completed),
+          countCell(r.missed, '#B91C1C'),
+          countCell(r.exceptions, '#B45309'),
+          { text: `${r.outsideLimits} of ${r.readings}`, alignment: 'center' as const, color: r.outsideLimits ? '#B91C1C' : INK },
+          { text: `${r.changes} / ${r.corrections}`, alignment: 'center' as const },
+          { stack: [{ text: formatDateTime(r.firstAt), style: 'sub' }, { text: formatDateTime(r.lastAt), style: 'sub' }] },
+          { stack: [{ text: listText(r.workers) }, { text: listText(r.machines), style: 'sub' }] }
+        ])
+      ]
+    },
+    layout: tableLayout
+  }
+}
+
+/** The four traceability sections: Item Codes, Job Nos., workers with their items, changes. */
+function traceSections(trace: TraceReport): Content[] {
+  const c = trace.counts
+  return [
+    { text: '', pageBreak: 'before' },
+    section(
+      '7.1',
+      'Item Code Traceability',
+      `${c.checks} checks · ${c.completed} completed · ${c.missed} missed · ${c.exceptions} exception · ${c.readings} readings (${c.outsideLimits} outside limits, ${c.notApplicable} not applicable) · ${c.changes} changes, ${c.corrections} corrections.`
+    ),
+    traceGroupTable(trace.items, 'Item Code'),
+    section('7.2', 'Job No. Traceability'),
+    traceGroupTable(trace.jobs, 'Job No.'),
+    section('7.3', 'Worker Activity by Item Code', 'Checks are counted for the worker who submitted them, or the worker they were assigned to.'),
+    ...(trace.workers.length === 0
+      ? [empty('No records.')]
+      : trace.workers.map(
+          (w): Content => ({
+            margin: [0, 4, 0, 4],
+            stack: [
+              {
+                text: [
+                  { text: w.name, bold: true },
+                  { text: `${w.employeeId ? `  ${w.employeeId}` : ''}  ·  ${w.checks} checks, ${w.completed} completed, ${w.missed} missed, ${w.exceptions} exception, ${w.changes} changes (${w.corrections} corrections)  ·  ${listText(w.machines)}`, style: 'sub' }
+                ],
+                margin: [0, 0, 0, 3]
+              },
+              {
+                table: {
+                  headerRows: 1,
+                  dontBreakRows: true,
+                  widths: gridWidths([90, '*', 40, 44, 40, 44, 44]),
+                  body: [
+                    header(['Item Code', 'Job Nos.', 'Checks', 'Completed', 'Missed', 'Exception', 'Changes']),
+                    ...w.items.map((i) => [
+                      { text: i.itemCode || NONE, bold: true },
+                      { text: listText(i.jobNos) },
+                      countCell(i.checks),
+                      countCell(i.completed),
+                      countCell(i.missed, '#B91C1C'),
+                      countCell(i.exceptions, '#B45309'),
+                      countCell(i.changes)
+                    ])
+                  ]
+                },
+                layout: tableLayout
+              }
+            ]
+          })
+        )),
+    section(
+      '7.4',
+      'Changes and Corrections',
+      'A change is a reading that differs from the previous reading of the same parameter for the same item, job and machine. A correction is a change from outside limits back within limits.'
+    ),
+    trace.changes.length === 0
+      ? empty('No reading changed in this period.')
+      : {
+          table: {
+            headerRows: 1,
+            keepWithHeaderRows: 1,
+            dontBreakRows: true,
+            widths: gridWidths([40, 58, 64, 56, '*', 70, 58]),
+            body: [
+              header(['Date / Time', 'Machine', 'Item / Job No.', 'Parameter', 'Change', 'Type', 'By / Previous']),
+              ...trace.changes.map((ch) => [
+                when(ch.at),
+                pair(ch.machineName, ch.machineCode),
+                pair(ch.itemCode || NONE, ch.jobNo || NONE),
+                { text: ch.parameterName },
+                {
+                  stack: [
+                    { text: `${readingText(ch.from)}${ch.unit ? ` ${ch.unit}` : ''} → ${readingText(ch.to)}${ch.unit ? ` ${ch.unit}` : ''}` },
+                    { text: `${ch.fromResult} → ${ch.toResult}`, style: 'sub' }
+                  ]
+                },
+                {
+                  text: ch.correction ? 'Correction' : ch.wentOutside ? 'Went outside limits' : 'Change',
+                  bold: ch.correction || ch.wentOutside,
+                  color: ch.correction ? '#15803D' : ch.wentOutside ? '#B91C1C' : INK
+                },
+                pair(ch.byName, `after ${ch.previousByName}, ${formatDateTime(ch.previousAt)}`)
+              ])
+            ]
+          },
+          layout: tableLayout
+        }
+  ]
 }
 
 export function buildReportDocument(report: QualityReport): TDocumentDefinitions {
@@ -440,6 +564,9 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
     section(7, 'Date-wise Monitoring Summary'),
     groupTable(report.byDate, 'Date')
   ]
+
+  // 7.1–7.4 Traceability, for an Item Code, Job No. or worker report
+  if (report.trace) content.push(...traceSections(report.trace))
 
   // 8. Detailed log — every scheduled check, one row each
   content.push(

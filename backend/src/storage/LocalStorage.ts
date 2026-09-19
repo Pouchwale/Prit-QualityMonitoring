@@ -24,6 +24,12 @@ export class LocalStorage implements StorageService {
   }
 
   async remove(relativePath: string): Promise<void> {
-    await fs.rm(path.join(this.rootDir, relativePath), { force: true })
+    await fs.rm(this.localPath(relativePath), { force: true })
+  }
+
+  localPath(relativePath: string): string {
+    const full = path.resolve(this.rootDir, relativePath)
+    if (!full.startsWith(path.resolve(this.rootDir) + path.sep)) throw new Error(`Invalid storage path: ${relativePath}`)
+    return full
   }
 }

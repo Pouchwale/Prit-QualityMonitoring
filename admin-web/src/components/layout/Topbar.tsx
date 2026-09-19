@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Bell, Clock, Building2, LogOut, Menu } from 'lucide-react'
 import type { CurrentUser } from '../../types'
 import { ROLE_LABEL } from '../../lib/auth'
+import { formatDate, formatTime } from '../../lib/format'
 
 interface TopbarProps {
   user: CurrentUser
@@ -64,9 +65,9 @@ export const Topbar: React.FC<TopbarProps> = ({ user, plantName, pageTitle, miss
       <div className="flex items-center gap-1 sm:gap-3 shrink-0">
         <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1 bg-white border border-line rounded text-xs font-mono text-ink-secondary">
           <Clock className="w-3.5 h-3.5 text-ink-muted" />
-          <span>{now.toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+          <span>{formatDate(now)}</span>
           <span className="text-line-strong">|</span>
-          <span className="font-semibold text-ink">{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+          <span className="font-semibold text-ink">{formatTime(now, true)}</span>
         </div>
 
         <button

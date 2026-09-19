@@ -10,6 +10,7 @@ import { SectionHeader } from '../components/ui/SectionHeader'
 import { ListGroup } from '../components/ui/ListGroup'
 import { StatusLabel } from '../components/ui/StatusLabel'
 import { ErrorState, Loading } from '../components/ui/LoadState'
+import { formatDateTime } from '../utils/datetime'
 
 cssInterop(VideoView, { className: 'style' })
 
@@ -149,10 +150,7 @@ export const HistoryDetailScreen: React.FC<Props> = ({ checkId, onClose }) => {
     load()
   }, [load])
 
-  const formatWhen = (iso: string | null) =>
-    iso
-      ? new Date(iso).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })
-      : '—'
+  const formatWhen = (iso: string | null) => formatDateTime(iso)
 
   // Evidence with no parameter is the overall check photo/video (or an older record).
   const overallMedia = record?.media.filter((m) => !m.parameterId) ?? []

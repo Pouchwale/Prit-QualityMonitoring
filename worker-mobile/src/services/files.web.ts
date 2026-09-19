@@ -1,4 +1,4 @@
-import { API_URL, ApiError, authHeaders, readError, withQuery, type Query } from './api'
+import { getApiUrl, ApiError, authHeaders, readError, withQuery, type Query } from './api'
 
 function saveBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob)
@@ -13,7 +13,7 @@ function saveBlob(blob: Blob, fileName: string) {
 
 /** Browser: downloads a protected file with the signed-in user's token. */
 export async function downloadAndShare(path: string, fileName: string, query?: Query) {
-  const res = await fetch(`${API_URL}${withQuery(path, query)}`, { headers: await authHeaders() })
+  const res = await fetch(`${getApiUrl()}${withQuery(path, query)}`, { headers: await authHeaders() })
   if (!res.ok) throw new ApiError(res.status, await readError(res))
   const disposition = res.headers.get('content-disposition') ?? ''
   const name = /filename="?([^"]+)"?/.exec(disposition)?.[1] ?? fileName

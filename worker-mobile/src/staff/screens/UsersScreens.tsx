@@ -29,6 +29,7 @@ import {
   useToast
 } from '../ui'
 import { ActionGroup, ActionItem, Initials, PersonRow, SummaryHeader, facts } from './adminParts'
+import { formatClockRange } from '../../utils/datetime'
 
 type RoleTab = '' | Role
 
@@ -524,7 +525,7 @@ const UserForm: React.FC<{ params: { id?: string; role?: Role } }> = ({ params }
                 label="Shift"
                 value={form.shiftId}
                 emptyLabel="No shift"
-                options={shifts.map((s) => ({ value: s.id, label: `${s.name} (${s.startTime}–${s.endTime})${s.isActive ? '' : ' (inactive)'}` }))}
+                options={shifts.map((s) => ({ value: s.id, label: `${s.name} (${formatClockRange(s.startTime, s.endTime)})${s.isActive ? '' : ' (inactive)'}` }))}
                 onChange={(v) => set('shiftId', v)}
               />
             </FormSection>

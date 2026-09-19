@@ -13,4 +13,6 @@ export interface StorageService {
   /** Moves a temporary upload into permanent storage. */
   save(tempFilePath: string, options: { category: StorageCategory; extension: string }): Promise<StoredFile>
   remove(path: string): Promise<void>
+  /** A file on this server with the stored content, for processing (e.g. compressing a video). */
+  localPath(path: string): string
 }

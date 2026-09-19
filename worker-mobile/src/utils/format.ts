@@ -1,9 +1,13 @@
+import { formatLongDate, formatTime as formatClockTime } from './datetime'
+
+/** 2:30 PM */
 export function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return formatClockTime(iso)
 }
 
+/** Friday, 18/09/2026 */
 export function formatDate(date: Date) {
-  return date.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' })
+  return formatLongDate(date)
 }
 
 export function formatDuration(seconds: number) {

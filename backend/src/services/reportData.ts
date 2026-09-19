@@ -1,8 +1,9 @@
 import { db } from '../db/client'
 import { mediaPathFromUrl } from '../lib/mediaLinks'
 import { parameters, settings, shifts } from '../db/schema'
-import { PLANT_TIMEZONE, dateKey, formatLocalDate, formatLocalTime, localParts } from '../lib/time'
+import { PLANT_TIMEZONE, dateKey, formatClock, formatLocalDate, formatLocalTime, localParts } from '../lib/time'
 import { listChecks, type CheckDto } from '../services/checks'
+import { buildTraceReport, itemCodeOf, jobNoOf, type TraceReport } from './traceReport'
 import type { CheckFilters } from '../services/checks'
 import { RESULT_LABEL, resultOf } from '../lib/result'
 
@@ -261,6 +262,8 @@ export interface QualityReport {
   submissionTypes: SubmissionTypeCounts
   outOfLimits: OutOfLimitsRow[]
   analysis: string[]
+  /** Traceability for an Item Code, Job No. or worker report; null for a general report. */
+  trace: TraceReport | null
 }
 
 const rate = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 1000) / 10 : null)
@@ -356,7 +359,17 @@ const SUBMISSION_LABEL: Record<string, string> = { NOTIFICATION: 'Notification',
 /** Builds the whole report for a date range. */
 export async function buildQualityReport(
   filters: ReportFilters,
-  context: { preparedBy: string; uploadDir: string; filterLabels: string[] }
+  context: {
+    preparedBy: string
+    uploadDir: string
+    filterLabels: string[]
+    /**
+     * Add the traceability sections (per Item Code, Job No. and worker, changes and corrections).
+     * `context` holds the checks that can precede the reported ones (same filters without the
+     * worker filter); the reported checks themselves are used when it is left out.
+     */
+    trace?: { context?: CheckDto[] }
+  }
 ): Promise<QualityReport> {
   const [checks, settingRows, allShifts, allParameters] = await Promise.all([
     listChecks(filters, { order: 'asc' }),
@@ -399,7 +412,7 @@ export async function buildQualityReport(
   for (const shift of allShifts) {
     if (!shiftRows.some((r) => r.label === shift.name)) continue
     const row = shiftRows.find((r) => r.label === shift.name)!
-    row.sublabel = `${shift.startTime} – ${shift.endTime}`
+    row.sublabel = `${formatClock(shift.startTime)} – ${formatClock(shift.endTime)}`
   }
 
   const log: LogRow[] = checks.map((c) => {
@@ -417,7 +430,7 @@ export async function buildQualityReport(
       status: c.status,
       result: resultLabel(c),
       exception: c.exception?.reason ?? DASH,
-      remarks: [c.itemCode ? `Item Code ${c.itemCode}` : null, c.jobNo ? `Job No. ${c.jobNo}` : null].filter(Boolean).join(' · ') || DASH
+      remarks: [itemCodeOf(c) ? `Item Code ${itemCodeOf(c)}` : null, jobNoOf(c) ? `Job No. ${jobNoOf(c)}` : null].filter(Boolean).join(' · ') || DASH
     }
   })
 
@@ -435,8 +448,8 @@ export async function buildQualityReport(
         workerName: worker.name,
         workerEmployeeId: worker.employeeId,
         shiftName: c.shiftName ?? DASH,
-        itemCode: c.itemCode ?? DASH,
-        jobNo: c.jobNo ?? DASH,
+        itemCode: itemCodeOf(c) || DASH,
+        jobNo: jobNoOf(c) || DASH,
         status: c.status,
         parameters: parameterRows(c, limits),
         photos: c.media.filter((m) => m.kind === 'PHOTO').length,
@@ -709,7 +722,8 @@ export async function buildQualityReport(
     naReasons,
     submissionTypes,
     outOfLimits,
-    analysis
+    analysis,
+    trace: context.trace ? buildTraceReport(checks, context.trace.context ?? checks) : null
   }
 }
 

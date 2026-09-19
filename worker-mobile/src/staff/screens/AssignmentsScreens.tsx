@@ -25,6 +25,7 @@ import {
 } from '../ui'
 import { ICON_COLOR } from '../Icon'
 import { ActionGroup, ActionItem, Initials, PersonRow, SummaryHeader, facts } from './adminParts'
+import { formatDateTime } from '../../utils/datetime'
 
 interface AlertStatusReport {
   status: string
@@ -47,7 +48,7 @@ function noDeviceReason(name: string, report: AlertStatusReport | null | undefin
   if (!report) {
     return `${name} has not opened an app version that can register for alerts. Ask them to sign in again to the Android app or the worker web app.`
   }
-  const device = report.platform ? ` (${report.platform}, ${new Date(report.at).toLocaleString([], { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })})` : ''
+  const device = report.platform ? ` (${report.platform}, ${formatDateTime(report.at)})` : ''
   switch (report.status) {
     case 'no-project-id':
       return `${name}'s app${device} is not linked to an Expo project, so it cannot get a notification token. On the server PC run "npx eas-cli login" and "npx eas-cli init" in worker-mobile (see PUSH_SETUP.md), restart Expo, and reopen the app.`

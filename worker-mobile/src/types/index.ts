@@ -1,4 +1,4 @@
-export type ParameterType = 'NUMBER' | 'TEXT' | 'DROPDOWN' | 'YES_NO' | 'PASS_FAIL'
+export type ParameterType = 'NUMBER' | 'TEXT' | 'DROPDOWN' | 'YES_NO' | 'PASS_FAIL' | 'PHOTO'
 
 export type QualityCheckStatus =
   | 'PENDING'
@@ -34,6 +34,12 @@ export type CheckTypeMode = ScheduleMode | 'MANUAL'
 /** A parameter that only counts while a job is running is skipped automatically without one. */
 export type AppliesWhen = 'ALWAYS' | 'JOB_RUNNING'
 
+/** SCHEDULED: a shift schedule check. JOB_*: a job's start check, interval check or end check. */
+export type CheckKind = 'SCHEDULED' | 'JOB_START' | 'JOB_INTERVAL' | 'JOB_END'
+
+/** PLANNED → STARTING (Job Start check) → ACTIVE → ENDING (Job End check) → COMPLETED. */
+export type JobStatus = 'PLANNED' | 'STARTING' | 'ACTIVE' | 'ENDING' | 'COMPLETED' | 'CANCELLED'
+
 export interface CheckSummary {
   id: string
   code: string
@@ -60,19 +66,54 @@ export interface CheckSummary {
   jobId?: string | null
   /** When the next check of this schedule is due, worked out at submission. */
   nextDueAt?: string | null
+  /** Older servers leave it out: a shift schedule check. */
+  kind?: CheckKind
 }
 
-/** A job running on a machine: while it runs, job-based checks are due and record its number. */
+/** A production job on a machine: planned, starting, running, ending or finished. */
 export interface Job {
   id: string
   machineId: string
   /** The item being produced, entered with the Job No. when the job started. */
   itemCode?: string | null
   jobNo: string
-  startedAt: string
+  /** Older servers leave it out: a job that is running. */
+  status?: JobStatus
+  startedAt: string | null
   startedById: string | null
   startedByName: string | null
+  activatedAt?: string | null
+  endRequestedAt?: string | null
   endedAt: string | null
+  /** The worker responsible now: the job's checks and notifications go to them. */
+  assignedWorkerId?: string | null
+  assignedWorkerName?: string | null
+  plannedFor?: string | null
+  note?: string | null
+}
+
+/** One of the running job's checks for this worker (Job Start, Job End or the next interval check). */
+export interface JobCheck {
+  id: string
+  code: string
+  kind: CheckKind
+  activityId: string
+  status: QualityCheckStatus
+  scheduledAt: string
+  windowEndsAt: string
+  /** Exactly the parameters this check asks for. */
+  parameterNames: string[]
+  canSubmit: boolean
+  message: string | null
+}
+
+/** What a job-based check type asks at job start, at each interval and at job end. */
+export interface JobPlan {
+  activityId: string
+  name: string
+  start: string[]
+  intervals: { minutes: number; parameters: string[] }[]
+  end: string[]
 }
 
 /** The check a worker can open right now for one check type on one machine. */
@@ -83,6 +124,9 @@ export interface OpenCheck {
   scheduledAt: string
   windowEndsAt: string
   submissionType: SubmissionType | null
+  kind?: CheckKind
+  /** A job check lists the parameters it asks for. */
+  parameterNames?: string[]
   canSubmit: boolean
   message: string | null
 }
@@ -107,6 +151,8 @@ export interface MachineCheckType {
   allowManual: boolean
   requireJobNo: boolean
   mode: CheckTypeMode
+  /** JOB: checked per job (start, intervals, end), with only the parameters that are due. */
+  monitoring?: 'SHIFT' | 'JOB'
   schedules: CheckTypeSchedule[]
   openCheck: OpenCheck | null
   nextDueAt: string | null
@@ -126,6 +172,24 @@ export interface AssignedMachine {
   /** True when at least one check type on this machine only runs during a job. */
   jobBased: boolean
   checkTypes: MachineCheckType[]
+  /** False when the plant is closed today or a machine day plan leaves this machine out (older servers omit it). */
+  runsToday?: boolean
+  /** Why the machine does not run today; null when it runs. */
+  notRunning?: MachineNotRunning | null
+  /** The running job's checks for this worker: Job Start, Job End and the next interval check. */
+  jobChecks?: JobCheck[]
+  /** Jobs planned for this machine that this worker may start. */
+  plannedJobs?: Job[]
+  /** The job-based check types and when their parameters are checked. */
+  jobPlan?: JobPlan[]
+}
+
+/** Why a machine does not run today: the plant is closed, or a machine day plan leaves it out (planned). */
+export interface MachineNotRunning {
+  label: string
+  reason: string | null
+  planned: boolean
+  message: string
 }
 
 export interface FormParameter {
@@ -174,6 +238,8 @@ export interface CheckForm {
   naReasons: NaReason[]
   /** The job running on this machine, if any: its number is prefilled and locked. */
   job: Job | null
+  /** False for Job Start / Job End checks: they cannot be skipped with an exception. */
+  allowException?: boolean
   overallEvidence: { photo: boolean; video: boolean }
   exceptionReasons: string[]
   maxVideoSeconds: number
@@ -241,6 +307,44 @@ export interface EvidenceUpload {
 export interface SubmitResult extends CheckSummary {
   nextDueAt: string | null
   notApplicableCount: number
+  /** Job checks: the job after this submission. */
+  job?: Job | null
+  jobActivated?: boolean
+  jobCompleted?: boolean
+  /** Ask "Continue the job or end the job?" (after a scheduled job check). */
+  askContinue?: boolean
+  /** The job's checks still open for this worker. */
+  pendingJobChecks?: CheckSummary[]
+}
+
+/** A job's handover from one worker to another. */
+export interface JobHandover {
+  id: string
+  at: string
+  fromName: string | null
+  toName: string | null
+  byName: string | null
+  shiftName: string | null
+  note: string | null
+  movedChecks: number
+}
+
+/** A job with its handovers, this worker's open checks and the checks already done. */
+export interface JobDetail {
+  job: Job
+  machine: { name: string; code: string } | null
+  handovers: JobHandover[]
+  open: CheckSummary[]
+  history: (CheckSummary & {
+    workerName: string | null
+    values: { parameterName: string; value: string | null; unit: string | null; result: string | null; notApplicable: boolean; naReason: string | null }[]
+    exception: { reason: string; remark: string | null } | null
+  })[]
+}
+
+export interface HandoverOptions {
+  shifts: { id: string; name: string; startTime: string; endTime: string }[]
+  workers: { id: string; name: string; employeeId: string; shiftId: string | null }[]
 }
 
 export interface ExceptionInfo {

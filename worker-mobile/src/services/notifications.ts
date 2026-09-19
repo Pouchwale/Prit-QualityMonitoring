@@ -3,7 +3,7 @@ import Constants from 'expo-constants'
 import * as Device from 'expo-device'
 import * as Notifications from 'expo-notifications'
 import { CheckSummary } from '../types'
-import { deletePushToken, registerPushToken, reportAlertStatus, type AlertStatus } from './api'
+import { deletePushToken, getTodayChecks, registerPushToken, reportAlertStatus, type AlertStatus } from './api'
 
 /**
  * "Check is due" alerts on the phone.
@@ -141,6 +141,13 @@ export async function unregisterForPush(): Promise<void> {
  * Keeps local alerts in step with the worker's checks. Called after every list refresh,
  * so an admin changing the machine assignment is reflected on the next refresh.
  */
+/** Rebuilds the local reminders from the server, e.g. after a job ends or is handed over. */
+export function resyncLocalAlerts() {
+  getTodayChecks()
+    .then(syncLocalAlerts)
+    .catch(() => undefined)
+}
+
 export async function syncLocalAlerts(checks: CheckSummary[]): Promise<void> {
   // Development only: a real build always receives alerts from the backend.
   if (!isExpoGo || usesServerPush()) return

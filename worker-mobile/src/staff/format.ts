@@ -1,16 +1,19 @@
 import type { CheckResult, ClosureType, ParameterType, QualityCheckStatus, Role } from './types'
+import { formatDate } from '../utils/datetime'
 
-// Same labels and formats as the web admin panel (admin-web/src/lib/format.ts).
+// Same labels and formats as the web admin panel (admin-web/src/lib/format.ts): dates DD/MM/YYYY,
+// times 12-hour with AM/PM.
+export {
+  formatClock,
+  formatClockRange,
+  formatDate,
+  formatDateTime,
+  formatLongDate,
+  formatShortWeekdayDate,
+  formatTime
+} from '../utils/datetime'
 
-export const formatDateTime = (iso: string | null | undefined) =>
-  iso ? new Date(iso).toLocaleString([], { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
-
-export const formatTime = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—')
-
-export const formatDate = (iso: string | Date | null | undefined) =>
-  iso ? new Date(iso).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
-
-/** YYYY-MM-DD as "14 Jan 2027". */
+/** YYYY-MM-DD as "14/01/2027". */
 export const formatKey = (key: string | null | undefined) => (key ? formatDate(keyToDate(key)) : '—')
 
 /** Local date as YYYY-MM-DD, the format the API expects. */
@@ -48,7 +51,8 @@ export const PARAMETER_TYPE_LABEL: Record<ParameterType, string> = {
   TEXT: 'Text',
   DROPDOWN: 'Dropdown',
   YES_NO: 'Yes / No',
-  PASS_FAIL: 'Pass / Fail'
+  PASS_FAIL: 'Pass / Fail',
+  PHOTO: 'Photo'
 }
 
 export const RESULT_LABEL: Record<CheckResult, string> = {

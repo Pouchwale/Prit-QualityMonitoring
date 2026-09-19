@@ -145,6 +145,9 @@ export async function unregisterForPush(): Promise<void> {
 /** Phones in Expo Go schedule local alerts; the web app always uses server push. */
 export async function syncLocalAlerts(_checks: CheckSummary[]): Promise<void> {}
 
+/** Nothing to rebuild on the web: its alerts come from the server, which stops them when a job ends. */
+export function resyncLocalAlerts() {}
+
 /**
  * Calls back with the check id when the worker taps an alert: either the app was opened
  * from the notification (?check=<id> in the address) or it was already open.

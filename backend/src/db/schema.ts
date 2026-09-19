@@ -17,7 +17,7 @@ import {
 } from 'drizzle-orm/pg-core'
 
 export const roleEnum = pgEnum('role', ['WORKER', 'ADMIN', 'MANAGER', 'SUPER_ADMIN'])
-export const parameterTypeEnum = pgEnum('parameter_type', ['NUMBER', 'TEXT', 'DROPDOWN', 'YES_NO', 'PASS_FAIL'])
+export const parameterTypeEnum = pgEnum('parameter_type', ['NUMBER', 'TEXT', 'DROPDOWN', 'YES_NO', 'PASS_FAIL', 'PHOTO'])
 export const machineStatusEnum = pgEnum('machine_status', ['ACTIVE', 'MAINTENANCE', 'IDLE'])
 export const checkStatusEnum = pgEnum('check_status', [
   'PENDING',
@@ -34,7 +34,21 @@ export const appliesWhenEnum = pgEnum('applies_when', ['ALWAYS', 'JOB_RUNNING'])
 export const scheduleModeEnum = pgEnum('schedule_mode', ['INTERVAL', 'JOB'])
 /** How a check was submitted: after a due notification, or started by the worker. */
 export const submissionTypeEnum = pgEnum('submission_type', ['NOTIFICATION', 'MANUAL'])
+/** A job's lifecycle: planned → Job Start check → active → Job End check → completed. */
+export const jobStatusEnum = pgEnum('job_status', ['PLANNED', 'STARTING', 'ACTIVE', 'ENDING', 'COMPLETED', 'CANCELLED'])
+/** SCHEDULED: shift schedule check (every parameter). JOB_*: a job check with only the parameters due. */
+export const checkKindEnum = pgEnum('check_kind', ['SCHEDULED', 'JOB_START', 'JOB_INTERVAL', 'JOB_END'])
+/** When a parameter of a job-based check type is checked. */
+export const parameterFrequencyEnum = pgEnum('parameter_frequency', ['JOB_START', 'INTERVAL', 'JOB_END'])
+/** SHIFT: checks come from shift schedules. JOB: checks follow each job (start, intervals, end). */
+export const activityMonitoringEnum = pgEnum('activity_monitoring', ['SHIFT', 'JOB'])
 export const mediaKindEnum = pgEnum('media_kind', ['PHOTO', 'VIDEO'])
+/**
+ * How a stored photo/video was optimised (services/mediaOptimizer.ts): PENDING (video waiting to be
+ * compressed), COMPRESSED (the stored file is the compressed one), ORIGINAL (kept as uploaded because
+ * it was already small), FAILED (could not be compressed; the upload is kept). Null for older files.
+ */
+export const mediaProcessingEnum = pgEnum('media_processing', ['PENDING', 'COMPRESSED', 'ORIGINAL', 'FAILED'])
 export const exceptionStatusEnum = pgEnum('exception_status', [
   'UNDER_REVIEW',
   'ACKNOWLEDGED',
@@ -156,6 +170,10 @@ export const activities = pgTable('activities', {
   requireJobNo: boolean('require_job_no').notNull().default(true),
   /** The worker may start this check from the machine screen without waiting for a notification. */
   allowManual: boolean('allow_manual').notNull().default(true),
+  /** SHIFT: shift schedules create the checks. JOB: each job's start, interval and end checks. */
+  monitoring: activityMonitoringEnum('monitoring').notNull().default('SHIFT'),
+  /** Job interval checks stay open this long after they are due, then count as Missed. */
+  graceMinutes: integer('grace_minutes').notNull().default(20),
   isActive: boolean('is_active').notNull().default(true),
   ...timestamps
 })
@@ -174,7 +192,10 @@ export const activityParameters = pgTable(
     /** The worker may mark this parameter "Not Applicable" with one of the monitoring reasons. */
     allowNa: boolean('allow_na').notNull().default(false),
     /** JOB_RUNNING parameters are automatically Not Applicable when no job runs on the machine. */
-    appliesWhen: appliesWhenEnum('applies_when').notNull().default('ALWAYS')
+    appliesWhen: appliesWhenEnum('applies_when').notNull().default('ALWAYS'),
+    /** Job-based check types: checked at job start, every `intervalMinutes`, or at job end. */
+    frequency: parameterFrequencyEnum('frequency').notNull().default('INTERVAL'),
+    intervalMinutes: integer('interval_minutes').notNull().default(60)
   },
   (t) => [primaryKey({ columns: [t.activityId, t.parameterId] })]
 )
@@ -218,17 +239,49 @@ export const jobs = pgTable(
     /** The item (product) being produced in this job, entered with the Job No. */
     itemCode: text('item_code'),
     jobNo: text('job_no').notNull(),
-    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    /** Null while the job is only planned (planned jobs insert it as null explicitly). */
+    startedAt: timestamp('started_at', { withTimezone: true }).defaultNow(),
     startedById: uuid('started_by_id').references(() => users.id, { onDelete: 'set null' }),
     endedAt: timestamp('ended_at', { withTimezone: true }),
     endedById: uuid('ended_by_id').references(() => users.id, { onDelete: 'set null' }),
+    status: jobStatusEnum('status').notNull().default('ACTIVE'),
+    /** The worker responsible now: job checks and their notifications go to this worker. */
+    assignedWorkerId: uuid('assigned_worker_id').references(() => users.id, { onDelete: 'set null' }),
+    plannedById: uuid('planned_by_id').references(() => users.id, { onDelete: 'set null' }),
+    plannedFor: date('planned_for'),
+    note: text('note'),
+    /** When the Job Start check was completed; interval checks count from here. */
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
+    endRequestedAt: timestamp('end_requested_at', { withTimezone: true }),
+    endRequestedById: uuid('end_requested_by_id').references(() => users.id, { onDelete: 'set null' }),
+    /** Closed by an Admin/Manager without the Job End check. */
+    forceClosed: boolean('force_closed').notNull().default(false),
     ...timestamps
   },
   (t) => [
-    // At most one running job per machine.
-    uniqueIndex('jobs_running_per_machine_idx').on(t.machineId).where(sql`${t.endedAt} is null`),
-    index('jobs_machine_started_idx').on(t.machineId, t.startedAt)
+    // At most one running job per machine; planned jobs do not count.
+    uniqueIndex('jobs_running_per_machine_idx').on(t.machineId).where(sql`${t.status} in ('STARTING', 'ACTIVE', 'ENDING')`),
+    index('jobs_machine_started_idx').on(t.machineId, t.startedAt),
+    index('jobs_status_idx').on(t.status)
   ]
+)
+
+/** Every handover of a running job from one worker to another. */
+export const jobHandovers = pgTable(
+  'job_handovers',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    jobId: uuid('job_id').notNull().references(() => jobs.id, { onDelete: 'cascade' }),
+    fromUserId: uuid('from_user_id').references(() => users.id, { onDelete: 'set null' }),
+    toUserId: uuid('to_user_id').references(() => users.id, { onDelete: 'set null' }),
+    toShiftId: uuid('to_shift_id').references(() => shifts.id, { onDelete: 'set null' }),
+    note: text('note'),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    /** Open checks that moved to the new worker. */
+    movedChecks: integer('moved_checks').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index('job_handovers_job_idx').on(t.jobId, t.createdAt)]
 )
 
 /**
@@ -289,6 +342,10 @@ export const qualityChecks = pgTable(
     deviceInfo: text('device_info'),
     /** When the "check is due" notification was sent, so it is sent only once. */
     notifiedAt: timestamp('notified_at', { withTimezone: true }),
+    /** SCHEDULED (shift schedule) or a job check: JOB_START, JOB_INTERVAL, JOB_END. */
+    kind: checkKindEnum('kind').notNull().default('SCHEDULED'),
+    /** Job checks: exactly the parameters this check asks for. Null: every parameter of the check type. */
+    parameterIds: uuid('parameter_ids').array(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => [
@@ -300,7 +357,15 @@ export const qualityChecks = pgTable(
      */
     uniqueIndex('quality_checks_one_open_per_schedule')
       .on(t.scheduleId)
-      .where(sql`${t.status} in ('PENDING', 'DUE')`)
+      .where(sql`${t.status} in ('PENDING', 'DUE')`),
+    /**
+     * One open job check per job, check type, kind and due time: each parameter runs on its own
+     * frequency, so several interval checks can be open at once (services/jobMonitoring.ts).
+     */
+    uniqueIndex('quality_checks_one_open_job_check')
+      .on(t.jobId, t.activityId, t.kind, t.scheduledAt)
+      .where(sql`${t.kind} <> 'SCHEDULED' and ${t.status} in ('PENDING', 'DUE', 'IN_PROGRESS')`),
+    index('quality_checks_job_idx').on(t.jobId)
   ]
 )
 
@@ -349,12 +414,24 @@ export const media = pgTable('media', {
   path: text('path').notNull(),
   mimeType: text('mime_type').notNull(),
   sizeBytes: integer('size_bytes').notNull(),
+  /** SHA-256 of the stored file. */
   sha256: text('sha256').notNull(),
   durationSeconds: doublePrecision('duration_seconds'),
   capturedAt: timestamp('captured_at', { withTimezone: true }),
   uploadedById: uuid('uploaded_by_id').references(() => users.id, { onDelete: 'set null' }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
-}, (t) => [index('media_sha256_idx').on(t.sha256)])
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  processing: mediaProcessingEnum('processing'),
+  /** Size and SHA-256 of the file as the phone sent it (a reused capture is refused by this hash). */
+  originalSizeBytes: integer('original_size_bytes'),
+  originalSha256: text('original_sha256'),
+  /** Pixel size of the stored file, upright. */
+  width: integer('width'),
+  height: integer('height')
+}, (t) => [
+  index('media_sha256_idx').on(t.sha256),
+  index('media_original_sha256_idx').on(t.originalSha256),
+  index('media_processing_pending_idx').on(t.createdAt).where(sql`${t.processing} = 'PENDING'`)
+])
 
 /**
  * Devices that receive "check is due" notifications, one row per device a worker signs in on.
@@ -503,3 +580,27 @@ export const settings = pgTable('settings', {
   value: jsonb('value').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
 })
+
+/**
+ * Machine day plans: for a date, exactly which machines run. A date with a plan overrides the
+ * plant calendar for machines (listed ones run even on a closed day, unlisted ones do not run);
+ * a date without a plan follows the plant calendar (services/machineDays.ts).
+ */
+export const machineDayPlans = pgTable('machine_day_plans', {
+  /** Local date, YYYY-MM-DD. */
+  date: date('date', { mode: 'string' }).primaryKey(),
+  note: text('note'),
+  updatedById: uuid('updated_by_id').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+})
+
+export const machineDayPlanMachines = pgTable(
+  'machine_day_plan_machines',
+  {
+    date: date('date', { mode: 'string' })
+      .notNull()
+      .references(() => machineDayPlans.date, { onDelete: 'cascade' }),
+    machineId: uuid('machine_id').notNull().references(() => machines.id, { onDelete: 'cascade' })
+  },
+  (t) => [primaryKey({ columns: [t.date, t.machineId] })]
+)

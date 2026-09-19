@@ -8,9 +8,9 @@ import { Button } from '../../components/common/Button'
 import { PageHeader } from '../../components/common/PageHeader'
 import { DataState } from '../../components/common/DataState'
 import { CheckStatusBadge } from '../../components/common/StatusBadge'
-import { inputClass } from '../../components/common/Form'
 import { CLOSURE_TYPES } from '../../lib/closureTypes'
 import { WorkerCoverageAlert } from '../../components/common/WorkerCoverageAlert'
+import { DateInput } from '../../components/common/DateTimeInputs'
 
 const REFRESH_MS = 60_000
 const REPEAT_WINDOW_DAYS = 7
@@ -100,11 +100,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
         description={`${isToday ? "Today's" : formatDate(new Date(`${date}T00:00:00`))} monitoring status · auto-refreshes every minute · updated ${formatTime(updatedAt.toISOString())}`}
         actions={
           <>
-            <input type="date" value={date} max={addDaysKey(dateKey(), 7)} onChange={(e) => {
+            <DateInput value={date} max={addDaysKey(dateKey(), 7)} onChange={(e) => {
                 if (!e.target.value) return
                 setDate(e.target.value)
                 setUpdatedAt(new Date())
-              }} className={`${inputClass} w-full sm:w-[160px] lg:w-[140px]`} />
+              }} className="w-full sm:w-[160px] lg:w-[140px]" />
             {!isToday && (
               <Button size="sm" variant="ghost" onClick={() => setDate(dateKey())}>
                 Today

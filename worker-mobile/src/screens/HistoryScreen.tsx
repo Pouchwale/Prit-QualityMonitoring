@@ -11,6 +11,7 @@ import { StatusLabel } from '../components/ui/StatusLabel'
 import { Icon } from '../components/ui/Icon'
 import { EmptyState, ErrorState, Loading } from '../components/ui/LoadState'
 import { HistoryFilters } from '../components/HistoryFilters'
+import { formatShortWeekdayDate } from '../utils/datetime'
 
 interface Props {
   refreshKey: number
@@ -32,7 +33,7 @@ function dayLabel(iso: string) {
   yesterday.setDate(today.getDate() - 1)
   if (date.toDateString() === today.toDateString()) return 'Today'
   if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
-  return date.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })
+  return formatShortWeekdayDate(date)
 }
 
 const HistoryRow: React.FC<{ item: HistoryItem; onPress: () => void }> = ({ item, onPress }) => {

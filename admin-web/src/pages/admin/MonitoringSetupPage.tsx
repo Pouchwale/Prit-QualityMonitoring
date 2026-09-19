@@ -5,7 +5,7 @@ import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useAuth, useCanManage } from '../../lib/auth'
 import { useCanOpen, type NavTab } from '../../components/layout/Sidebar'
-import { addDaysKey, dateKey, formatDateTime, frequencyLabel } from '../../lib/format'
+import { addDaysKey, dateKey, formatClockRange, formatDateTime, frequencyLabel } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
 import { DataState } from '../../components/common/DataState'
@@ -14,6 +14,7 @@ import { Modal } from '../../components/common/Modal'
 import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
+import { DateInput } from '../../components/common/DateTimeInputs'
 
 interface MonitoringSetupPageProps {
   /** Opens the Check Types or Schedules page to edit a row. */
@@ -302,22 +303,20 @@ export const MonitoringSetupPage: React.FC<MonitoringSetupPageProps> = ({ onNavi
           <div className="p-3 border-b border-line grid grid-cols-2 sm:flex sm:flex-wrap items-end gap-2.5 text-xs">
             <label className="min-w-0">
               <span className="block text-[11px] font-semibold text-ink-secondary mb-1">From</span>
-              <input
-                type="date"
+              <DateInput
                 value={jobFilters.from}
                 max={jobFilters.to}
                 onChange={(e) => e.target.value && setJobFilter({ from: e.target.value })}
-                className={`${inputClass} sm:w-[160px] lg:w-[132px]`}
+                className="sm:w-[160px] lg:w-[132px]"
               />
             </label>
             <label className="min-w-0">
               <span className="block text-[11px] font-semibold text-ink-secondary mb-1">To</span>
-              <input
-                type="date"
+              <DateInput
                 value={jobFilters.to}
                 min={jobFilters.from}
                 onChange={(e) => e.target.value && setJobFilter({ to: e.target.value })}
-                className={`${inputClass} sm:w-[160px] lg:w-[132px]`}
+                className="sm:w-[160px] lg:w-[132px]"
               />
             </label>
             <label className="min-w-0">
@@ -396,7 +395,7 @@ export const MonitoringSetupPage: React.FC<MonitoringSetupPageProps> = ({ onNavi
                             <span className="text-ink-faint">—</span>
                           ) : (
                             <Button size="sm" variant="outline" onClick={() => setEndingJob(j)} icon={<Square className="w-3 h-3" />}>
-                              End job
+                              Force close
                             </Button>
                           )}
                         </td>
@@ -485,16 +484,16 @@ export const MonitoringSetupPage: React.FC<MonitoringSetupPageProps> = ({ onNavi
 
       <ConfirmModal
         isOpen={endingJob !== null}
-        title="End job?"
-        confirmLabel="End job"
+        title="Force close job?"
+        confirmLabel="Force close"
         onConfirm={endJob}
         onClose={() => setEndingJob(null)}
         message={
           endingJob && (
             <p>
-              End job <span className="font-semibold text-ink">{endingJob.jobNo}</span> on{' '}
-              <span className="font-semibold text-ink">{endingJob.machineName ?? 'this machine'}</span>? Job-based checks stop being due until the next job
-              starts.
+              Close job <span className="font-semibold text-ink">{endingJob.jobNo}</span> on{' '}
+              <span className="font-semibold text-ink">{endingJob.machineName ?? 'this machine'}</span> without its remaining checks? Open checks are
+              removed; submitted records stay with the job. Workers normally end a job with its Job End check.
             </p>
           )
         }
@@ -624,9 +623,7 @@ const MachineCard: React.FC<{
                           <td className="py-1.5 px-3 whitespace-nowrap text-ink">{frequencyLabel(s.intervalMinutes)}</td>
                           <td className="py-1.5 px-3 whitespace-nowrap">
                             {s.startTime && s.endTime ? (
-                              <span className="font-mono text-ink">
-                                {s.startTime}–{s.endTime}
-                              </span>
+                              <span className="font-mono text-ink">{formatClockRange(s.startTime, s.endTime)}</span>
                             ) : (
                               <span className="text-ink-muted">Whole shift</span>
                             )}

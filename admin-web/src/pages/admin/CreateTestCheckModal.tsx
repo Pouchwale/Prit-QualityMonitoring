@@ -7,6 +7,7 @@ import { Modal } from '../../components/common/Modal'
 import { Button } from '../../components/common/Button'
 import { Field, FormError, Select, TextInput } from '../../components/common/Form'
 import { useToast } from '../../components/common/Toast'
+import { DateInput, TimeInput } from '../../components/common/DateTimeInputs'
 
 interface Props {
   isOpen: boolean
@@ -18,7 +19,7 @@ type TestStatus = 'DUE' | 'PENDING'
 
 const WINDOW_OPTIONS = [15, 30, 60, 120, 240, 480]
 
-/** Value for <input type="datetime-local"> in local time. */
+/** Local date and time as YYYY-MM-DDTHH:MM (what the date and time fields edit). */
 function localInputValue(date: Date) {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
@@ -225,7 +226,15 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {status === 'PENDING' ? (
           <Field label="Start time" required error={startValid ? null : 'Choose a time in the future'}>
-            <TextInput type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
+            <span className="flex flex-wrap items-center gap-1.5">
+              <DateInput
+                aria-label="Start date"
+                value={startAt.slice(0, 10)}
+                onChange={(e) => e.target.value && setStartAt(`${e.target.value}T${startAt.slice(11, 16)}`)}
+                className="w-[140px]"
+              />
+              <TimeInput label="Start time" value={startAt.slice(11, 16)} onChange={(v) => setStartAt(`${startAt.slice(0, 10)}T${v}`)} />
+            </span>
           </Field>
         ) : (
           <Field label="Start time">

@@ -1,12 +1,13 @@
 import React, { useRef, useState } from 'react'
-import { View, Text, Image, KeyboardAvoidingView, Platform, ScrollView, TextInput } from 'react-native'
+import { View, Text, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { API_URL, ApiError, login } from '../services/api'
+import { canChangeServer, getApiUrl, ApiError, login } from '../services/api'
 import { Profile } from '../types'
 import { Button } from '../components/ui/Button'
 import { FieldLabel } from '../components/ui/FieldLabel'
 import { TextField } from '../components/ui/TextField'
 import { Icon } from '../components/ui/Icon'
+import { ServerSettingsSheet } from '../components/ServerSettingsSheet'
 
 interface Props {
   onSignedIn: (profile: Profile) => void
@@ -18,6 +19,10 @@ export const LoginScreen: React.FC<Props> = ({ onSignedIn }) => {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [serverOpen, setServerOpen] = useState(false)
+  /** "Connected to …" after the server address was changed. */
+  const [notice, setNotice] = useState<string | null>(null)
+  const [server, setServer] = useState(getApiUrl())
   const passwordRef = useRef<TextInput>(null)
 
   const submit = async () => {
@@ -27,6 +32,7 @@ export const LoginScreen: React.FC<Props> = ({ onSignedIn }) => {
     }
     setLoading(true)
     setError(null)
+    setNotice(null)
     try {
       onSignedIn(await login(employeeId.trim(), password))
     } catch (err) {
@@ -107,7 +113,44 @@ export const LoginScreen: React.FC<Props> = ({ onSignedIn }) => {
 
           <Button label="Sign In" onPress={submit} loading={loading} className="mt-8" />
 
-          <Text className="mt-8 text-center text-[13px] text-ink-muted">Server: {API_URL}</Text>
+          {notice ? (
+            <View className="mt-5 flex-row items-start rounded-xl bg-success-bg px-3 py-2.5" accessibilityLiveRegion="polite">
+              <Icon name="checkmark-circle" size={18} color="success" />
+              <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-success">{notice}</Text>
+            </View>
+          ) : null}
+
+          {/* The server's address can change (new IP): the phone app sets it here, no new app needed. */}
+          {canChangeServer ? (
+            <>
+              <Pressable
+                onPress={() => setServerOpen(true)}
+                className="mt-8 min-h-[48px] max-w-full items-center justify-center self-center rounded-xl px-3 py-1.5 active:opacity-60"
+                accessibilityRole="button"
+                accessibilityLabel={`Server settings. Server: ${server}`}
+              >
+                <View className="max-w-full flex-row items-center">
+                  <Icon name="server-outline" size={15} color="muted" />
+                  <Text className="ml-1.5 shrink text-[13px] text-ink-muted" numberOfLines={1}>
+                    Server: {server}
+                  </Text>
+                </View>
+                <Text className="mt-0.5 text-[14px] font-semibold text-accent">Server settings</Text>
+              </Pressable>
+              <ServerSettingsSheet
+                visible={serverOpen}
+                onClose={() => setServerOpen(false)}
+                onSaved={(url) => {
+                  setServerOpen(false)
+                  setServer(url)
+                  setError(null)
+                  setNotice(`Connected to ${url}. You can sign in.`)
+                }}
+              />
+            </>
+          ) : (
+            <Text className="mt-8 text-center text-[13px] text-ink-muted">Server: {server}</Text>
+          )}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

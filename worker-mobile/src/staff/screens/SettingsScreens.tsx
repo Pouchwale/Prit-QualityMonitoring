@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Platform, Text, View } from 'react-native'
 import type { Settings } from '../types'
-import { API_URL, api } from '../../services/api'
+import { getApiUrl, api } from '../../services/api'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
 import { AccessDenied, FormError, FormSection, Icon, Input, PrimaryButton, Screen, type IconName, useToast } from '../ui'
@@ -105,7 +105,7 @@ export const SettingsScreen: React.FC<{ params: Record<string, never> }> = () =>
         <View>
           <Text className="mb-0.5 text-[12px] font-medium leading-[16px] text-staff-muted">API server</Text>
           <Text selectable className="text-[14px] leading-[19px] text-staff-ink" style={{ fontFamily: MONO }}>
-            {API_URL}
+            {getApiUrl()}
           </Text>
         </View>
         <View>
@@ -118,7 +118,7 @@ export const SettingsScreen: React.FC<{ params: Record<string, never> }> = () =>
           </View>
         </View>
         <Text className="text-[13px] leading-[18px] text-staff-muted">
-          Set <Text style={{ fontFamily: MONO }}>EXPO_PUBLIC_API_URL</Text> when building the app to point it at a different server.
+          To use another server (for example when its IP address changes), sign out and tap <Text className="font-semibold">Server settings</Text> on the sign-in screen. No new app is needed.
         </Text>
       </FormSection>
     </Screen>

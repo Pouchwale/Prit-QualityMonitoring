@@ -10,6 +10,7 @@ import { HistoryScreen } from '../screens/HistoryScreen'
 import { ProfileScreen } from '../screens/ProfileScreen'
 import { CheckScreen } from '../screens/CheckScreen'
 import { HistoryDetailScreen } from '../screens/HistoryDetailScreen'
+import { JobScreen } from '../screens/JobScreen'
 
 type Tab = 'today' | 'history' | 'profile'
 
@@ -30,6 +31,7 @@ export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<voi
   const [machine, setMachine] = useState<AssignedMachine | null>(null)
   const [openCheck, setOpenCheck] = useState<{ id: string; startWith?: 'exception' } | null>(null)
   const [openRecordId, setOpenRecordId] = useState<string | null>(null)
+  const [openJobId, setOpenJobId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
   // Register this device for alerts. Phones ask for permission here; browsers only allow asking
@@ -72,16 +74,31 @@ export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<voi
 
   let screen: React.ReactNode
   if (openCheck) {
-    screen = <CheckScreen key={openCheck.id} checkId={openCheck.id} startWith={openCheck.startWith} onClose={closeCheck} />
+    screen = (
+      <CheckScreen
+        key={openCheck.id}
+        checkId={openCheck.id}
+        startWith={openCheck.startWith}
+        onClose={closeCheck}
+        onOpenCheck={(id) => {
+          setRefreshKey((k) => k + 1)
+          setOpenCheck({ id })
+        }}
+      />
+    )
   } else if (openRecordId) {
     screen = <HistoryDetailScreen checkId={openRecordId} onClose={() => setOpenRecordId(null)} />
+  } else if (openJobId) {
+    screen = <JobScreen key={`${openJobId}-${refreshKey}`} jobId={openJobId} onBack={() => setOpenJobId(null)} onOpenCheck={(id) => setOpenCheck({ id })} />
   } else if (tab === 'today' && machine) {
     screen = (
       <MachineScreen
         machine={machine}
+        meId={profile.id}
         refreshKey={refreshKey}
         onBack={() => setMachine(null)}
         onStart={(id, startWith) => setOpenCheck({ id, startWith })}
+        onOpenJob={setOpenJobId}
       />
     )
   } else {

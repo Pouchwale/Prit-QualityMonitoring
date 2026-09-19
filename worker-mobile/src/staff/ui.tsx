@@ -18,9 +18,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { VideoView, useVideoPlayer } from 'expo-video'
 import { cssInterop } from 'nativewind'
 import { DatePicker } from '../components/DatePicker'
+import { TimePicker } from '../components/TimePicker'
 import { fileUrl } from '../services/api'
 import { showDialog } from '../utils/dialog'
-import { STATUS_LABEL, TONE_CLASS, dateKey, formatBytes, formatDateTime, formatKey, keyToDate, statusTone, type Tone } from './format'
+import { STATUS_LABEL, TONE_CLASS, dateKey, formatBytes, formatClock, formatDateTime, formatKey, keyToDate, statusTone, type Tone } from './format'
 import type { MediaFile } from './types'
 import { useStaff } from './nav'
 import { ICON_COLOR, Icon, type IconColor, type IconName } from './Icon'
@@ -1268,7 +1269,20 @@ export const DateField: React.FC<{
             }}
           />
         </View>
-        <DatePicker value={draft} minimumDate={min ? keyToDate(min) : undefined} maximumDate={max ? keyToDate(max) : undefined} onChange={setDraft} />
+        <DatePicker
+          value={draft}
+          minimumDate={min ? keyToDate(min) : undefined}
+          maximumDate={max ? keyToDate(max) : undefined}
+          onChange={(d) => {
+            setDraft(d)
+            // Android shows its own date dialog: the chosen date applies straight away.
+            if (Platform.OS === 'android') {
+              onChange(dateKey(d))
+              setOpen(false)
+            }
+          }}
+          onDismiss={() => setOpen(false)}
+        />
       </View>
     </Modal>
   ) : null
@@ -1307,6 +1321,73 @@ export const DateField: React.FC<{
         {clearable && value ? <SmallButton label="Clear" tone="ghost" onPress={() => onChange('')} className="h-12" /> : null}
       </View>
       {sheet}
+    </View>
+  )
+}
+
+/**
+ * A time as HH:MM (24-hour, as stored), shown and picked in 12-hour AM/PM. Phones show the time
+ * wheel in a sheet; the web app shows hour, minute and AM/PM selects.
+ */
+export const TimeField: React.FC<{
+  label: string
+  value: string
+  onChange: (hhmm: string) => void
+  required?: boolean
+  hint?: string | null
+  error?: string | null
+}> = ({ label, value, onChange, required, hint, error }) => {
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(value)
+  const insets = useSafeAreaInsets()
+  const shown = value ? formatClock(value) : 'Choose a time'
+
+  if (isWeb) {
+    return (
+      <View>
+        <FieldLabel label={label} required={required} hint={hint} />
+        <TimePicker label={label} value={value} onChange={onChange} />
+        {error ? <Text className="mt-1.5 text-[13px] leading-[18px] text-missed">{error}</Text> : null}
+      </View>
+    )
+  }
+
+  return (
+    <View>
+      <FieldLabel label={label} required={required} hint={hint} />
+      <Pressable
+        onPress={() => {
+          setDraft(value)
+          setOpen(true)
+        }}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${value ? formatClock(value) : 'not set'}`}
+        className="h-12 flex-row items-center gap-2.5 rounded-xl border border-staff-field bg-staff-card px-3.5 active:bg-staff-fill"
+      >
+        <Icon name="time-outline" size={20} color="muted" />
+        <Text className={`flex-1 text-[16px] ${value ? 'text-staff-ink' : 'text-staff-muted'}`} numberOfLines={1}>
+          {shown}
+        </Text>
+      </Pressable>
+      {error ? <Text className="mt-1.5 text-[13px] leading-[18px] text-missed">{error}</Text> : null}
+      {open ? (
+        <Modal visible transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+          <Pressable className="flex-1 bg-black/40" onPress={() => setOpen(false)} accessibilityLabel="Close" />
+          <View className="rounded-t-[20px] bg-staff-card px-4" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
+            <View className="-mx-4">
+              <SheetTop
+                title={label}
+                actionLabel="Done"
+                onAction={() => {
+                  onChange(draft)
+                  setOpen(false)
+                }}
+              />
+            </View>
+            <TimePicker label={label} value={draft} onChange={setDraft} />
+          </View>
+        </Modal>
+      ) : null}
     </View>
   )
 }

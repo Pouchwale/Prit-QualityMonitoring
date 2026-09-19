@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, Camera, Hash, Pencil, Plus, Search, Trash2, Video, X } from 'lucide-react'
-import type { Activity, AppliesWhen, Department, Machine, Parameter, ParameterType } from '../../types'
+import { ArrowDown, ArrowUp, Briefcase, Camera, Hash, Pencil, Plus, Search, Trash2, Video, X } from 'lucide-react'
+import type { Activity, AppliesWhen, Department, Machine, Parameter, ParameterFrequency, ParameterType } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
@@ -23,7 +23,23 @@ interface FormParameter {
   requireVideo: boolean
   allowNa: boolean
   appliesWhen: AppliesWhen
+  /** Job-based check types: checked at job start, every intervalMinutes, or at job end. */
+  frequency: ParameterFrequency
+  intervalMinutes: number
 }
+
+/** The "When checked" choices of a job-based check type's parameter. */
+const FREQUENCY_CHOICES = [
+  { value: 'JOB_START', label: 'Job start' },
+  { value: '60', label: 'Every 1 hour' },
+  { value: '120', label: 'Every 2 hours' },
+  { value: '180', label: 'Every 3 hours' },
+  { value: 'CUSTOM', label: 'Custom interval' },
+  { value: 'JOB_END', label: 'Job end' }
+] as const
+
+const frequencyChoice = (p: FormParameter) =>
+  p.frequency !== 'INTERVAL' ? p.frequency : ([60, 120, 180].includes(p.intervalMinutes) ? (String(p.intervalMinutes) as '60' | '120' | '180') : 'CUSTOM')
 
 interface ActivityForm {
   name: string
@@ -35,6 +51,9 @@ interface ActivityForm {
   requirePhoto: boolean
   requireVideo: boolean
   allowManual: boolean
+  /** SHIFT: checks from shift schedules. JOB: per job, each parameter at its own frequency. */
+  monitoring: 'SHIFT' | 'JOB'
+  graceMinutes: string
   /** Array order = order on the worker form. */
   parameters: FormParameter[]
   machineIds: string[]
@@ -50,6 +69,8 @@ interface ActivityBody {
   requireVideo: boolean
   requireJobNo: boolean
   allowManual: boolean
+  monitoring: 'SHIFT' | 'JOB'
+  graceMinutes: number
   isActive: boolean
   parameters: FormParameter[]
   machineIds: string[]
@@ -74,6 +95,8 @@ const emptyForm: ActivityForm = {
   requirePhoto: true,
   requireVideo: false,
   allowManual: true,
+  monitoring: 'SHIFT',
+  graceMinutes: '20',
   parameters: [],
   machineIds: []
 }
@@ -88,6 +111,8 @@ const formFromActivity = (a: Activity): ActivityForm => ({
   requirePhoto: a.requirePhoto,
   requireVideo: a.requireVideo,
   allowManual: a.allowManual,
+  monitoring: a.monitoring ?? 'SHIFT',
+  graceMinutes: String(a.graceMinutes ?? 20),
   parameters: a.parameters.map((p) => ({
     parameterId: p.parameterId,
     isRequired: p.isRequired,
@@ -95,7 +120,9 @@ const formFromActivity = (a: Activity): ActivityForm => ({
     requirePhoto: p.requirePhoto,
     requireVideo: p.requireVideo,
     allowNa: p.allowNa,
-    appliesWhen: p.appliesWhen
+    appliesWhen: p.appliesWhen,
+    frequency: p.frequency ?? 'INTERVAL',
+    intervalMinutes: p.intervalMinutes ?? 60
   })),
   machineIds: [...a.machineIds]
 })
@@ -218,7 +245,17 @@ export const ActivitiesPage: React.FC = () => {
     if (!parameter) return
     update('parameters', [
       ...form.parameters,
-      { parameterId: parameter.id, isRequired: parameter.isRequired, isEnabled: true, requirePhoto: false, requireVideo: false, allowNa: false, appliesWhen: 'ALWAYS' }
+      {
+        parameterId: parameter.id,
+        isRequired: parameter.isRequired,
+        isEnabled: true,
+        requirePhoto: false,
+        requireVideo: false,
+        allowNa: false,
+        appliesWhen: 'ALWAYS',
+        frequency: 'INTERVAL',
+        intervalMinutes: 60
+      }
     ])
     setAddParameterId('')
   }
@@ -226,6 +263,12 @@ export const ActivitiesPage: React.FC = () => {
   // ----- save / delete -----
   const submit = async (e?: React.SyntheticEvent) => {
     e?.preventDefault()
+    const grace = Number(form.graceMinutes)
+    if (form.monitoring === 'JOB') {
+      if (!Number.isInteger(grace) || grace < 5 || grace > 240) return setFormError('Grace must be 5 to 240 minutes')
+      const bad = form.parameters.find((p) => p.frequency === 'INTERVAL' && (!Number.isInteger(p.intervalMinutes) || p.intervalMinutes < 5 || p.intervalMinutes > 1440))
+      if (bad) return setFormError(`${parameterInfo.get(bad.parameterId)?.name ?? 'A parameter'}: the interval must be 5 to 1440 minutes`)
+    }
     const body: ActivityBody = {
       name: form.name.trim(),
       code: form.code.trim(),
@@ -235,6 +278,8 @@ export const ActivitiesPage: React.FC = () => {
       requireVideo: form.requireVideo,
       requireJobNo: form.requireJobNo,
       allowManual: form.allowManual,
+      monitoring: form.monitoring,
+      graceMinutes: Number.isInteger(grace) && grace >= 5 ? grace : 20,
       isActive: form.isActive,
       parameters: form.parameters,
       machineIds: form.machineIds
@@ -352,8 +397,9 @@ export const ActivitiesPage: React.FC = () => {
                       )}
                     </td>
                     <td className="py-2.5 px-3">
-                      {hasEvidence ? (
+                      {hasEvidence || a.monitoring === 'JOB' ? (
                         <div className="flex flex-wrap gap-1 max-w-[200px]">
+                          {a.monitoring === 'JOB' && <EvidenceBadge icon={<Briefcase className="w-3 h-3" />} label="Job-based" />}
                           {a.requireJobNo && <EvidenceBadge icon={<Hash className="w-3 h-3" />} label="Job No." />}
                           {a.requirePhoto && <EvidenceBadge icon={<Camera className="w-3 h-3" />} label="Photo" />}
                           {a.requireVideo && <EvidenceBadge icon={<Video className="w-3 h-3" />} label="Video" />}
@@ -492,7 +538,40 @@ export const ActivitiesPage: React.FC = () => {
             />
           </Section>
 
-          <Section step={3} title="Parameters on this form" description="Workers see them in this order">
+          <Section step={3} title="When it is checked" description="Shift schedules, or per job with a frequency per parameter">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {(
+                [
+                  { value: 'SHIFT', label: 'Shift schedules', hint: 'Every parameter at each scheduled check (Schedules page).' },
+                  { value: 'JOB', label: 'Job-based', hint: 'Job start, every N hours and job end: only the parameters due are asked.' }
+                ] as const
+              ).map((o) => (
+                <label
+                  key={o.value}
+                  className={`flex items-start gap-2 rounded border px-3 py-2 cursor-pointer ${form.monitoring === o.value ? 'border-accent bg-accent/5' : 'border-line-strong'}`}
+                >
+                  <input type="radio" name="monitoring" className="mt-0.5" checked={form.monitoring === o.value} onChange={() => update('monitoring', o.value)} />
+                  <span>
+                    <span className="block text-xs font-semibold text-ink">{o.label}</span>
+                    <span className="block text-[11px] text-ink-muted">{o.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {form.monitoring === 'JOB' && (
+              <div className="flex flex-wrap items-end gap-3">
+                <Field label="Grace (minutes)" hint="A scheduled job check counts as Missed this long after it is due.">
+                  <TextInput type="number" min={5} max={240} value={form.graceMinutes} onChange={(e) => update('graceMinutes', e.target.value)} className="w-28 font-mono" />
+                </Field>
+                <p className="text-[11px] text-ink-muted pb-2 max-w-md">
+                  Set <span className="font-semibold">When checked</span> on each parameter below. The worker starts the job with the Job start parameters, gets
+                  a notification when interval parameters are due (only those), and ends the job with the Job end parameters.
+                </p>
+              </div>
+            )}
+          </Section>
+
+          <Section step={4} title="Parameters on this form" description="Workers see them in this order">
             <div className="border border-line-strong rounded divide-y divide-line bg-white">
               {form.parameters.length === 0 ? (
                 <div className="px-3 py-3 text-[11px] text-ink-muted">No parameters yet. Add them below.</div>
@@ -551,11 +630,50 @@ export const ActivitiesPage: React.FC = () => {
                         <Toggle checked={fp.requirePhoto} onChange={(v) => updateParameter(index, { requirePhoto: v })} label="Photo" />
                         <Toggle checked={fp.requireVideo} onChange={(v) => updateParameter(index, { requireVideo: v })} label="Video" />
                         <Toggle checked={fp.allowNa} onChange={(v) => updateParameter(index, { allowNa: v })} label="Allow N/A" />
-                        <Toggle
-                          checked={fp.appliesWhen === 'JOB_RUNNING'}
-                          onChange={(v) => updateParameter(index, { appliesWhen: v ? 'JOB_RUNNING' : 'ALWAYS' })}
-                          label="Only while a job is running"
-                        />
+                        {form.monitoring === 'SHIFT' && (
+                          <Toggle
+                            checked={fp.appliesWhen === 'JOB_RUNNING'}
+                            onChange={(v) => updateParameter(index, { appliesWhen: v ? 'JOB_RUNNING' : 'ALWAYS' })}
+                            label="Only while a job is running"
+                          />
+                        )}
+                        {form.monitoring === 'JOB' && (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="text-[11px] font-semibold text-ink-secondary">When checked</span>
+                            <select
+                              aria-label={`When checked: ${info?.name ?? 'parameter'}`}
+                              value={frequencyChoice(fp)}
+                              onChange={(e) => {
+                                const v = e.target.value
+                                if (v === 'JOB_START' || v === 'JOB_END') updateParameter(index, { frequency: v })
+                                else if (v === 'CUSTOM') updateParameter(index, { frequency: 'INTERVAL', intervalMinutes: fp.frequency === 'INTERVAL' && ![60, 120, 180].includes(fp.intervalMinutes) ? fp.intervalMinutes : 90 })
+                                else updateParameter(index, { frequency: 'INTERVAL', intervalMinutes: Number(v) })
+                              }}
+                              className={`${inputClass} w-auto px-2`}
+                            >
+                              {FREQUENCY_CHOICES.map((c) => (
+                                <option key={c.value} value={c.value}>
+                                  {c.label}
+                                </option>
+                              ))}
+                            </select>
+                            {frequencyChoice(fp) === 'CUSTOM' && (
+                              <span className="inline-flex items-center gap-1">
+                                <span className="text-[11px] text-ink-muted">every</span>
+                                <input
+                                  type="number"
+                                  min={5}
+                                  max={1440}
+                                  aria-label={`Interval in minutes: ${info?.name ?? 'parameter'}`}
+                                  value={fp.intervalMinutes}
+                                  onChange={(e) => updateParameter(index, { intervalMinutes: Number(e.target.value) })}
+                                  className={`${inputClass} w-20 font-mono`}
+                                />
+                                <span className="text-[11px] text-ink-muted">min</span>
+                              </span>
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
                   )

@@ -99,6 +99,39 @@ The panel calls the backend on port 4000 of the same host. Set `VITE_API_URL` to
 
 To use it from a phone on the factory network, open `http://<PC address>:5173` (start.bat already runs Vite with `--host`).
 
+### Page addresses
+
+Every page has its own address (react-router-dom), so pages can be bookmarked, refreshed, shared and opened in a new tab, and the browser's Back and Forward buttons work. The routes are defined in `admin-web/src/lib/routes.ts`.
+
+| Page | Address |
+|---|---|
+| Dashboard | `/dashboard` |
+| Quality Checks / one check | `/quality-checks` / `/quality-checks/<check id>` |
+| Jobs | `/jobs` |
+| Exceptions | `/exceptions` |
+| Reports | `/reports` |
+| Parameters | `/parameters` |
+| Check Types | `/check-types` |
+| Machines | `/machines` |
+| Schedules | `/schedules` |
+| Monitoring Setup | `/monitoring-setup` |
+| Plant Calendar | `/plant-calendar` |
+| Workers & Users | `/workers` |
+| Machine Assignment | `/machine-assignment` |
+| Departments | `/departments` |
+| Shifts | `/shifts` |
+| Audit Logs | `/audit-logs` |
+| Settings | `/settings` |
+| Manager Access | `/manager-access` |
+| My Account | `/account` |
+| Sign in | `/login` |
+
+- `/` opens the first page the signed-in user may see (the Dashboard for admins).
+- Signed out, any page goes to `/login?next=<page>` and returns to that page after sign-in. A deliberate sign-out opens a plain `/login`.
+- A page the user has no permission for redirects to their first permitted page. An unknown address shows "Page not found" inside the panel.
+
+The dev server (`npm run dev`) and `npm run preview` already serve `index.html` for every address. If the built panel (`npm run build` → `dist/`) is hosted by another web server, that server must also answer unknown paths with `index.html` (for example nginx `try_files $uri /index.html;`), otherwise refreshing a page such as `/reports` returns 404.
+
 ### Phones and tablets
 
 The admin panel works from 375px phones up. Desktop (1024px and wider) keeps the compact layout; below that:
@@ -120,7 +153,9 @@ npx expo start
 
 Open it with Expo Go on a phone connected to the same Wi-Fi as the PC. In development the app automatically uses the PC running Expo as the backend (`http://<pc-ip>:4000`). For a fixed server set `EXPO_PUBLIC_API_URL`, e.g. `EXPO_PUBLIC_API_URL=http://192.168.0.10:4000`. Allow port 4000 through the Windows firewall if the phone cannot connect.
 
-Note: standalone Android builds block plain `http://` by default; use HTTPS or enable cleartext traffic (`expo-build-properties`) for production builds.
+**Changing the server address without a new app:** on the sign-in screen tap **Server settings**, enter the server's address (for example `192.168.1.15:4000` or `http://192.168.1.15:4000`) and tap **Save & Connect**. The app checks that the Quality Monitoring server answers there (`/api/health`) before saving it; every request, photo, video and download then goes to the new address, and it is kept on the phone after a restart. **Use the built-in address** goes back to the address the APK was built with (`EXPO_PUBLIC_API_URL` in `eas.json`). If the app cannot reach its server when it starts, the error screen has the same **Server settings** button. A saved sign-in stays when only the server's IP address changed; another server simply asks to sign in again.
+
+Android builds allow plain `http://` (`expo-build-properties` → `usesCleartextTraffic` in `app.json`), because the server on the plant network is reached over HTTP at the address set in the app.
 
 ## Who does each check
 
@@ -148,6 +183,22 @@ When several workers qualify, checks are shared evenly between them. When nobody
 
 Changing this configuration needs **Manage** on the module (Check Types, Schedules); Admins and the Super Admin always have it.
 
+## Photo and video storage
+
+Every photo and video is compressed before it is stored, so storage, uploads and loading stay small while inspection detail (fine print, registration, scratches, colour) stays clear. The compressed file replaces the upload; originals are not kept twice.
+
+| | On the phone / in the browser | On the backend (stored file) |
+|---|---|---|
+| **Photo** | Resized to at most 3072 px on the longest side, JPEG 85 %, upright (Android/iOS app; web app for camera-app photos) | Photos not already that small are made upright, resized to at most 3072 px and saved as JPEG quality 80 (mozjpeg, full colour resolution), camera metadata (GPS, device) removed. An already compressed photo is stored as it is, never compressed twice |
+| **Video** | Recorded at 720p, 3.5 Mbit/s (app, H.264 also on iPhones) or 3 Mbit/s (web app) | Compressed in the background after the check is saved: H.264 MP4 (plays in every browser and phone), at most 1280 px (720p), at most 30 fps, upright, no audio, fast start for streaming; CRF 23, at most 4 Mbit/s. The worker never waits for it |
+
+Measured on phone photos from the plant and on test material (an inspection sheet with 10 px print, registration marks 1-2 px out, hairline scratches and colour patches differing by Delta-E 0.4-3.6; phone-like videos):
+
+- Phone photo 2.2 MB (1864x4032) → 342 KB, SSIM 0.92 against the original; inspection sheet 1.4 MB → 318 KB with fine print, registration marks and scratches kept (SSIM 0.953-0.961 against the sheet, the phone's own file 0.960-0.971) and colour within Delta-E 0.6, differences between patches within 0.4 (2.3 is the smallest visible difference). 2560 px or less made the 10 px print blur, so 3072 px is kept.
+- Video, 20 s 720p: Android-like 24 MB → 2.9 MB, iPhone HEVC 12 MB → 2.5 MB, 1080p 41 MB → 3.0 MB; VMAF 97 (above 93 shows no visible difference). A 60 s 1080p video: 122 MB → 8.8 MB, compressed in 42 s. With the app's 3.5 Mbit/s recording a minute is about 26 MB to upload and about 9 MB stored.
+
+A file that cannot be compressed (unreadable, unusual format) is stored as uploaded, and the check still goes through. Videos waiting when the backend stops are compressed when it starts again. The admin panel shows each file's stored size and resolution; hovering it shows the size it was uploaded at. Re-sending a photo or video that was already used is still refused, whether it is the original or the stored copy. Settings: `MEDIA_*` in `backend/.env.example`.
+
 ## Monitoring timer: the next check starts from the last submission
 
 The interval is counted from **the actual submission**, not from the previous notification (`backend/src/services/checkGenerator.ts`, `services/monitoringTimer.ts`):
@@ -160,7 +211,21 @@ Only one check per machine and check type is open at a time (a database rule, no
 
 **Manual submission:** the worker opens the machine and taps **Start check** at any time, without waiting for a notification. Manual submissions follow exactly the same required fields, evidence rules and limits, are marked **Manual** in the check, reports and CSV, and reset the timer the same way.
 
-**Jobs:** on a machine with job-based checks the worker taps **Start job** (Job No.) and **End job**. Job-based checks are due from the job start and then every interval; nothing is due, and nothing is Missed, when no job is running. Parameters set to "Only while a job is running" are skipped automatically with the reason "No job running" when there is no job. Admins can see jobs and close a forgotten one in **Monitoring Setup → Jobs**.
+**Jobs (shift schedules in Job-based mode):** on a machine with job-based schedules the worker taps **Start job** (Job No.) and **End job**. Those checks are due from the job start and then every interval; nothing is due, and nothing is Missed, when no job is running. Parameters set to "Only while a job is running" are skipped automatically with the reason "No job running" when there is no job.
+
+## Job-based check types: every parameter on its own frequency
+
+A check type set to **Job-based** (Check Types → When it is checked) is checked per job, not per shift. Each parameter has its own **When checked**: Job start, Every 1 hour, Every 2 hours, Every 3 hours, a custom interval (5–1440 minutes), or Job end. There is no frequency for the check type as a whole; its **Grace** only says how long a scheduled check stays open before it counts as Missed (`backend/src/services/jobMonitoring.ts`).
+
+1. **Start Job** (a job planned by an Admin/Manager on the **Jobs** page, or a new Job No.): the Job Start check asks for every Job start parameter once. The job becomes active when it is submitted.
+2. **Scheduled checks:** every interval parameter runs on its own clock, counted from the job start and then from its own last submission. A check (and its notification) asks for **only the parameters due at that time**; parameters due at the same time (within a minute, or already overdue) share one check. Example with Viscosity every 1 h, Print Quality and Tape Test every 2 h, Registration every 3 h: 11:00 Viscosity; 12:00 Viscosity, Print Quality and Tape Test; 13:00 Viscosity and Registration.
+3. After each scheduled check the worker is asked **Continue the job or end the job?**. **End Job** is also a button on the machine screen.
+4. **End Job** withdraws every scheduled check of the job that is not submitted yet (they are never notified and never count as Missed) and opens the **Job End check** with all Job end parameters. The job is **Completed** only when it is submitted.
+5. **Handover Job** moves the running job and its open checks to the next worker, who is notified; the history stays with the job.
+
+Scheduled checks are linked to their job and are created only for an **active** job, with the job row locked, so a job being ended at the same moment never gets a new one. Notifications are claimed in one statement that checks the job again (a scheduled check only while the job is active, the Job Start check while it is starting, the Job End check while it is ending), so a notification that was due but not yet sent is dropped when the job ends first, and no notification is ever sent twice. A completed or force-closed job never gets another check or notification.
+
+Admins follow every job, its worker, start/end check, pending, missed and overdue checks and handovers on **Jobs** (web panel and mobile app), and can plan, hand over or force-close jobs there.
 
 ## Plant Calendar (closed days)
 

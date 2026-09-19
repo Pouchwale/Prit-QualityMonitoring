@@ -10,6 +10,7 @@ import { ListGroup } from '../components/ui/ListGroup'
 import { Button } from '../components/ui/Button'
 import { Icon, ICON_COLOR } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/LoadState'
+import { formatClockRange } from '../utils/datetime'
 
 interface Props {
   profile: Profile
@@ -117,7 +118,7 @@ export const ProfileScreen: React.FC<Props> = ({ profile, onLogout }) => {
             <Row label="Department" value={profile.departmentName} />
             <Row
               label="Shift"
-              value={profile.shiftName ? `${profile.shiftName} (${profile.shiftStartTime} – ${profile.shiftEndTime})` : null}
+              value={profile.shiftName ? `${profile.shiftName} (${formatClockRange(profile.shiftStartTime, profile.shiftEndTime)})` : null}
             />
           </ListGroup>
 

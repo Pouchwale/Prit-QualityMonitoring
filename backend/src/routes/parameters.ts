@@ -27,7 +27,7 @@ const input = z
   .object({
     name: z.string().trim().min(1, 'Name is required').max(120),
     code: z.string().trim().min(1, 'Code is required').max(40),
-    type: z.enum(['NUMBER', 'TEXT', 'DROPDOWN', 'YES_NO', 'PASS_FAIL']),
+    type: z.enum(['NUMBER', 'TEXT', 'DROPDOWN', 'YES_NO', 'PASS_FAIL', 'PHOTO']),
     unit: optionalText(30),
     minValue: optionalNumber,
     maxValue: optionalNumber,
