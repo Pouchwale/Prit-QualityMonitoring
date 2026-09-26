@@ -5,6 +5,7 @@ import {
   departments,
   machineActivities,
   machines,
+  exceptionReasons,
   monitoringReasons,
   parameters,
   schedules,
@@ -118,6 +119,20 @@ async function main() {
         { label: 'Machine stopped', requiresRemark: false, sortOrder: 2 },
         { label: 'No production', requiresRemark: false, sortOrder: 3 },
         { label: 'Other', requiresRemark: true, sortOrder: 4 }
+      ])
+    }
+
+    // The reasons a worker may choose when a whole check cannot be done. Migration 0017 inserts
+    // these as well, so only a database without any exception reason at all is filled here.
+    const exceptions = await tx.select({ id: exceptionReasons.id }).from(exceptionReasons).limit(1)
+    if (exceptions.length === 0) {
+      await tx.insert(exceptionReasons).values([
+        { label: 'Machine stopped', requiresRemark: false, sortOrder: 0 },
+        { label: 'Machine under maintenance', requiresRemark: false, sortOrder: 1 },
+        { label: 'Worker unavailable', requiresRemark: false, sortOrder: 2 },
+        { label: 'Material unavailable', requiresRemark: false, sortOrder: 3 },
+        { label: 'Production stopped', requiresRemark: false, sortOrder: 4 },
+        { label: 'Other', requiresRemark: true, sortOrder: 5 }
       ])
     }
     await tx.insert(machineActivities).values(allMachines.map((m) => ({ machineId: m.id, activityId: routine.id })))

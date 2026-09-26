@@ -264,6 +264,22 @@ export const ActivitiesScreen: React.FC<{ params: Record<string, unknown> }> = (
           ))}
         </List>
       </DataState>
+
+      {/* The lists a worker picks from: one per parameter, one for a whole check. */}
+      <ActionGroup>
+        <ActionItem
+          label="N/A reasons"
+          description="Why a parameter could not be read"
+          accessibilityLabel="N/A reasons"
+          onPress={() => push('naReasons')}
+        />
+        <ActionItem
+          label="Exception reasons"
+          description="Why a whole check could not be done"
+          accessibilityLabel="Exception reasons"
+          onPress={() => push('exceptionReasons')}
+        />
+      </ActionGroup>
     </Screen>
   )
 }

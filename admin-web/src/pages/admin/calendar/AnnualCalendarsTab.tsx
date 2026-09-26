@@ -14,6 +14,8 @@ import {
   Plus,
   ShieldCheck,
   Trash2
+,
+  RotateCw
 } from 'lucide-react'
 import type { CalendarIssue, CalendarYearDetail, CalendarYearItem, CalendarYearSummary, ClosureType } from '../../../types'
 import { api, download, errorText, fetchBlob, upload } from '../../../lib/api'
@@ -28,6 +30,13 @@ import { Field, FormError, Select, TextInput } from '../../../components/common/
 import { Modal } from '../../../components/common/Modal'
 import { useToast } from '../../../components/common/Toast'
 import { DateInput } from '../../../components/common/DateTimeInputs'
+import { openDialog } from '../../../components/common/AppDialog'
+import { describeError } from '../../../lib/friendlyError'
+
+/** Calendar documents the backend can read (routes/calendarYears.ts), and its 25 MB limit. */
+const ACCEPTED_FILE = /\.(xlsx|csv|pdf|png|jpe?g|webp|bmp)$/i
+const ACCEPTED_LABEL = 'an Excel file (.xlsx), CSV, PDF or image (JPG/PNG)'
+const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
 
 const toDate = (iso: string) => new Date(`${iso}T00:00:00`)
 const fullDate = (iso: string) => formatDateKey(iso)
@@ -247,14 +256,51 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
           : 'Add the dates by hand, or upload a clearer copy of the calendar.'
       )
     } catch (err) {
-      notify('error', 'Could not import the document', errorText(err))
+      const e = describeError(err)
+      openDialog({
+        tone: 'error',
+        title: 'Could not import the document',
+        message: e.message,
+        next: e.next ?? `Upload the calendar again: ${ACCEPTED_LABEL}.`,
+        actions: [
+          { label: 'Close', variant: 'cancel' },
+          e.retryable
+            ? { label: 'Try again', variant: 'primary', icon: <RotateCw className="w-3.5 h-3.5" />, onClick: () => runImport(file, replace) }
+            : { label: 'Upload file', variant: 'primary', icon: <FileUp className="w-3.5 h-3.5" />, onClick: () => fileInput.current?.click() }
+        ]
+      })
     } finally {
       setImporting(false)
     }
   }
 
+  /** The file the import needs: a supported type, not empty, within the size limit. */
   const chooseFile = (file: File | undefined) => {
     if (!file) return
+    const problem = !ACCEPTED_FILE.test(file.name)
+      ? { title: 'This file type cannot be read', message: `"${file.name}" is not a calendar document the system can read.` }
+      : file.size === 0
+        ? { title: 'The file is empty', message: `"${file.name}" has no content.` }
+        : file.size > MAX_DOCUMENT_BYTES
+          ? { title: 'The file is too large', message: `"${file.name}" is ${(file.size / 1048576).toFixed(1)} MB. The limit is 25 MB.` }
+          : null
+    if (problem) {
+      openDialog({
+        tone: 'warning',
+        title: problem.title,
+        message: problem.message,
+        items: [
+          { label: 'Excel or CSV', detail: '.xlsx or .csv, best for a list of dates' },
+          { label: 'PDF or image', detail: '.pdf, .jpg, .png, .webp or .bmp, read automatically' }
+        ],
+        next: 'Choose a calendar document of one of these types, up to 25 MB.',
+        actions: [
+          { label: 'Close', variant: 'cancel' },
+          { label: 'Choose another file', variant: 'primary', icon: <FileUp className="w-3.5 h-3.5" />, onClick: () => fileInput.current?.click() }
+        ]
+      })
+      return
+    }
     if (items.length) setReplaceFile(file)
     else runImport(file, false)
   }

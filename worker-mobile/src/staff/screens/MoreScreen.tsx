@@ -28,6 +28,7 @@ const GROUPS: { title: string; detail?: string; entries: Entry[] }[] = [
       { label: 'Jobs', description: 'Planned and running jobs, handovers', screen: 'jobs', icon: 'briefcase-outline', module: 'checks' },
       { label: 'Exceptions', description: 'Checks workers could not perform', screen: 'exceptions', icon: 'alert-circle-outline', module: 'exceptions', tab: 'exceptions' },
       { label: 'Reports', description: 'Summaries, CSV and PDF', screen: 'reports', icon: 'bar-chart-outline', module: 'reports', tab: 'reports' },
+      { label: 'Worker Performance', description: 'Assigned, completed, missed and score', screen: 'performance', icon: 'speedometer-outline', module: 'performance' },
       { label: 'Plant Calendar', description: 'Holidays and working days', screen: 'calendar', icon: 'calendar-outline', module: 'calendar' }
     ]
   },
@@ -43,17 +44,10 @@ const GROUPS: { title: string; detail?: string; entries: Entry[] }[] = [
     title: 'Plant setup',
     detail: 'In setup order',
     entries: [
-      {
-        label: 'Monitoring Setup',
-        description: 'Photo, video, intervals and N/A reasons',
-        screen: 'monitoringSetup',
-        icon: 'options-outline',
-        anyModules: ['activities', 'schedules']
-      },
       { label: 'Departments', description: 'Plant departments', screen: 'departments', icon: 'business-outline', module: 'departments' },
       { label: 'Shifts', description: 'Shift timings', screen: 'shifts', icon: 'time-outline', module: 'shifts' },
       { label: 'Parameters', description: 'Quality parameters and limits', screen: 'parameters', icon: 'speedometer-outline', module: 'parameters' },
-      { label: 'Check Types', description: 'Parameters and evidence rules', screen: 'activities', icon: 'list-outline', module: 'activities' },
+      { label: 'Check Types', description: 'Parameters, evidence rules and reasons', screen: 'activities', icon: 'list-outline', module: 'activities' },
       { label: 'Machines', description: 'Machines and their check types', screen: 'machines', icon: 'construct-outline', module: 'machines' },
       { label: 'Schedules', description: 'How often each check runs', screen: 'schedules', icon: 'alarm-outline', module: 'schedules' }
     ]
@@ -61,14 +55,13 @@ const GROUPS: { title: string; detail?: string; entries: Entry[] }[] = [
   {
     title: 'System',
     entries: [
-      { label: 'Audit Logs', description: 'Who changed what and when', screen: 'auditLogs', icon: 'document-text-outline', module: 'audit_logs' },
-      { label: 'Settings', description: 'Plant name and alerts', screen: 'settings', icon: 'settings-outline', module: 'settings' }
+      { label: 'Audit Logs', description: 'Who changed what and when', screen: 'auditLogs', icon: 'document-text-outline', module: 'audit_logs' }
     ]
   }
 ]
 
 /** Modules that only have a view level, so "View only" would say nothing. */
-const VIEW_ONLY_MODULES: ModuleKey[] = ['dashboard', 'reports', 'audit_logs']
+const VIEW_ONLY_MODULES: ModuleKey[] = ['dashboard', 'reports', 'audit_logs', 'performance']
 
 /** All modules: every module this account may open, grouped like the web panel's sidebar. */
 export const MoreScreen: React.FC = () => {

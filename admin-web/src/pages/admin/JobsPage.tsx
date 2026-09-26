@@ -73,7 +73,7 @@ const emptyPlan: PlanForm = { machineId: '', jobNo: '', itemCode: '', assignedWo
  * missed and overdue checks, handovers), open one job with all its records, hand it over, or
  * force-close a stuck job.
  */
-export const JobsPage: React.FC<{ onViewCheck: (id: string) => void }> = ({ onViewCheck }) => {
+export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: React.ReactNode }> = ({ onViewCheck, tabs }) => {
   const canManage = useCanManage('checks')
   const notify = useToast()
   const [filter, setFilter] = useState('running')
@@ -166,7 +166,8 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void }> = ({ onVi
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Jobs"
+        tabs={tabs}
+        title="Quality Monitoring"
         description="Plan and assign jobs, follow running jobs, their start and end checks, scheduled checks and handovers"
         actions={
           <>

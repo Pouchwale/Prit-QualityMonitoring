@@ -11,6 +11,7 @@ import { Button } from '../components/ui/Button'
 import { Icon, ICON_COLOR } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/LoadState'
 import { formatClockRange } from '../utils/datetime'
+import { MyPerformanceCard } from '../components/MyPerformanceCard'
 
 interface Props {
   profile: Profile
@@ -68,7 +69,7 @@ export const ProfileScreen: React.FC<Props> = ({ profile, onLogout }) => {
     setAlertsOn(granted)
     setProblem(alertHelp())
     if (!granted) {
-      showDialog('Alerts are off', alertHelp() ?? 'Open your phone Settings and allow notifications for this app.')
+      showDialog('Alerts are off', alertHelp() ?? 'Open your phone Settings and allow notifications for this app.', [], 'warning')
     }
   }
 
@@ -112,6 +113,8 @@ export const ProfileScreen: React.FC<Props> = ({ profile, onLogout }) => {
               </Text>
             </View>
           </View>
+
+          <MyPerformanceCard />
 
           <ListGroup>
             <Row label="Employee ID" value={profile.employeeId} />

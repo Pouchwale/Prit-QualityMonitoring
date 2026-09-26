@@ -13,6 +13,7 @@ import { DataState } from '../../components/common/DataState'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { Field, FormError, MultiSelectList, Select, TextArea, TextInput, Toggle, inputClass } from '../../components/common/Form'
+import { ReasonsSection } from './ReasonsSection'
 
 interface FormParameter {
   parameterId: string
@@ -445,6 +446,25 @@ export const ActivitiesPage: React.FC = () => {
         </div>
       </DataState>
 
+      {/* What a worker may pick when a parameter cannot be read, or a whole check cannot be done. */}
+      <ReasonsSection
+        title="N/A reasons"
+        description="Why a parameter could not be read. A check with Not Applicable parameters still counts as Completed, never as a failure."
+        endpoint="/api/monitoring-reasons"
+        noun="N/A Reason"
+        dialogSubtitle="Workers choose one of these when a parameter cannot be read"
+        placeholder="e.g. No production"
+      />
+
+      <ReasonsSection
+        title="Exception reasons"
+        description="Why a whole check could not be done. The worker raises an exception with one of these, and the check is recorded as an Exception for review."
+        endpoint="/api/exception-reasons"
+        noun="Exception Reason"
+        dialogSubtitle="Workers choose one of these when a check cannot be done at all"
+        placeholder="e.g. Power cut"
+      />
+
       {/* Create / edit */}
       <Modal
         isOpen={formOpen}
@@ -667,7 +687,7 @@ export const ActivitiesPage: React.FC = () => {
                                   aria-label={`Interval in minutes: ${info?.name ?? 'parameter'}`}
                                   value={fp.intervalMinutes}
                                   onChange={(e) => updateParameter(index, { intervalMinutes: Number(e.target.value) })}
-                                  className={`${inputClass} w-20 font-mono`}
+                                  className="h-[40px] w-[96px] lg:h-[34px] lg:w-[84px] rounded border border-line-strong bg-white px-2 text-center font-mono text-[16px] lg:text-[14px] tabular-nums text-ink focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
                                 />
                                 <span className="text-[11px] text-ink-muted">min</span>
                               </span>

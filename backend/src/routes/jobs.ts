@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { Router, type Request } from 'express'
 import { z } from 'zod'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db/client'
@@ -10,6 +10,7 @@ import { requireModule } from '../lib/permissions'
 import { addDays, parseDateKey } from '../lib/time'
 import { invalidateCheckGeneration, removePendingJobChecks } from '../services/checkGenerator'
 import { listChecks } from '../services/checks'
+import { blockAll, departmentScope, seesNothing, UNRESTRICTED } from '../services/departmentScope'
 import { forceClose, handover, jobHandoverList } from '../services/jobMonitoring'
 import { jobById } from '../services/jobs'
 import { listJobs } from '../services/monitoringConfig'
@@ -55,11 +56,24 @@ jobsRouter.get('/', requireModule('checks', 'view'), async (req, res) => {
         .pipe(z.array(z.enum(JOB_STATUSES)))
     })
     .parse(req.query)
-  res.json(await listJobs({ ...optionalRange(q), machineId: q.machineId, running: q.running, statuses: q.status }))
+  // A Manager only sees the jobs of their own department's machines.
+  const scope = await departmentScope(req.user!)
+  res.json(
+    await listJobs({
+      ...optionalRange(q),
+      machineId: q.machineId,
+      running: q.running,
+      statuses: q.status,
+      departmentId: scope.departmentId ?? undefined,
+      where: seesNothing(scope) ? blockAll : undefined
+    })
+  )
 })
 
-async function jobRow(id: string) {
-  const [row] = await listJobs({ ids: [id] })
+/** One job, or "not found" when it belongs to another department. */
+async function jobRow(id: string, req?: Request) {
+  const scope = req ? await departmentScope(req.user!) : UNRESTRICTED
+  const [row] = await listJobs({ ids: [id], departmentId: scope.departmentId ?? undefined, where: seesNothing(scope) ? blockAll : undefined })
   if (!row) throw notFound('Job')
   return row
 }
@@ -67,7 +81,7 @@ async function jobRow(id: string) {
 /** One job with every check recorded against it and its handovers. */
 jobsRouter.get('/:id', requireModule('checks', 'view'), async (req, res) => {
   const id = idParam(req)
-  const job = await jobRow(id)
+  const job = await jobRow(id, req)
   const [checks, handovers] = await Promise.all([listChecks({ where: eq(qualityChecks.jobId, id) }, { order: 'asc' }), jobHandoverList(id)])
   res.json({ job, checks, handovers })
 })
@@ -148,7 +162,7 @@ jobsRouter.put('/:id', requireModule('checks', 'manage'), async (req, res) => {
     oldValue: { machineId: before.machineId, jobNo: before.jobNo, itemCode: before.itemCode, assignedWorkerId: before.assignedWorkerId, plannedFor: before.plannedFor },
     newValue: { machineId: row.machineId, jobNo: row.jobNo, itemCode: row.itemCode, assignedWorkerId: row.assignedWorkerId, plannedFor: row.plannedFor }
   })
-  res.json(await jobRow(id))
+  res.json(await jobRow(id, req))
 })
 
 /** Hands a running job to another worker (e.g. the previous worker left without a handover). */
@@ -166,7 +180,7 @@ jobsRouter.post('/:id/handover', requireModule('checks', 'manage'), async (req, 
     oldValue: { assignedWorkerId: job.assignedWorkerId },
     newValue: { assignedWorkerId: body.toUserId, to: result.toName, shiftId: body.shiftId ?? null, note: body.note ?? null, movedChecks: result.movedChecks }
   })
-  res.json(await jobRow(id))
+  res.json(await jobRow(id, req))
 })
 
 /**
@@ -184,5 +198,5 @@ jobsRouter.post('/:id/end', requireModule('checks', 'manage'), async (req, res) 
     oldValue: { status: closed.previousStatus, jobNo: job.jobNo },
     newValue: { status: closed.job.status, removedChecks: closed.removedChecks + legacy }
   })
-  res.json(await jobRow(id))
+  res.json(await jobRow(id, req))
 })

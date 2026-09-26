@@ -21,7 +21,7 @@ npx eas-cli@latest init       # answer Y; this writes the project id into app.js
 1. Go to https://console.firebase.google.com and **Add project** (name it e.g. `pouchwale-quality`). Google Analytics is not needed.
 2. In the project, open **⚙ Project settings → General → Your apps → Add app → Android**.
    - Android package name: **`com.pouchwale.qualityworker`** (must match exactly)
-   - Register the app. You can skip downloading `google-services.json`; EAS generates it.
+   - Register the app and **download `google-services.json`**. Put it in `worker-mobile/` and add `"googleServicesFile": "./google-services.json"` under `expo.android` in `app.json`. It is required: without it the APK has no Firebase configuration, Android gives it no push token and the phone never registers (Profile → Alerts shows "could not be registered").
 3. Open **⚙ Project settings → Service accounts → Firebase Admin SDK → Generate new private key**. A `.json` file downloads. Keep it private, it is a password.
 4. Upload that key to Expo:
 

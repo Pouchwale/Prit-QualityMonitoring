@@ -19,6 +19,24 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export const isAdminRole = (role: Role | undefined) => role === 'ADMIN' || role === 'SUPER_ADMIN'
 
+/**
+ * The panel's name under "Quality Monitoring", for the signed-in user's role. Supervisor is
+ * listed for when that role is added; any other role gets the neutral "Staff Portal".
+ */
+export function portalLabel(role: Role | 'SUPERVISOR' | undefined): string {
+  switch (role) {
+    case 'SUPER_ADMIN':
+    case 'ADMIN':
+      return 'Admin Panel'
+    case 'MANAGER':
+      return 'Manager Portal'
+    case 'SUPERVISOR':
+      return 'Supervisor Portal'
+    default:
+      return 'Staff Portal'
+  }
+}
+
 /** How often an open session re-reads its permissions. The backend enforces them on every request anyway. */
 const PERMISSION_REFRESH_MS = 60_000
 

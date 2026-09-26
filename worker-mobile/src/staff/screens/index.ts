@@ -15,12 +15,12 @@ import { MACHINES_SCREENS } from './MachinesScreens'
 import { ACTIVITIES_SCREENS } from './ActivitiesScreens'
 import { PARAMETERS_SCREENS } from './ParametersScreens'
 import { SCHEDULES_SCREENS } from './SchedulesScreens'
-import { MONITORING_SCREENS } from './MonitoringSetupScreens'
+import { REASONS_SCREENS } from './ReasonsScreens'
 import { JOBS_SCREENS } from './JobsScreens'
 import { DEPARTMENTS_SCREENS } from './DepartmentsScreens'
 import { SHIFTS_SCREENS } from './ShiftsScreens'
 import { AUDIT_LOGS_SCREENS } from './AuditLogsScreens'
-import { SETTINGS_SCREENS } from './SettingsScreens'
+import { PERFORMANCE_SCREENS } from './PerformanceScreens'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyScreen = React.FC<{ params: any }>
@@ -37,6 +37,7 @@ const GROUPS: Record<string, AnyScreen>[] = [
     exceptionDetail: ExceptionDetailScreen,
     reports: ReportsScreen
   },
+  PERFORMANCE_SCREENS,
   USERS_SCREENS,
   ASSIGNMENTS_SCREENS,
   MANAGER_ACCESS_SCREENS,
@@ -47,12 +48,11 @@ const GROUPS: Record<string, AnyScreen>[] = [
   ACTIVITIES_SCREENS,
   PARAMETERS_SCREENS,
   SCHEDULES_SCREENS,
-  MONITORING_SCREENS,
+  REASONS_SCREENS,
   JOBS_SCREENS,
   DEPARTMENTS_SCREENS,
   SHIFTS_SCREENS,
-  AUDIT_LOGS_SCREENS,
-  SETTINGS_SCREENS
+  AUDIT_LOGS_SCREENS
 ]
 
 /** Every staff screen by route name. Each one calls the same API as its web panel page. */

@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express'
 import { z } from 'zod'
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lt, or, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
 import { db } from '../db/client'
 import {
   activities,
@@ -10,6 +10,7 @@ import {
   jobs,
   machineActivities,
   machines,
+  exceptionReasons,
   monitoringReasons,
   qualityChecks,
   schedules,
@@ -25,6 +26,7 @@ import { requireAnyView, requireModule } from '../lib/permissions'
 import { CHECK_RESULTS, RESULT_LABEL, RESULT_STATUSES, resultOf } from '../lib/result'
 import { addDays, dateKey, formatLocalDate, parseDateKey, startOfDay } from '../lib/time'
 import { listChecks } from '../services/checks'
+import { blockAll, departmentScope, scopedDepartmentId, seesNothing } from '../services/departmentScope'
 import { buildQualityReport } from '../services/reportData'
 import { buildTraceReport } from '../services/traceReport'
 import { renderQualityReport } from '../services/reportPdf'
@@ -34,6 +36,9 @@ import { closureOn, plansBetween } from '../services/plantCalendar'
 import { machineClosureOn } from '../services/machineDays'
 import { makeCheckCode, prepareChecks } from '../services/checkGenerator'
 import {
+  exceptionReasonById,
+  exceptionReasonDto,
+  listExceptionReasons,
   listMonitoringReasons,
   monitoringOverview,
   monitoringReasonById,
@@ -42,8 +47,20 @@ import {
 
 export const monitoringRouter = Router()
 
+/**
+ * Department scope of this request: an Admin sees the whole plant, a Manager only their own
+ * department. `departmentId` from the request is refused when it is not the Manager's own, and a
+ * Manager with no department set sees nothing. Everything the dashboards, lists and reports read
+ * goes through this.
+ */
+async function scopeFor(req: Request, requested?: string) {
+  const scope = await departmentScope(req.user!)
+  const departmentId = scopedDepartmentId(scope, requested)
+  return { scope, departmentId, where: seesNothing(scope) ? blockAll : undefined }
+}
+
 /** Schedules that create no checks because their machine has no worker on that shift. */
-async function gapDetails() {
+async function gapDetails(departmentId?: string) {
   const ids = await coverageGaps()
   if (ids.length === 0) return []
   return db
@@ -52,7 +69,7 @@ async function gapDetails() {
     .innerJoin(machines, eq(schedules.machineId, machines.id))
     .innerJoin(shifts, eq(schedules.shiftId, shifts.id))
     .innerJoin(activities, eq(schedules.activityId, activities.id))
-    .where(inArray(schedules.id, ids))
+    .where(and(inArray(schedules.id, ids), departmentId ? eq(machines.departmentId, departmentId) : undefined))
     .orderBy(asc(machines.name), asc(shifts.startTime))
 }
 
@@ -123,7 +140,8 @@ monitoringRouter.get('/quality-checks', requireAnyView('checks', 'dashboard', 'r
   const { from, to } = dateRange(req)
   const f = checkFilters.parse(req.query)
   await prepareRange(from, to)
-  res.json(await listChecks({ ...f, from, to, ...statusScope(f) }))
+  const { departmentId, where } = await scopeFor(req, f.departmentId)
+  res.json(await listChecks({ ...f, from, to, departmentId, where, ...statusScope(f) }))
 })
 
 /**
@@ -221,14 +239,17 @@ monitoringRouter.post('/quality-checks', requireModule('checks', 'manage'), asyn
 // The detail page opens from the check list, the dashboard, exceptions and reports.
 monitoringRouter.get('/quality-checks/:id', requireAnyView('checks', 'dashboard', 'exceptions', 'reports'), async (req, res) => {
   const id = idParam(req)
-  const [check] = await listChecks({ ids: [id] })
+  const { departmentId, where } = await scopeFor(req)
+  const [check] = await listChecks({ ids: [id], departmentId, where })
+  // A check of another department is "not found" rather than a hint that it exists.
   if (!check) throw notFound('Quality check')
   res.json(check)
 })
 
 monitoringRouter.get('/exceptions', requireModule('exceptions', 'view'), async (req, res) => {
   const { from, to } = dateRange(req)
-  const checks = await listChecks({ from, to, statuses: ['EXCEPTION'] }, { order: 'desc' })
+  const { departmentId, where } = await scopeFor(req)
+  const checks = await listChecks({ from, to, statuses: ['EXCEPTION'], departmentId, where }, { order: 'desc' })
   res.json(
     checks
       .filter((c) => c.exception)
@@ -277,7 +298,9 @@ monitoringRouter.patch('/exceptions/:id', requireModule('exceptions', 'manage'),
 monitoringRouter.get('/dashboard', requireAnyView('dashboard', 'checks', 'exceptions'), async (req, res) => {
   const { from, to } = dateRange(req)
   await prepareRange(from, to)
-  const checks = await listChecks({ from, to })
+  // A Manager's dashboard is their own department's dashboard; an Admin sees the whole plant.
+  const { scope, departmentId, where } = await scopeFor(req)
+  const checks = await listChecks({ from, to, departmentId, where })
 
   // Status: Completed, Missed, Exception. Checks not finished yet have no status and count as open.
   const count = (status: string) => checks.filter((c) => resultOf(c.status) === status).length
@@ -314,8 +337,8 @@ monitoringRouter.get('/dashboard', requireAnyView('dashboard', 'checks', 'except
   const fromKey = dateKey(from)
   const plan = (await plansBetween(fromKey, fromKey)).get(fromKey)
   const machinePlan = plan ? { machineIds: [...plan], count: plan.size } : null
-  const workerGaps = await gapDetails()
-  res.json({ from, to, kpi, byMachine: [...byMachine.values()], recent, closure, machinePlan, workerGaps })
+  const workerGaps = await gapDetails(departmentId)
+  res.json({ from, to, scope, kpi, byMachine: [...byMachine.values()], recent, closure, machinePlan, workerGaps })
 })
 
 /**
@@ -327,13 +350,15 @@ monitoringRouter.get('/reports/trace', requireModule('reports', 'view'), async (
   const { from, to } = dateRange(req)
   const f = checkFilters.parse(req.query)
   await prepareRange(from, to)
+  const { departmentId, where } = await scopeFor(req, f.departmentId)
   const base = {
     from,
     to,
     machineId: f.machineId,
     shiftId: f.shiftId,
     activityId: f.activityId,
-    departmentId: f.departmentId,
+    departmentId,
+    where,
     itemCode: f.itemCode,
     jobNo: f.jobNo
   }
@@ -351,15 +376,23 @@ monitoringRouter.get('/reports/trace', requireModule('reports', 'view'), async (
  */
 monitoringRouter.get('/reports/filter-values', requireModule('reports', 'view'), async (req, res) => {
   const { from, to } = dateRange(req)
+  const { departmentId, where } = await scopeFor(req)
+  // A Manager is only suggested the Item Codes and Job Nos. of their own department.
+  const ofDepartment = departmentId
+    ? sql`exists (select 1 from ${machines} where ${machines.id} = ${qualityChecks.machineId} and ${machines.departmentId} = ${departmentId})`
+    : undefined
+  const jobsOfDepartment = departmentId
+    ? sql`exists (select 1 from ${machines} where ${machines.id} = ${jobs.machineId} and ${machines.departmentId} = ${departmentId})`
+    : undefined
   const [fromChecks, fromJobs] = await Promise.all([
     db
       .selectDistinct({ itemCode: qualityChecks.itemCode, jobNo: qualityChecks.jobNo })
       .from(qualityChecks)
-      .where(and(gte(qualityChecks.scheduledAt, from), lt(qualityChecks.scheduledAt, to))),
+      .where(and(gte(qualityChecks.scheduledAt, from), lt(qualityChecks.scheduledAt, to), ofDepartment, where)),
     db
       .selectDistinct({ itemCode: jobs.itemCode, jobNo: jobs.jobNo })
       .from(jobs)
-      .where(and(lt(jobs.startedAt, to), or(isNull(jobs.endedAt), gte(jobs.endedAt, from))))
+      .where(and(lt(jobs.startedAt, to), or(isNull(jobs.endedAt), gte(jobs.endedAt, from)), jobsOfDepartment, where))
   ])
   const rows = [...fromChecks, ...fromJobs]
   // Distinct ignoring case and spaces; the first spelling seen is kept.
@@ -382,6 +415,7 @@ monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports',
   const { from, to } = dateRange(req)
   const f = checkFilters.parse(req.query)
   await prepareRange(from, to)
+  const { departmentId: scopedDepartment, where: scopeWhere } = await scopeFor(req, f.departmentId)
 
   // Human-readable names of the filters, printed in the report header.
   const labels: string[] = []
@@ -422,7 +456,8 @@ monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports',
           machineId: f.machineId,
           shiftId: f.shiftId,
           activityId: f.activityId,
-          departmentId: f.departmentId,
+          departmentId: scopedDepartment,
+          where: scopeWhere,
           itemCode: f.itemCode,
           jobNo: f.jobNo
         })
@@ -436,7 +471,8 @@ monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports',
       workerId: f.workerId,
       shiftId: f.shiftId,
       activityId: f.activityId,
-      departmentId: f.departmentId,
+      departmentId: scopedDepartment,
+      where: scopeWhere,
       itemCode: f.itemCode,
       jobNo: f.jobNo
     },
@@ -529,6 +565,64 @@ monitoringRouter.delete('/monitoring-reasons/:id', requireModule('activities', '
   res.json({ result: 'disabled', ...reasonDto(row) })
 })
 
+/**
+ * Exception reasons: what a worker may choose when a whole check cannot be done. Managed on the
+ * Check Types page next to the N/A reasons, and read by the worker app with each check form.
+ * Deactivating never deletes, so an exception raised months ago still reads the same.
+ */
+monitoringRouter.get('/exception-reasons', requireAnyView('activities', 'checks', 'exceptions'), async (_req, res) => {
+  res.json(await listExceptionReasons())
+})
+
+monitoringRouter.post('/exception-reasons', requireModule('activities', 'manage'), async (req, res) => {
+  const body = reasonInput.parse(req.body)
+  const [row] = await db
+    .insert(exceptionReasons)
+    .values({
+      label: body.label,
+      requiresRemark: body.requiresRemark ?? false,
+      isActive: body.isActive ?? true,
+      sortOrder: body.sortOrder ?? 0
+    })
+    .returning()
+  await audit(req, 'CREATE', 'ExceptionReason', row.id, { newValue: exceptionReasonDto(row) })
+  res.status(201).json(exceptionReasonDto(row))
+})
+
+monitoringRouter.put('/exception-reasons/:id', requireModule('activities', 'manage'), async (req, res) => {
+  const id = idParam(req)
+  const body = reasonInput.parse(req.body)
+  const before = await exceptionReasonById(id)
+  if (!before) throw notFound('Reason')
+  // Fields the caller did not send keep their stored value.
+  const [row] = await db
+    .update(exceptionReasons)
+    .set({
+      label: body.label,
+      requiresRemark: body.requiresRemark ?? before.requiresRemark,
+      isActive: body.isActive ?? before.isActive,
+      sortOrder: body.sortOrder ?? before.sortOrder,
+      updatedAt: new Date()
+    })
+    .where(eq(exceptionReasons.id, id))
+    .returning()
+  await audit(req, 'UPDATE', 'ExceptionReason', id, { oldValue: exceptionReasonDto(before), newValue: exceptionReasonDto(row) })
+  res.json(exceptionReasonDto(row))
+})
+
+monitoringRouter.delete('/exception-reasons/:id', requireModule('activities', 'manage'), async (req, res) => {
+  const id = idParam(req)
+  const before = await exceptionReasonById(id)
+  if (!before) throw notFound('Reason')
+  const [row] = await db
+    .update(exceptionReasons)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(eq(exceptionReasons.id, id))
+    .returning()
+  await audit(req, 'DELETE', 'ExceptionReason', id, { oldValue: exceptionReasonDto(before), newValue: exceptionReasonDto(row) })
+  res.json({ result: 'disabled', ...exceptionReasonDto(row) })
+})
+
 // Jobs (list, plan, detail, handover, force close) are in routes/jobs.ts.
 
 /**
@@ -539,12 +633,18 @@ monitoringRouter.get('/monitoring-overview', requireAnyView('activities', 'sched
   res.json({ machines: await monitoringOverview() })
 })
 
+/**
+ * The audit log, newest first. `limit` and `offset` page through it; the number of entries the
+ * filters match is sent in the `X-Total-Count` header, so the page can show "Page 2 of 17".
+ * The body stays a plain array, as it always was, for callers that do not page.
+ */
 monitoringRouter.get('/audit-logs', requireModule('audit_logs', 'view'), async (req, res) => {
   const q = z
     .object({
       q: z.string().trim().optional(),
       entity: z.string().trim().optional(),
       limit: z.coerce.number().int().min(1).max(1000).default(300),
+      offset: z.coerce.number().int().min(0).default(0),
       from: z.string().optional(),
       to: z.string().optional()
     })
@@ -559,12 +659,19 @@ monitoringRouter.get('/audit-logs', requireModule('audit_logs', 'view'), async (
   if (q.from) where.push(gte(auditLogs.createdAt, parseDateKey(q.from)))
   if (q.to) where.push(lt(auditLogs.createdAt, addDays(parseDateKey(q.to), 1)))
 
-  const rows = await db
-    .select()
-    .from(auditLogs)
-    .where(where.length ? and(...where) : undefined)
-    .orderBy(desc(auditLogs.createdAt))
-    .limit(q.limit)
+  const filter = where.length ? and(...where) : undefined
+  const [rows, [totals]] = await Promise.all([
+    db
+      .select()
+      .from(auditLogs)
+      .where(filter)
+      // id breaks ties, so paging never shows the same entry twice or skips one.
+      .orderBy(desc(auditLogs.createdAt), desc(auditLogs.id))
+      .limit(q.limit)
+      .offset(q.offset),
+    db.select({ total: count() }).from(auditLogs).where(filter)
+  ])
+  res.setHeader('X-Total-Count', String(totals?.total ?? rows.length))
   res.json(rows)
 })
 

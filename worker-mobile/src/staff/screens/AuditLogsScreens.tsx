@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Platform, Pressable, ScrollView, Text, View } from 'react-native'
 import type { AuditLog } from '../types'
+import { api, type Page, type Query } from '../../services/api'
 import { useStaff } from '../nav'
 import { useQuery } from '../useQuery'
 import { addDaysKey, dateKey, formatDateTime, formatKey } from '../format'
@@ -16,7 +17,6 @@ import {
   Row,
   Screen,
   SearchField,
-  Section,
   SelectField,
   Sheet,
   SmallButton,
@@ -25,12 +25,13 @@ import {
 import { SummaryHeader, facts } from './adminParts'
 
 const ENTITIES = ['User', 'Parameter', 'Activity', 'Machine', 'Schedule', 'Shift', 'Department', 'PlantCalendar', 'QualityCheck', 'Exception', 'Settings']
-const LIMITS = [100, 300, 500, 1000]
-const DEFAULT_LIMIT = 300
+const PER_PAGE = [25, 50, 100, 200]
+const DEFAULT_PER_PAGE = 25
 
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' })
 
-const pretty = (value: unknown) => (value === null || value === undefined ? null : JSON.stringify(value, null, 2))
+/** The server pages the log, so only one page of entries is ever loaded. */
+const loadPage = (path: string, query?: Query) => api.getPage<AuditLog>(path, query)
 
 const defaultFrom = () => addDaysKey(dateKey(), -29)
 
@@ -51,16 +52,33 @@ export const AuditLogsScreen: React.FC<{ params: Record<string, never> }> = () =
   const [entity, setEntity] = useState('')
   const [from, setFrom] = useState(defaultFrom)
   const [to, setTo] = useState(() => dateKey())
-  const [limit, setLimit] = useState(DEFAULT_LIMIT)
+  const [perPage, setPerPage] = useState(DEFAULT_PER_PAGE)
+  const [page, setPage] = useState(1)
   const [filtersOpen, setFiltersOpen] = useState(false)
 
   useEffect(() => {
-    const timer = setTimeout(() => setQ(search.trim()), 350)
+    const timer = setTimeout(() => {
+      setQ(search.trim())
+      setPage(1)
+    }, 350)
     return () => clearTimeout(timer)
   }, [search])
 
-  const { data, error, loading, reload } = useQuery<AuditLog[]>(allowed ? '/api/audit-logs' : null, { q, entity, from, to, limit })
-  const logs = data ?? []
+  const { data, error, loading, reload } = useQuery<Page<AuditLog>>(
+    allowed ? '/api/audit-logs' : null,
+    { q, entity, from, to, limit: perPage, offset: (page - 1) * perPage },
+    loadPage
+  )
+  const logs = data?.rows ?? []
+  const total = data?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / perPage))
+  const firstOnPage = total === 0 ? 0 : (page - 1) * perPage + 1
+  const lastOnPage = (page - 1) * perPage + logs.length
+
+  // Every filter returns to the first page itself; this only catches a page that no longer exists.
+  useEffect(() => {
+    if (data && page > totalPages) setPage(totalPages)
+  }, [data, page, totalPages])
 
   const reset = () => {
     setSearch('')
@@ -68,7 +86,8 @@ export const AuditLogsScreen: React.FC<{ params: Record<string, never> }> = () =
     setEntity('')
     setFrom(defaultFrom())
     setTo(dateKey())
-    setLimit(DEFAULT_LIMIT)
+    setPerPage(DEFAULT_PER_PAGE)
+    setPage(1)
   }
 
   if (!allowed) {
@@ -81,7 +100,7 @@ export const AuditLogsScreen: React.FC<{ params: Record<string, never> }> = () =
 
   const period = from === to ? formatKey(from) : `${formatKey(from)} – ${formatKey(to)}`
   const rangeChanged = from !== defaultFrom() || to !== dateKey()
-  const activeCount = (entity ? 1 : 0) + (rangeChanged ? 1 : 0) + (limit !== DEFAULT_LIMIT ? 1 : 0)
+  const activeCount = (entity ? 1 : 0) + (rangeChanged ? 1 : 0) + (perPage !== DEFAULT_PER_PAGE ? 1 : 0)
 
   return (
     <Screen title="Audit Logs" onRefresh={reload} refreshing={loading && !!data}>
@@ -91,7 +110,7 @@ export const AuditLogsScreen: React.FC<{ params: Record<string, never> }> = () =
           <ScrollView horizontal showsHorizontalScrollIndicator={false} className="flex-1" contentContainerClassName="items-center gap-2 pr-1">
             <FilterChip label={period} icon="calendar-outline" onPress={() => setFiltersOpen(true)} />
             <FilterChip label={entity || 'All entities'} icon="cube-outline" onPress={() => setFiltersOpen(true)} />
-            <FilterChip label={`${limit} rows`} icon="list-outline" onPress={() => setFiltersOpen(true)} />
+            <FilterChip label={`${perPage} per page`} icon="list-outline" onPress={() => setFiltersOpen(true)} />
           </ScrollView>
           <Pressable
             onPress={() => setFiltersOpen(true)}
@@ -106,8 +125,7 @@ export const AuditLogsScreen: React.FC<{ params: Record<string, never> }> = () =
         </View>
         <View className="min-h-[44px] flex-row items-center justify-between px-1">
           <Text className="text-[13px] text-staff-muted">
-            {logs.length} entr{logs.length === 1 ? 'y' : 'ies'}
-            {logs.length >= limit ? ' (limit reached)' : ''}
+            {total} entr{total === 1 ? 'y' : 'ies'}
           </Text>
           <SmallButton label="Reset" tone="ghost" onPress={reset} />
         </View>
@@ -135,6 +153,20 @@ export const AuditLogsScreen: React.FC<{ params: Record<string, never> }> = () =
         </List>
       </DataState>
 
+      {/* Previous / Next: the server sends one page at a time, however many entries there are. */}
+      <View className="mt-1 gap-2 px-1">
+        <Text className="text-[13px] text-staff-muted">
+          Showing {firstOnPage}–{lastOnPage} of {total}
+        </Text>
+        <View className="flex-row items-center justify-between gap-2">
+          <SmallButton label="Previous" icon="chevron-back" disabled={page <= 1 || loading} onPress={() => setPage((p) => Math.max(1, p - 1))} />
+          <Text className="text-[13px] font-semibold text-staff-ink">
+            Page {page} of {totalPages}
+          </Text>
+          <SmallButton label="Next" icon="chevron-forward" disabled={page >= totalPages || loading} onPress={() => setPage((p) => Math.min(totalPages, p + 1))} />
+        </View>
+      </View>
+
       {filtersOpen ? (
         <Sheet
           title="Filters"
@@ -157,7 +189,16 @@ export const AuditLogsScreen: React.FC<{ params: Record<string, never> }> = () =
           }
         >
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerClassName="gap-4 px-4 pb-4 pt-2">
-            <SelectField label="Entity" value={entity} emptyLabel="All entities" options={ENTITIES.map((e) => ({ value: e, label: e }))} onChange={setEntity} />
+            <SelectField
+              label="Entity"
+              value={entity}
+              emptyLabel="All entities"
+              options={ENTITIES.map((e) => ({ value: e, label: e }))}
+              onChange={(v) => {
+                setEntity(v)
+                setPage(1)
+              }}
+            />
             <View className="flex-row gap-2">
               <View className="flex-1">
                 <DateField
@@ -167,6 +208,7 @@ export const AuditLogsScreen: React.FC<{ params: Record<string, never> }> = () =
                   onChange={(v) => {
                     setFrom(v)
                     if (v && to && v > to) setTo(v)
+                    setPage(1)
                   }}
                 />
               </View>
@@ -178,11 +220,21 @@ export const AuditLogsScreen: React.FC<{ params: Record<string, never> }> = () =
                   onChange={(v) => {
                     setTo(v)
                     if (v && from && v < from) setFrom(v)
+                    setPage(1)
                   }}
                 />
               </View>
             </View>
-            <SelectField label="Show" value={String(limit)} options={LIMITS.map((l) => ({ value: String(l), label: `${l} rows` }))} onChange={(v) => v && setLimit(Number(v))} />
+            <SelectField
+              label="Rows per page"
+              value={String(perPage)}
+              options={PER_PAGE.map((l) => ({ value: String(l), label: `${l} rows` }))}
+              onChange={(v) => {
+                if (!v) return
+                setPerPage(Number(v))
+                setPage(1)
+              }}
+            />
           </ScrollView>
         </Sheet>
       ) : null}
@@ -204,24 +256,6 @@ const FilterChip: React.FC<{ label: string; icon: IconName; onPress: () => void 
       {label}
     </Text>
   </Pressable>
-)
-
-const JsonBlock: React.FC<{ title: string; text: string | null; tone: 'missed' | 'success' }> = ({ title, text, tone }) => (
-  <Section title={title}>
-    <Card>
-      <View className="flex-row items-center gap-2 px-4 pt-3">
-        <View className={`h-2 w-2 rounded-full ${tone === 'missed' ? 'bg-missed' : 'bg-success'}`} />
-        <Text className="text-[12px] font-medium text-staff-muted">JSON</Text>
-      </View>
-      {text === null ? (
-        <Text className="px-4 pb-3 pt-1 text-[14px] text-staff-muted">—</Text>
-      ) : (
-        <Text selectable className="px-4 pb-3 pt-1 text-[13px] leading-5 text-staff-ink" style={{ fontFamily: MONO }}>
-          {text}
-        </Text>
-      )}
-    </Card>
-  </Section>
 )
 
 /** One audit entry with its old and new values. */
@@ -250,8 +284,6 @@ export const AuditLogDetailScreen: React.FC<{ params: { log: AuditLog } }> = ({ 
         />
         <KV stacked label="IP address" value={log.ipAddress} />
       </Card>
-      <JsonBlock title="Old value" text={pretty(log.oldValue)} tone="missed" />
-      <JsonBlock title="New value" text={pretty(log.newValue)} tone="success" />
     </Screen>
   )
 }

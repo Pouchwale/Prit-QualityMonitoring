@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "19821788829",
+    "project_id": "quality-monitoring-cf264",
+    "storage_bucket": "quality-monitoring-cf264.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:19821788829:android:8ac7ad802f046bcc5d1e74",
+        "android_client_info": {
+          "package_name": "com.pouchwale.qualityworker"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC2Y0ig0AISm0zzipu66IoaC_20FxdBWYw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

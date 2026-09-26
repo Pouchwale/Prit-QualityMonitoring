@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ApiError, getMyMachines, getPlantStatus, getTodayChecks, type PlantStatus } from '../services/api'
+import { getMyMachines, getPlantStatus, getTodayChecks, type PlantStatus } from '../services/api'
+import { friendlyMessage } from '../utils/friendlyError'
 import { AssignedMachine, Profile } from '../types'
 import { formatDate, formatTime } from '../utils/format'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
@@ -88,7 +89,7 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
       // Alerts follow the list, which only holds the worker's assigned machines.
       syncLocalAlerts(today)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Please try again.')
+      setError(friendlyMessage(err))
     }
   }, [])
 

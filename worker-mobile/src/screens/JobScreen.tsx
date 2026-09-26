@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { View, Text, ScrollView, RefreshControl } from 'react-native'
-import { ApiError, getJob } from '../services/api'
+import { getJob } from '../services/api'
+import { friendlyMessage } from '../utils/friendlyError'
 import { CheckKind, JobDetail } from '../types'
 import { formatDateTime } from '../utils/datetime'
 import { NavBar } from '../components/ui/NavBar'
@@ -45,7 +46,7 @@ export const JobScreen: React.FC<Props> = ({ jobId, onBack, onOpenCheck }) => {
       setData(await getJob(jobId))
       setError(null)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Please try again.')
+      setError(friendlyMessage(err))
     }
   }, [jobId])
 

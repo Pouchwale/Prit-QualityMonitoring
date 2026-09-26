@@ -52,7 +52,7 @@ const notApplicableText = (c: QualityCheck) =>
 /** How the check was started: by the worker, or from the due notification. */
 const SUBMISSION_LABEL = { MANUAL: 'Manual', NOTIFICATION: 'Notification' } as const
 
-export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void }> = ({ onViewCheck }) => {
+export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: React.ReactNode }> = ({ onViewCheck, tabs }) => {
   const [filters, setFilters] = useState<MonitoringFilters>(defaultFilters)
   const [testOpen, setTestOpen] = useState(false)
   const canEdit = useCanManage('checks')
@@ -132,7 +132,8 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void }> 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Quality Check Monitoring"
+        tabs={tabs}
+        title="Quality Monitoring"
         description="Every scheduled check for the selected period, with submitted values and live evidence"
         actions={
           <>

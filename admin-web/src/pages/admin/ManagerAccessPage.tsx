@@ -14,6 +14,7 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { RevealPasswordModal } from './RevealPasswordModal'
+import { askConfirm } from '../../components/common/AppDialog'
 
 const LEVELS: { value: Access; label: string; icon: React.ReactNode }[] = [
   { value: 'none', label: 'No access', icon: <X className="w-3 h-3" /> },
@@ -81,8 +82,19 @@ export const ManagerAccessPage: React.FC = () => {
     setDraft(Object.fromEntries(modules.map((m) => [m.key, level === 'manage' && m.viewOnly ? 'view' : level])) as Permissions)
   }
 
-  const choose = (id: string) => {
-    if (dirty && !window.confirm('You have unsaved permission changes. Discard them?')) return
+  const choose = async (id: string) => {
+    if (
+      dirty &&
+      !(await askConfirm({
+        title: 'Discard unsaved changes?',
+        message: 'The permission changes for this manager have not been saved.',
+        next: 'Choose Keep editing and press Save first to keep them.',
+        cancelLabel: 'Keep editing',
+        confirmLabel: 'Discard changes',
+        danger: true
+      }))
+    )
+      return
     setSelectedId(id)
   }
 

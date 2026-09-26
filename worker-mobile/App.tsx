@@ -9,6 +9,7 @@ import { registerServiceWorker } from './src/services/notifications'
 import { Loading, ErrorState } from './src/components/ui/LoadState'
 import { Button } from './src/components/ui/Button'
 import { ServerSettingsSheet } from './src/components/ServerSettingsSheet'
+import { DialogHost } from './src/components/ui/AppDialog'
 import { LoginScreen } from './src/screens/LoginScreen'
 import { WorkerApp } from './src/worker/WorkerApp'
 import { StaffApp } from './src/staff/StaffApp'
@@ -90,6 +91,8 @@ export default function App() {
       <View className={`flex-1 ${isWeb ? 'bg-subtle' : 'bg-canvas'}`}>
         <View className={isWeb ? 'w-full max-w-[640px] flex-1 self-center border-x border-line bg-canvas' : 'flex-1 bg-canvas'}>{screen}</View>
       </View>
+      {/* Messages, questions and error popups from any screen. */}
+      <DialogHost />
     </SafeAreaProvider>
   )
 }

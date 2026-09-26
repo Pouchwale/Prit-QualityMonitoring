@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { View, Text, ScrollView, RefreshControl } from 'react-native'
-import { ApiError, endJob, getMyMachines, getTodayChecks, startJob, startManualCheck } from '../services/api'
-import { showDialog } from '../utils/dialog'
+import { endJob, getMyMachines, getTodayChecks, startJob, startManualCheck } from '../services/api'
+import { friendlyMessage } from '../utils/friendlyError'
+import { showDialog, showError, showSuccess } from '../utils/dialog'
 import { resyncLocalAlerts } from '../services/notifications'
 import { AssignedMachine, CheckSummary, Job, MachineCheckType } from '../types'
 import { formatTime } from '../utils/format'
@@ -58,7 +59,7 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
       setChecks(today.filter((c) => c.machineId === machine.id))
       setError(null)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Please try again.')
+      setError(friendlyMessage(err))
     }
   }, [machine.id])
 
@@ -83,7 +84,7 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
       const started = await startManualCheck(current.id, type.activityId)
       onStart(started.id)
     } catch (err) {
-      showDialog('Cannot start this check', err instanceof ApiError ? err.message : 'Please try again.')
+      showError(err, { title: 'Could not start this check' })
       await load()
     } finally {
       setBusy(null)
@@ -99,9 +100,9 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
       resyncLocalAlerts()
       const first = started.startChecks[0]
       if (first) onStart(first.id)
-      else showDialog('Job started', `Job No. ${started.job.jobNo} is running. The scheduled checks follow the admin's plan.`)
+      else showSuccess('Job started', `Job No. ${started.job.jobNo} is running. The scheduled checks follow the admin's plan.`)
     } catch (err) {
-      showDialog('Could not start the job', err instanceof ApiError ? err.message : 'Please try again.')
+      showError(err, { title: 'Could not start the job' })
     } finally {
       setBusy(null)
     }
@@ -124,9 +125,9 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
             resyncLocalAlerts()
             const first = ended.endChecks[0]
             if (first) onStart(first.id)
-            else showDialog('Job completed', `Job No. ${job.jobNo} is completed.`)
+            else showSuccess('Job completed', `Job No. ${job.jobNo} is completed.`)
           } catch (err) {
-            showDialog('Could not end the job', err instanceof ApiError ? err.message : 'Please try again.')
+            showError(err, { title: 'Could not end the job' })
           } finally {
             setBusy(null)
           }
@@ -308,7 +309,7 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
             await load()
             // This job's reminders now belong to the next worker.
             resyncLocalAlerts()
-            showDialog('Job handed over', `${toName} now has Job No. ${job.jobNo} and its pending checks. They have been notified.`)
+            showSuccess('Job handed over', `${toName} now has Job No. ${job.jobNo} and its pending checks. They have been notified.`)
           }}
         />
       ) : null}

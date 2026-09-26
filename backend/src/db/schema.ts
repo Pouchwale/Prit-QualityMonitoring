@@ -299,6 +299,23 @@ export const monitoringReasons = pgTable('monitoring_reasons', {
 })
 
 /**
+ * The reasons a worker may choose when a check cannot be done at all (the Exception button).
+ * Separate from the Not Applicable reasons above, which are about a single parameter.
+ *
+ * The chosen text is copied into `exceptions.reason`, so a reason that is renamed or switched off
+ * later never changes what an old exception says.
+ */
+export const exceptionReasons = pgTable('exception_reasons', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  label: text('label').notNull(),
+  /** "Other" needs the worker to write what happened. */
+  requiresRemark: boolean('requires_remark').notNull().default(false),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  ...timestamps
+})
+
+/**
  * The rolling timer of a schedule (machine + check type + shift): when the last check was
  * submitted and when the next one is due. Every submission restarts it (services/monitoringTimer.ts).
  */
@@ -604,3 +621,31 @@ export const machineDayPlanMachines = pgTable(
   },
   (t) => [primaryKey({ columns: [t.date, t.machineId] })]
 )
+
+/**
+ * How a worker's performance score is calculated (services/performance.ts). One active row; the
+ * Super Admin or an Admin changes the penalty in the admin panel, no new build needed.
+ * Score = (assigned checks - completed checks) x penaltyPerMissed.
+ */
+export const scoreSettings = pgTable(
+  'score_settings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** Points per missed check, normally negative (default -1). */
+    penaltyPerMissed: integer('penalty_per_missed').notNull().default(-1),
+    isActive: boolean('is_active').notNull().default(true),
+    updatedById: uuid('updated_by_id').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps
+  },
+  // Only one active setting at a time.
+  (t) => [uniqueIndex('score_settings_one_active').on(t.isActive).where(sql`${t.isActive}`)]
+)
+
+/** Every change of the scoring rule: what it was, what it became, who changed it and when. */
+export const scoreSettingHistory = pgTable('score_setting_history', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  previousPenalty: integer('previous_penalty'),
+  newPenalty: integer('new_penalty').notNull(),
+  changedById: uuid('changed_by_id').references(() => users.id, { onDelete: 'set null' }),
+  changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow()
+})

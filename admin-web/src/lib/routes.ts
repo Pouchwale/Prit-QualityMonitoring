@@ -7,21 +7,39 @@ export const NAV_PATH: Record<NavTab, string> = {
   jobs: '/jobs',
   exceptions: '/exceptions',
   reports: '/reports',
+  performance: '/performance',
   parameters: '/parameters',
   activities: '/check-types',
   machines: '/machines',
   schedules: '/schedules',
-  'monitoring-setup': '/monitoring-setup',
   calendar: '/plant-calendar',
   workers: '/workers',
   assignments: '/machine-assignment',
   departments: '/departments',
   shifts: '/shifts',
   'audit-logs': '/audit-logs',
-  settings: '/settings',
   access: '/manager-access',
   account: '/account'
 }
+
+/**
+ * Quality Monitoring is one module with three views. Each keeps its own address, so old links
+ * and bookmarks (/dashboard, /quality-checks, /jobs) still open the right tab.
+ */
+export const MONITORING_TABS = ['dashboard', 'checks', 'jobs'] as const
+
+export type MonitoringTab = (typeof MONITORING_TABS)[number]
+
+export const MONITORING_LABEL = 'Quality Monitoring'
+
+export const MONITORING_TAB_LABEL: Record<MonitoringTab, string> = {
+  dashboard: 'Overview',
+  checks: 'Checks',
+  jobs: 'Jobs'
+}
+
+export const isMonitoringTab = (tab: NavTab | null): tab is MonitoringTab =>
+  !!tab && (MONITORING_TABS as readonly NavTab[]).includes(tab)
 
 /** One quality check's detail page. */
 export const checkPath = (checkId: string) => `${NAV_PATH.checks}/${encodeURIComponent(checkId)}`

@@ -26,7 +26,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#7F3D40"
-      }
+      },
+      "googleServicesFile": "./google-services.json"
     },
     "plugins": [
       [
@@ -44,7 +45,8 @@
         "expo-notifications",
         {
           "color": "#7F3D40",
-          "defaultChannel": "due-checks"
+          "defaultChannel": "due-checks",
+          "icon": "./assets/notification-icon.png"
         }
       ],
       "expo-sharing",

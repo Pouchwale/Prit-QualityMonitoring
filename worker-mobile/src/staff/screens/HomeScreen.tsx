@@ -189,7 +189,12 @@ export const HomeScreen: React.FC = () => {
   const repeatRows = [...repeatMachines.slice(0, 5).map((r) => ({ ...r, kind: 'Machine' })), ...repeatWorkers.slice(0, 5).map((r) => ({ ...r, kind: 'Worker' }))]
 
   return (
-    <Screen title={greeting} subtitle={`${ROLE_LABEL[profile.role]} · ${todayLong}`} onRefresh={reloadAll} refreshing={dashboard.loading && !!data}>
+    <Screen
+      title={greeting}
+      subtitle={`${ROLE_LABEL[profile.role]}${data?.scope?.restricted && data.scope.departmentName ? ` · ${data.scope.departmentName}` : ''} · ${todayLong}`}
+      onRefresh={reloadAll}
+      refreshing={dashboard.loading && !!data}
+    >
       {monitoring ? (
         <View className="-mt-2 flex-row flex-wrap items-center gap-2">
           <DateField label="Day" variant="chip" chipLabel={isToday ? 'Today' : formatKey(date)} value={date} max={addDaysKey(dateKey(), 7)} onChange={(d) => d && setDate(d)} />

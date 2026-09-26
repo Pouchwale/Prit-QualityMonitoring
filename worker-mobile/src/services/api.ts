@@ -11,6 +11,7 @@ import {
   HistoryFilterOptions,
   HistoryPage,
   HistoryQuery,
+  MyPerformance,
   Job,
   JobDetail,
   Profile,
@@ -158,7 +159,7 @@ async function tryRefresh(): Promise<boolean> {
   return true
 }
 
-async function request<T>(method: string, path: string, json?: unknown, retry = true): Promise<T> {
+async function requestResponse(method: string, path: string, json?: unknown, retry = true): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (accessToken) headers.Authorization = `Bearer ${accessToken}`
   if (json !== undefined) headers['Content-Type'] = 'application/json'
@@ -170,7 +171,7 @@ async function request<T>(method: string, path: string, json?: unknown, retry = 
   })
 
   if (res.status === 401 && retry && (await tryRefresh())) {
-    return request<T>(method, path, json, false)
+    return requestResponse(method, path, json, false)
   }
   if (res.status === 401) {
     await clearTokens()
@@ -178,8 +179,29 @@ async function request<T>(method: string, path: string, json?: unknown, retry = 
     throw new ApiError(401, await readError(res))
   }
   if (!res.ok) throw new ApiError(res.status, await readError(res))
+  return res
+}
+
+async function request<T>(method: string, path: string, json?: unknown, retry = true): Promise<T> {
+  const res = await requestResponse(method, path, json, retry)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
+}
+
+/**
+ * A list the server pages: the rows of this page plus how many entries the filters match in total
+ * (the `X-Total-Count` header). A server that does not send it reports the rows it returned.
+ */
+export interface Page<T> {
+  rows: T[]
+  total: number
+}
+
+async function getPage<T>(path: string, query?: Query): Promise<Page<T>> {
+  const res = await requestResponse('GET', withQuery(path, query))
+  const rows = (await res.json()) as T[]
+  const total = Number(res.headers.get('X-Total-Count'))
+  return { rows, total: Number.isFinite(total) && total >= 0 ? total : rows.length }
 }
 
 export type UploadProgress = (fraction: number) => void
@@ -297,6 +319,7 @@ export function withQuery(path: string, query?: Query) {
 /** The same endpoints as the web admin panel; the backend enforces every permission. */
 export const api = {
   get: <T>(path: string, query?: Query) => request<T>('GET', withQuery(path, query)),
+  getPage,
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body ?? {}),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body ?? {}),
@@ -342,6 +365,9 @@ export { readError }
 // ---- Worker ----
 
 export const getProfile = () => request<Profile>('GET', '/api/worker/profile')
+/** This worker's own performance; the backend only ever answers with the signed-in worker's figures. */
+export const getMyPerformance = (query: { from: string; to: string }) =>
+  request<MyPerformance>('GET', withQuery('/api/worker/performance', query))
 export const getTodayChecks = () => request<CheckSummary[]>('GET', '/api/worker/checks/today')
 
 /** Whether the plant is closed today (Plant Calendar). */

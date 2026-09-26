@@ -78,7 +78,7 @@ How it works: sign-in still uses the one-way bcrypt hash. Next to it the passwor
 Workers, Managers, Admins and the Super Admin sign in to the **same mobile app** with their usual employee ID and password. The app reads the account's role and permissions from the backend (`GET /api/auth/me`) and opens:
 
 - **Worker:** the worker screens as before (Today, History, Profile, checks, exceptions, alerts).
-- **Admin / Super Admin:** a plant dashboard (progress, closed-day and shift-without-worker warnings, missed checks, repeated misses, recent submissions, setup issues) and every admin panel module: Quality Checks, Exceptions, Reports (CSV and PDF), Plant Calendar with annual calendars and weekly rules, Workers & Users, Machine Assignment, Manager Access, Machines, Check Types, Parameters, Schedules, Departments, Shifts, Audit Logs, Settings and My Account.
+- **Admin / Super Admin:** a plant dashboard (progress, closed-day and shift-without-worker warnings, missed checks, repeated misses, recent submissions, setup issues) and every admin panel module: Quality Checks, Exceptions, Reports (CSV and PDF), Plant Calendar with annual calendars and weekly rules, Workers & Users, Machine Assignment, Manager Access, Machines, Check Types, Parameters, Schedules, Departments, Shifts, Audit Logs and My Account.
 - **Manager:** a monitoring dashboard (today's progress, missed checks by worker, exceptions awaiting review, their own access) and only the modules granted in Manager Access, as View or Manage.
 
 Tabs and actions follow the permissions: a module without access is not shown, and edit/add/delete buttons only appear with Manage. Permissions are re-read every minute and when the app returns to the foreground. **The backend still checks every request**, so hidden screens are not the protection: Workers get 403 on every staff API, staff accounts get 403 on the worker APIs, Managers get 403 outside their modules and on Admin/Super Admin features (Manager Access, Admin accounts, passwords).
@@ -105,28 +105,28 @@ Every page has its own address (react-router-dom), so pages can be bookmarked, r
 
 | Page | Address |
 |---|---|
-| Dashboard | `/dashboard` |
-| Quality Checks / one check | `/quality-checks` / `/quality-checks/<check id>` |
-| Jobs | `/jobs` |
+| Quality Monitoring · Overview | `/dashboard` |
+| Quality Monitoring · Checks / one check | `/quality-checks` / `/quality-checks/<check id>` |
+| Quality Monitoring · Jobs | `/jobs` |
 | Exceptions | `/exceptions` |
 | Reports | `/reports` |
 | Parameters | `/parameters` |
 | Check Types | `/check-types` |
 | Machines | `/machines` |
 | Schedules | `/schedules` |
-| Monitoring Setup | `/monitoring-setup` |
 | Plant Calendar | `/plant-calendar` |
 | Workers & Users | `/workers` |
 | Machine Assignment | `/machine-assignment` |
 | Departments | `/departments` |
 | Shifts | `/shifts` |
 | Audit Logs | `/audit-logs` |
-| Settings | `/settings` |
 | Manager Access | `/manager-access` |
 | My Account | `/account` |
 | Sign in | `/login` |
 
-- `/` opens the first page the signed-in user may see (the Dashboard for admins).
+**Quality Monitoring is one menu entry with three tabs**: Overview (the plant dashboard), Checks (every check with its filters, CSV and evidence) and Jobs. Each tab keeps its own address, so older links and bookmarks still open the right tab, and the menu entry opens the first tab the account may see. The tabs follow the existing modules and nothing was merged in the permission system: Overview needs the **Dashboard** module, Checks and Jobs the **Quality Checks** module, and a user who may see only one of them simply gets no tabs. The backend checks every request as before.
+
+- `/` opens the first page the signed-in user may see (Quality Monitoring for admins).
 - Signed out, any page goes to `/login?next=<page>` and returns to that page after sign-in. A deliberate sign-out opens a plain `/login`.
 - A page the user has no permission for redirects to their first permitted page. An unknown address shows "Page not found" inside the panel.
 
@@ -169,7 +169,7 @@ When several workers qualify, checks are shared evenly between them. When nobody
 
 ## Monitoring setup: what each parameter needs
 
-**Admin → Monitoring Setup** (web panel and mobile app) shows every machine, its check types and what the worker must do. Nothing in the worker app is hardcoded; it follows this configuration.
+Check Types, Machines and Schedules decide what a worker must do; nothing in the worker app is hardcoded. Both the admin panel and the mobile staff app show the same screens.
 
 **Per parameter** (Check Types → parameter row): Required, **Photo**, **Video**, **Allow N/A**, and **Only while a job is running**. A parameter can need a photo, a video, both or neither, so a worker is never asked for evidence a reading does not need. For example: Viscosity photo only, Printing Quality photo and video, Machine Condition video only. The check type also keeps optional **Overall check photo/video** for one picture of the whole check, and **Allow manual submission**.
 
@@ -179,7 +179,9 @@ When several workers qualify, checks are shared evenly between them. When nobody
 - **Job-based** — checks run only while a job is running on that machine.
 - **Manual only** — no schedule; the worker submits when needed.
 
-**Not Applicable reasons** are configurable (Monitoring Setup → N/A reasons; "Other" requires a remark). A parameter marked Not Applicable is recorded with its reason, never counted as Missed or Failed, and the check still counts as Completed.
+**Not Applicable reasons** are configurable (**Check Types → N/A reasons**, in the admin panel and the mobile staff app alike; "Other" requires a remark). A parameter marked Not Applicable is recorded with its reason, never counted as Missed or Failed, and the check still counts as Completed.
+
+**Exception reasons** are configurable too (**Check Types → Exception reasons**). A worker picks one when a whole check cannot be done; the reason that needs an explanation ("Other") is marked *Requires remark*, and the worker app shows the active ones in their sort order. Deactivating a reason only takes it off that list: exceptions already recorded keep the text they were given.
 
 Changing this configuration needs **Manage** on the module (Check Types, Schedules); Admins and the Super Admin always have it.
 
@@ -274,6 +276,48 @@ From **1 Jan 2027**, plant closures come from the database, so there is no yearl
 
 The code is in `backend/src/services/weeklyRules.ts`, `calendarYears.ts` (review, conflicts, approval), `calendarExtraction.ts` (Excel/PDF/OCR) and `calendarImport.ts` (rows → dates). Uploaded documents are stored in `backend/calendar-documents/` (not committed) and are only served to signed-in users with Plant Calendar access.
 
+## Departments: what a Manager sees
+
+An Admin or the Super Admin sees the whole plant. A **Manager sees only their own department** — the department on their account (Workers & Users → the manager → Department). Data belongs to the department of the **machine** it happened on, so a Pouch Manager's Dashboard, Quality Checks, Exceptions, Jobs and Reports contain only Pouch machines, their checks, their workers and their jobs. Worker Performance also uses the worker's own department, because it is about people.
+
+Everything is enforced by the backend (`services/departmentScope.ts`), not by hiding things on screen:
+
+- the department of the signed-in Manager is read from the database on every request, so a change by an Admin applies at once;
+- a `departmentId` in the request that is not the Manager's own is refused with **403**, and a `machineId`, `workerId`, check or job of another department simply returns nothing or **404**;
+- a Manager whose account has no department yet sees nothing and is told to ask an Admin;
+- the Dashboard and the mobile Home screen show which department they cover.
+
+Workers are unaffected: they only ever see their own checks and their own performance.
+
+## Worker Performance and the score
+
+**Admin → Worker Performance** shows, for the chosen period, every worker's assigned checks, how many were completed, how many were not, and the resulting score. Workers see only their own figures, under **My performance** on the Profile screen of the app.
+
+The score is a penalty, not a percentage:
+
+```
+missed = assigned - completed
+score  = missed x penalty per missed check      (default -1)
+```
+
+So 100 assigned with 90 completed is 10 missed and a score of **-10**; everything completed is **0**. "Missed" counts every check that was not completed: gone past its time, taken as an exception, or still open. The table also shows that breakdown and the completion rate, for reference.
+
+**Changing the rule:** an Admin or the Super Admin sets **Penalty per missed check** in **Score settings** on the same page. Change it to -2 and the same 10 missed checks score -20 everywhere at once, for the admin panel, the mobile app and every past period. It is stored in the database (`score_settings`), so no new APK and no deployment is needed. Every change is kept with the previous value, the new value, who made it and when (`score_setting_history`), shown under **Change history** and written to the audit log.
+
+**Filters:** date, date range, department, worker, machine, shift and Job No. The score is recalculated for whatever is selected, so "25/09/2026" scores only that day's checks.
+
+**Departments decide who a Manager sees.** A Manager only ever sees the workers of their own department (the department on their account, Workers & Users → the manager → Department): a Pouch Manager sees Pouch workers, a Label Manager sees Label workers. The department filter is fixed to their own department and the worker list only offers its workers. This is enforced by the backend: a `departmentId` or `workerId` for another department in the request is ignored, and opening another department's worker answers **403**. A Manager whose account has no department yet sees nobody and is told to ask an Admin. Admins and the Super Admin see every department and can filter by it.
+
+**Who sees what** (enforced by the backend, `routes/performance.ts`):
+
+| | See all workers | Filters | Change the rule | See the history |
+| --- | --- | --- | --- | --- |
+| **Super Admin / Admin** | Every department | Yes | Yes | Yes |
+| **Manager** with the Worker Performance module | Own department only | Yes (department fixed) | No (403) | No (403) |
+| **Worker** | No (403) | Own period only | No | No |
+
+A worker reads their own figures from `GET /api/worker/performance`, which takes the worker from the signed-in account: adding someone else's worker id to the request changes nothing. Managers are given the module in **Manager Access → Worker Performance** (view only).
+
 ## Quality Monitoring Report (PDF)
 
 **Admin → Reports → Download Report (PDF)** builds the full IPQC-style report for the selected date range and filters. It is generated on the server (`backend/src/services/reportData.ts` assembles the data, `reportPdf.ts` lays it out), so every section is built from the database and reconciles with the detailed log.
@@ -290,7 +334,7 @@ Sections: report header, executive summary, result breakdown, machine-wise, work
 
 A check that is not finished yet has no status and shows "—" (counted as *Open*). Parameter readings keep their own PASS/FAIL against the limits as separate data; a reading outside its limits never changes the status. **Completion Rate** = Completed ÷ Scheduled.
 
-Fields the system does not record (corrective action, CAPA reference, a reason for a missed check) print as "Not Available" or "Reason not provided" rather than being invented. An optional plant name (**Admin → Settings → Plant name**) prints under the company name; leave it empty and no plant line is shown, in the report or in the Admin header. The company name comes from the `company` setting (`{ "name": ..., "department": ... }`), falling back to Gujarat Print Pack Publications Pvt. Ltd. and Quality / IPQC.
+Fields the system does not record (corrective action, CAPA reference, a reason for a missed check) print as "Not Available" or "Reason not provided" rather than being invented. An optional plant name (the `plant` setting; no screen edits it any more, so it is set directly in the `settings` table) prints under the company name; leave it empty and no plant line is shown, in the report or in the Admin header. The company name comes from the `company` setting (`{ "name": ..., "department": ... }`), falling back to Gujarat Print Pack Publications Pvt. Ltd. and Quality / IPQC.
 
 ## Worker web app (iPhone and PC)
 

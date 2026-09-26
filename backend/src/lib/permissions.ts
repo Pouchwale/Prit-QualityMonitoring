@@ -33,7 +33,8 @@ export const MODULES = [
   'assignments',
   'audit_logs',
   'settings',
-  'calendar'
+  'calendar',
+  'performance'
 ] as const
 
 export type Module = (typeof MODULES)[number]
@@ -55,7 +56,8 @@ export const MODULE_INFO: Record<Module, { label: string; viewOnly?: boolean; de
   assignments: { label: 'Machine Assignment', description: 'Which machines each worker handles' },
   audit_logs: { label: 'Audit Logs', viewOnly: true, description: 'Who changed what and when' },
   settings: { label: 'Settings', description: 'Plant settings' },
-  calendar: { label: 'Plant Calendar', description: 'Plant closed, holiday and shutdown dates; manage marks and removes them' }
+  calendar: { label: 'Plant Calendar', description: 'Plant closed, holiday and shutdown dates; manage marks and removes them' },
+  performance: { label: 'Worker Performance', viewOnly: true, description: 'Each worker’s assigned, completed and missed checks with their score' }
 }
 
 export const isAdminRole = (role: Role) => role === 'ADMIN' || role === 'SUPER_ADMIN'

@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { CheckCircle2, AlertTriangle, AlertCircle, Info, X } from 'lucide-react'
+import { DialogHost, openDialog } from './AppDialog'
 
 export interface ToastMessage {
   id: string
@@ -17,6 +18,11 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
   const notify = useCallback<Notify>((type, title, message) => {
+    // Errors need reading and an answer, so they open the error popup instead of a toast.
+    if (type === 'error') {
+      openDialog({ tone: 'error', title, message, actions: [{ label: 'OK', variant: 'primary' }] })
+      return
+    }
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
     setToasts((prev) => [...prev, { id, type, title, message }])
   }, [])
@@ -26,6 +32,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   return (
     <ToastContext.Provider value={notify}>
       {children}
+      <DialogHost />
       <div className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
         {toasts.map((t) => (
           <ToastItem key={t.id} toast={t} onDismiss={dismiss} />

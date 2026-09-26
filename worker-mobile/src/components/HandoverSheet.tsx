@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Modal, View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ApiError, getHandoverOptions, handoverJob } from '../services/api'
+import { getHandoverOptions, handoverJob } from '../services/api'
+import { friendlyMessage } from '../utils/friendlyError'
 import { HandoverOptions, Job } from '../types'
 import { formatClockRange } from '../utils/datetime'
 import { Button } from './ui/Button'
@@ -43,7 +44,7 @@ export const HandoverSheet: React.FC<Props> = ({ visible, job, onCancel, onDone 
         // With a single shift there is nothing to choose.
         setShiftId(o.shifts.length === 1 ? o.shifts[0].id : null)
       })
-      .catch((err) => setLoadError(err instanceof ApiError ? err.message : 'Please try again.'))
+      .catch((err) => setLoadError(friendlyMessage(err)))
   }, [visible, job.id])
 
   // Workers of the chosen shift first; the others stay available (e.g. covering a colleague).
@@ -63,7 +64,7 @@ export const HandoverSheet: React.FC<Props> = ({ visible, job, onCancel, onDone 
       const result = await handoverJob(job.id, { toUserId: workerId, shiftId, note: note.trim() })
       onDone(options?.workers.find((w) => w.id === workerId)?.name ?? 'the next worker', result.movedChecks)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Please try again.')
+      setError(friendlyMessage(err))
     } finally {
       setSending(false)
     }

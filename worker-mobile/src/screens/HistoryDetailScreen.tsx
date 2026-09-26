@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { View, Text, ScrollView, Image } from 'react-native'
 import { VideoView, useVideoPlayer } from 'expo-video'
 import { cssInterop } from 'nativewind'
-import { ApiError, fileUrl, getCheckRecord } from '../services/api'
+import { fileUrl, getCheckRecord } from '../services/api'
+import { friendlyMessage } from '../utils/friendlyError'
 import { CheckRecord, MediaFile, SubmittedValue } from '../types'
 import { formatDuration, formatTime } from '../utils/format'
 import { NavBar } from '../components/ui/NavBar'
@@ -142,7 +143,7 @@ export const HistoryDetailScreen: React.FC<Props> = ({ checkId, onClose }) => {
     try {
       setRecord(await getCheckRecord(checkId))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Please try again.')
+      setError(friendlyMessage(err))
     }
   }, [checkId])
 

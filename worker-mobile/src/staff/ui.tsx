@@ -21,6 +21,7 @@ import { DatePicker } from '../components/DatePicker'
 import { TimePicker } from '../components/TimePicker'
 import { fileUrl } from '../services/api'
 import { showDialog } from '../utils/dialog'
+import { openDialog } from '../components/ui/AppDialog'
 import { STATUS_LABEL, TONE_CLASS, dateKey, formatBytes, formatClock, formatDateTime, formatKey, keyToDate, statusTone, type Tone } from './format'
 import type { MediaFile } from './types'
 import { useStaff } from './nav'
@@ -1555,6 +1556,11 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const nextId = useRef(1)
   const insets = useSafeAreaInsets()
   const notify = useCallback((kind: ToastKind, title: string, message?: string) => {
+    // Errors need reading and an answer, so they open the error popup instead of a toast.
+    if (kind === 'error') {
+      openDialog({ tone: 'error', title, message, actions: [{ text: 'OK', style: 'primary' }] })
+      return
+    }
     const id = nextId.current++
     setItems((list) => [...list.slice(-2), { id, kind, title, message }])
     setTimeout(() => setItems((list) => list.filter((t) => t.id !== id)), kind === 'success' ? 3500 : 7000)

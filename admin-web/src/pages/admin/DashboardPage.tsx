@@ -18,6 +18,8 @@ const REPEAT_WINDOW_DAYS = 7
 interface DashboardPageProps {
   onViewCheck: (id: string) => void
   onNavigate: (tab: NavTab) => void
+  /** The Quality Monitoring tabs (Overview, Checks, Jobs); this page is the Overview. */
+  tabs?: React.ReactNode
 }
 
 const workerLabel = (c: QualityCheck) => c.submittedByName ?? c.workerName ?? '—'
@@ -42,7 +44,7 @@ function groupMisses(checks: QualityCheck[], day: string, pick: (c: QualityCheck
   return [...map.values()].filter((r) => r.total >= 2).sort((a, b) => b.total - a.total || b.onDay - a.onDay)
 }
 
-export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNavigate }) => {
+export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNavigate, tabs }) => {
   // Links to other pages only appear for pages this user may open.
   const canOpen = useCanOpen()
   const [date, setDate] = useState(dateKey)
@@ -96,8 +98,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Quality Monitoring"
-        description={`${isToday ? "Today's" : formatDate(new Date(`${date}T00:00:00`))} monitoring status · auto-refreshes every minute · updated ${formatTime(updatedAt.toISOString())}`}
+        tabs={tabs}
+        title={dashboard.data?.scope?.restricted && dashboard.data.scope.departmentName ? `Quality Monitoring · ${dashboard.data.scope.departmentName}` : 'Quality Monitoring'}
+        description={`${isToday ? "Today's" : formatDate(new Date(`${date}T00:00:00`))} monitoring status${
+          dashboard.data?.scope?.restricted
+            ? dashboard.data.scope.missingDepartment
+              ? ' · your account has no department yet, so nothing is shown'
+              : ` · ${dashboard.data.scope.departmentName} department only`
+            : ''
+        } · auto-refreshes every minute · updated ${formatTime(updatedAt.toISOString())}`}
         actions={
           <>
             <DateInput value={date} max={addDaysKey(dateKey(), 7)} onChange={(e) => {

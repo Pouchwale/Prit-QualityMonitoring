@@ -5,6 +5,7 @@ import {
   activities,
   activityParameters,
   departments,
+  exceptionReasons,
   jobHandovers,
   jobs,
   machineActivities,
@@ -68,6 +69,45 @@ export async function monitoringReasonById(id: string) {
   return row ?? null
 }
 
+/**
+ * The reasons a worker may choose when a whole check cannot be done (the Exception button). Same
+ * shape and the same rules as the Not Applicable reasons, but a separate list: one is about a
+ * single parameter, the other about the check.
+ */
+const exceptionReasonDto = (row: typeof exceptionReasons.$inferSelect): MonitoringReasonDto => ({
+  id: row.id,
+  label: row.label,
+  requiresRemark: row.requiresRemark,
+  isActive: row.isActive,
+  sortOrder: row.sortOrder
+})
+
+/** Every exception reason, active ones first in their sort order. */
+export async function listExceptionReasons(): Promise<MonitoringReasonDto[]> {
+  const rows = await db
+    .select()
+    .from(exceptionReasons)
+    .orderBy(desc(exceptionReasons.isActive), asc(exceptionReasons.sortOrder), asc(exceptionReasons.label))
+  return rows.map(exceptionReasonDto)
+}
+
+/** Only the reasons the worker app may offer, in the order it shows them. */
+export async function activeExceptionReasons(): Promise<MonitoringReasonDto[]> {
+  const rows = await db
+    .select()
+    .from(exceptionReasons)
+    .where(eq(exceptionReasons.isActive, true))
+    .orderBy(asc(exceptionReasons.sortOrder), asc(exceptionReasons.label))
+  return rows.map(exceptionReasonDto)
+}
+
+export async function exceptionReasonById(id: string) {
+  const [row] = await db.select().from(exceptionReasons).where(eq(exceptionReasons.id, id))
+  return row ?? null
+}
+
+export { exceptionReasonDto }
+
 export { reasonDto }
 
 export interface JobCheckCounts {
@@ -127,6 +167,10 @@ export interface JobFilters {
   running?: boolean
   statuses?: (typeof jobs.$inferSelect)['status'][]
   ids?: string[]
+  /** Only jobs on machines of this department (a Manager sees their own department). */
+  departmentId?: string
+  /** Extra condition, e.g. a Manager with no department who may see nothing. */
+  where?: SQL
 }
 
 const assignee = alias(users, 'job_assignee')
@@ -142,6 +186,8 @@ export async function listJobs(filters: JobFilters = {}): Promise<JobRow[]> {
   if (filters.running === false) where.push(inArray(jobs.status, ['COMPLETED', 'CANCELLED']))
   if (filters.statuses?.length) where.push(inArray(jobs.status, filters.statuses))
   if (filters.ids) where.push(inArray(jobs.id, filters.ids.length ? filters.ids : ['00000000-0000-0000-0000-000000000000']))
+  if (filters.departmentId) where.push(eq(machines.departmentId, filters.departmentId))
+  if (filters.where) where.push(filters.where)
 
   const rows = await db
     .select({

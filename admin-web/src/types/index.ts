@@ -19,6 +19,7 @@ export type ModuleKey =
   | 'audit_logs'
   | 'settings'
   | 'calendar'
+  | 'performance'
 
 export type Access = 'none' | 'view' | 'manage'
 export type Permissions = Record<ModuleKey, Access>
@@ -388,69 +389,6 @@ export interface JobHandover {
   movedChecks: number
 }
 
-/** One parameter's evidence rules inside a check type (GET /api/monitoring-overview). */
-export interface OverviewParameter {
-  parameterId: string
-  name: string
-  code: string
-  type: ParameterType
-  unit: string | null
-  rule: string | null
-  isRequired: boolean
-  isEnabled: boolean
-  requirePhoto: boolean
-  requireVideo: boolean
-  allowNa: boolean
-  appliesWhen: AppliesWhen
-  sortOrder: number
-}
-
-/** A schedule of a check type on a machine, with its stored monitoring timer. */
-export interface OverviewSchedule {
-  id: string
-  shiftId: string
-  shiftName: string
-  intervalMinutes: number
-  mode: ScheduleMode
-  startTime: string | null
-  endTime: string | null
-  isActive: boolean
-  workerId: string | null
-  workerName: string | null
-  nextDueAt: string | null
-  lastSubmittedAt: string | null
-}
-
-export interface OverviewCheckType {
-  activityId: string
-  activityName: string
-  activityCode: string
-  isActive: boolean
-  allowManual: boolean
-  requireJobNo: boolean
-  requirePhoto: boolean
-  requireVideo: boolean
-  /** JOB if any schedule is job-based, INTERVAL if it has interval schedules, else MANUAL. */
-  mode: MonitoringMode
-  schedules: OverviewSchedule[]
-  parameters: OverviewParameter[]
-}
-
-export interface OverviewMachine {
-  id: string
-  name: string
-  code: string
-  status: MachineStatus
-  departmentName: string | null
-  runningJob: Job | null
-  checkTypes: OverviewCheckType[]
-}
-
-/** Machine-centric view of how monitoring is configured (GET /api/monitoring-overview). */
-export interface MonitoringOverview {
-  machines: OverviewMachine[]
-}
-
 export interface ExceptionRecord extends CheckException {
   checkId: string
   checkCode: string
@@ -501,6 +439,8 @@ export interface MachineSummary {
 export interface DashboardData {
   from: string
   to: string
+  /** Which department this dashboard covers; a Manager sees only their own. */
+  scope?: PerformanceScope
   kpi: KPISummary
   byMachine: MachineSummary[]
   recent: QualityCheck[]
@@ -668,4 +608,62 @@ export interface TraceReport {
   jobs: TraceGroup[]
   workers: TraceWorker[]
   changes: TraceChange[]
+}
+
+/** Worker performance (backend services/performance.ts): the score comes from the backend. */
+export interface WorkerPerformance {
+  workerId: string
+  workerName: string
+  employeeId: string
+  assigned: number
+  completed: number
+  /** assigned − completed: what the score is based on. */
+  missed: number
+  missedChecks: number
+  exceptions: number
+  open: number
+  score: number
+  completionRate: number
+}
+
+export interface PerformanceScope {
+  /** The department a Manager is limited to; null for an Admin. */
+  departmentId: string | null
+  departmentName: string | null
+  restricted: boolean
+  /** A Manager whose account has no department sees nobody. */
+  missingDepartment: boolean
+}
+
+export interface PerformanceFilterValues {
+  machines: { id: string; name: string }[]
+  shifts: { id: string; name: string }[]
+  departments: { id: string; name: string }[]
+  workers: { id: string; name: string; employeeId: string; departmentId: string | null }[]
+  scope: PerformanceScope
+}
+
+export interface PerformanceResult {
+  from: string
+  to: string
+  scope: PerformanceScope
+  /** The scoring rule that produced these scores. */
+  penaltyPerMissed: number
+  totals: { workers: number; assigned: number; completed: number; missed: number; score: number; completionRate: number }
+  workers: WorkerPerformance[]
+}
+
+export interface ScoreSetting {
+  penaltyPerMissed: number
+  updatedAt: string
+  updatedById: string | null
+}
+
+export interface PenaltyChange {
+  id: string
+  previousPenalty: number | null
+  newPenalty: number
+  changedAt: string
+  changedByName: string | null
+  changedByEmployeeId: string | null
 }

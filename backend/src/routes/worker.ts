@@ -50,6 +50,7 @@ import {
 } from '../services/jobMonitoring'
 import { sendToUser } from '../services/notifications'
 import { resetScheduleTimer, settleNextDue } from '../services/monitoringTimer'
+import { activeExceptionReasons } from '../services/monitoringConfig'
 import {
   checkEvidenceUpload,
   cleanupTemp,
@@ -64,21 +65,14 @@ import {
   type UploadedFiles
 } from '../services/uploads'
 import { kickVideoOptimization } from '../services/mediaOptimizer'
+import { performanceOf } from '../services/performance'
+import { performanceRange } from './performance'
 import { shiftAt } from '../services/workerAssignment'
 import { loadProfile } from './auth'
 import { webPushPublicKey } from '../services/webPush'
 import { machineClosureOn, machineClosuresOn, type MachineClosure } from '../services/machineDays'
 
 export const workerRouter = Router()
-
-export const EXCEPTION_REASONS = [
-  'Machine stopped',
-  'Machine under maintenance',
-  'Worker unavailable',
-  'Material unavailable',
-  'Production stopped',
-  'Other'
-] as const
 
 /** A check can be started this many minutes before its scheduled time. */
 const EARLY_START_MINUTES = 30
@@ -796,6 +790,16 @@ workerRouter.get('/checks/today', async (req, res) => {
   res.json(checks.map(summary))
 })
 
+/**
+ * "My performance": this worker's own figures only. The worker id comes from the signed-in
+ * account, never from the request, so nobody can read another worker's score here.
+ */
+workerRouter.get('/performance', async (req, res) => {
+  const q = z.object({ date: z.string().optional(), from: z.string().optional(), to: z.string().optional() }).parse(req.query)
+  const { from, to } = performanceRange(q)
+  res.json({ from, to, ...(await performanceOf(req.user!.id, { from, to })) })
+})
+
 /** Filter options for the history screen: only machines this worker has records for. */
 workerRouter.get('/history/filters', async (req, res) => {
   const scope = await workerScope(req.user!.id)
@@ -921,9 +925,10 @@ workerRouter.get('/checks/:id', async (req, res) => {
   const check = await loadWorkerCheck(req.user!.id, idParam(req))
   const [activity] = await db.select().from(activities).where(eq(activities.id, check.activityId))
   if (!activity) throw notFound('Quality check type')
-  const [params, naReasons, job] = await Promise.all([
+  const [params, naReasons, exceptionReasonRows, job] = await Promise.all([
     formParameters(activity.id, check.parameterIds),
     activeNaReasons(),
+    activeExceptionReasons(),
     // A job check belongs to its own job; any other check to the job running now.
     check.jobId && check.kind !== 'SCHEDULED' ? jobDtoById(check.jobId) : runningJob(check.machineId)
   ])
@@ -952,7 +957,7 @@ workerRouter.get('/checks/:id', async (req, res) => {
     naReasons,
     job,
     overallEvidence: { photo: activity.requirePhoto, video: activity.requireVideo },
-    exceptionReasons: EXCEPTION_REASONS,
+    exceptionReasons: exceptionReasonRows.map((r) => r.label),
     maxVideoSeconds: config.maxVideoSeconds,
     captureFreshnessMinutes: config.captureFreshnessMinutes
   })
@@ -1270,13 +1275,16 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
     const checkId = idParam(req)
     const body = z
       .object({
-        reason: z.enum(EXCEPTION_REASONS, 'Please choose a reason'),
+        reason: z.string().trim().min(1, 'Please choose a reason').max(200),
         remark: z.string().trim().max(1000).default(''),
         photoCapturedAt: z.string().optional(),
         deviceInfo: z.string().trim().max(200).optional()
       })
       .parse(req.body)
-    if (body.reason === 'Other' && !body.remark) throw badRequest('Please write a remark')
+    // The reason must be one the admin offers now, and it decides whether a remark is needed.
+    const reason = (await activeExceptionReasons()).find((r) => r.label === body.reason)
+    if (!reason) throw badRequest('Please choose a reason')
+    if (reason.requiresRemark && !body.remark) throw badRequest('Please write a remark')
 
     const check = await assertOpen(req.user!.id, checkId)
     if (check.kind === 'JOB_START' || check.kind === 'JOB_END') {

@@ -113,6 +113,20 @@
       "when": 1789900000000,
       "tag": "0015_media_optimization",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790319793285,
+      "tag": "0016_worker_performance",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790352778640,
+      "tag": "0017_exception_reasons",
+      "breakpoints": true
     }
   ]
 }

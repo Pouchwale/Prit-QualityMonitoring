@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView, Pressable, BackHandler, KeyboardAvoidingView, Platform, TextInput } from 'react-native'
 import { ApiError, endJob, getCheckForm, getTodayChecks, submitCheck, submitException } from '../services/api'
-import { showDialog } from '../utils/dialog'
+import { showDialog, showError, showMissingItems, showSuccess } from '../utils/dialog'
+import type { DialogItem } from '../components/ui/AppDialog'
+import { describeError } from '../utils/friendlyError'
 import { syncLocalAlerts } from '../services/notifications'
 import { Capture, CheckForm, EvidenceUpload, FormParameter, SubmitResult, SubmitValue } from '../types'
 import { formatTime } from '../utils/format'
@@ -108,7 +110,8 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
         if (next.check.jobNo) setJobNo(next.check.jobNo)
       }
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : 'Please try again.')
+      const e = describeError(err, 'Could not open the check')
+      setLoadError([e.message, e.next].filter(Boolean).join(' '))
     }
   }, [checkId])
 
@@ -152,9 +155,8 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     return () => sub.remove()
   }, [goBack])
 
-  const handleError = (title: string, err: unknown) => {
-    const message = err instanceof ApiError ? err.message : 'Please try again.'
-    showDialog(title, message)
+  const handleError = (title: string, err: unknown, retry?: () => void) => {
+    showError(err, { title, onRetry: retry })
     // The check may have closed or changed on the server; reload its state.
     if (err instanceof ApiError && err.status === 409) load()
   }
@@ -188,6 +190,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     if (Object.keys(perParameter).length || overall.length) {
       const first = parameters.find((p) => perParameter[p.id])
       scrollToFirst(overall.length ? null : (first?.id ?? null))
+      explainMissing(perParameter, overall)
       return
     }
 
@@ -219,10 +222,42 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
         .then(syncLocalAlerts)
         .catch(() => undefined)
     } catch (err) {
-      handleError('Could not submit', err)
+      handleError('Could not submit the check', err, sendCheck)
     } finally {
       setSending(false)
     }
+  }
+
+  /**
+   * Before submitting: a popup lists what is still needed (each photo and video by parameter
+   * name, then readings), with a Close button. The missing items are also marked on their cards.
+   */
+  const explainMissing = (perParameter: Record<string, string[]>, overall: string[]) => {
+    const files: (DialogItem & { target: CameraTarget })[] = []
+    const addFile = (mode: 'photo' | 'video', field: string, label: string) =>
+      files.push({ label, detail: mode === 'photo' ? 'Photo required' : 'Video required', icon: mode === 'photo' ? 'camera-outline' : 'videocam-outline', target: { mode, field, label } })
+    if (overall.includes('Check photo')) addFile('photo', 'photo', 'Check photo')
+    if (overall.includes('Check video')) addFile('video', 'video', 'Check video')
+    for (const p of parameters) {
+      const needs = perParameter[p.id] ?? []
+      if (needs.includes('Photo')) addFile('photo', photoField(p.id), p.name)
+      if (needs.includes('Video')) addFile('video', videoField(p.id), p.name)
+    }
+    const readings: DialogItem[] = [
+      ...(overall.includes('Job No.') ? [{ label: 'Job No.', detail: 'Enter the job number', icon: 'create-outline' as const }] : []),
+      ...parameters.filter((p) => (perParameter[p.id] ?? []).includes('Value')).map((p) => ({ label: p.name, detail: 'Reading required', icon: 'create-outline' as const }))
+    ]
+    const photos = files.filter((f) => f.target.mode === 'photo').length
+    const videos = files.length - photos
+    const count = [photos ? `${photos} photo${photos === 1 ? '' : 's'}` : null, videos ? `${videos} video${videos === 1 ? '' : 's'}` : null].filter(Boolean).join(' and ')
+    showMissingItems({
+      title: !files.length ? 'Some readings are missing' : !videos ? 'Photo required' : !photos ? 'Video required' : 'Photo and video required',
+      message: files.length
+        ? `This check needs ${count}${readings.length ? ' and the readings below' : ''} before it can be submitted.`
+        : 'Fill in these readings before submitting the check.',
+      items: [...files.map(({ target: _target, ...item }) => item), ...readings],
+      next: files.length ? 'Take each one with the camera. Missing items are also marked in the form.' : 'The missing readings are marked in the form.'
+    })
   }
 
   /** End Job from "Continue or end?": the Job End check opens next; with none, the job is completed. */
@@ -240,11 +275,11 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
       const first = ended.endChecks[0]
       if (first && onOpenCheck) onOpenCheck(first.id)
       else {
-        showDialog('Job completed', `Job No. ${job.jobNo} is completed.`)
+        showSuccess('Job completed', `Job No. ${job.jobNo} is completed.`)
         onClose(true)
       }
     } catch (err) {
-      showDialog('Could not end the job', err instanceof ApiError ? err.message : 'Please try again.')
+      showError(err, { title: 'Could not end the job', onRetry: endJobNow })
     } finally {
       setEndingJob(false)
     }
@@ -259,7 +294,18 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     if (reason === 'Other' && !remark.trim()) items.push('Remark')
     if (!exceptionPhoto) items.push('Photo')
     if (items.length || !reason || !exceptionPhoto) {
-      showDialog('Please complete', items.join('\n'))
+      showMissingItems({
+        title: !exceptionPhoto && items.length === 1 ? 'Photo required' : 'Some details are missing',
+        message: 'An exception needs a reason and a photo of the problem before it can be sent.',
+        items: [
+          ...(!reason ? [{ label: 'Reason', detail: 'Choose why the check could not be done', icon: 'list-outline' as const }] : []),
+          ...(reason === 'Other' && !remark.trim() ? [{ label: 'Remark', detail: 'Describe the problem', icon: 'create-outline' as const }] : []),
+          ...(!exceptionPhoto ? [{ label: 'Exception photo', detail: 'Photo required', icon: 'camera-outline' as const }] : [])
+        ],
+        fix: !exceptionPhoto
+          ? { text: 'Take Photo', icon: 'camera-outline', onPress: () => setCamera({ mode: 'photo', field: 'exception', label: 'Exception photo' }) }
+          : undefined
+      })
       return
     }
 
@@ -267,9 +313,9 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     setProgress(0)
     try {
       await submitException(checkId, { reason, remark: remark.trim(), photo: exceptionPhoto }, setProgress)
-      showDialog('Exception sent', 'Your supervisor will review it.', [{ text: 'OK', onPress: () => onClose(true) }])
+      showSuccess('Exception sent', 'Your supervisor will review it.', () => onClose(true))
     } catch (err) {
-      handleError('Could not send', err)
+      handleError('Could not send the exception', err, sendException)
     } finally {
       setSending(false)
     }
@@ -341,10 +387,6 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     )
   }
 
-  const missingSummary = [
-    ...missingOverall,
-    ...parameters.filter((p) => missing[p.id]?.length).map((p) => `${p.name} (${missing[p.id].join(', ')})`)
-  ]
   const sendingLabel = progress > 0 && progress < 1 ? `Sending… ${Math.round(progress * 100)}%` : 'Sending…'
   const startedBy = check.submissionType === 'MANUAL' ? 'Started by you' : `Due ${formatTime(check.scheduledAt)}`
   const showOverallEvidence = activity.requirePhoto || activity.requireVideo
@@ -519,12 +561,6 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
 
             {check.canSubmit && (
               <ActionBar>
-                {missingSummary.length ? (
-                  <View className="mb-3 flex-row items-start rounded-xl bg-missed-bg px-3 py-2.5">
-                    <Icon name="alert-circle" size={18} color="missed" />
-                    <Text className="ml-2 flex-1 text-[14px] leading-[19px] text-missed">Still needed: {missingSummary.join(', ')}</Text>
-                  </View>
-                ) : null}
                 <Button label={sending ? sendingLabel : 'Submit'} onPress={sendCheck} loading={sending} />
                 {sending ? (
                   <View className="mt-3">

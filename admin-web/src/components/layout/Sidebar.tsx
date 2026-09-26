@@ -1,9 +1,9 @@
 import React, { useEffect, useRef } from 'react'
-import { AlertOctagon, Briefcase, Building2, CalendarClock, CalendarOff, ClipboardCheck, Clock3, Cpu, Factory, FileSpreadsheet, GaugeCircle, History, LayoutDashboard, Link2, Settings, ShieldCheck, SlidersHorizontal, UserRound, Users, Workflow, X } from 'lucide-react'
+import { AlertOctagon, Building2, CalendarClock, CalendarOff, Clock3, Cpu, Factory, FileSpreadsheet, Gauge, History, LayoutDashboard, Link2, ShieldCheck, SlidersHorizontal, UserRound, Users, Workflow, X } from 'lucide-react'
 import type { ModuleKey } from '../../types'
-import { useAuth } from '../../lib/auth'
+import { portalLabel, useAuth } from '../../lib/auth'
 import { Link } from 'react-router-dom'
-import { NAV_PATH } from '../../lib/routes'
+import { MONITORING_LABEL, MONITORING_TABS, NAV_PATH } from '../../lib/routes'
 
 export type NavTab =
   | 'dashboard'
@@ -11,18 +11,17 @@ export type NavTab =
   | 'jobs'
   | 'exceptions'
   | 'reports'
+  | 'performance'
   | 'machines'
   | 'departments'
   | 'parameters'
   | 'activities'
   | 'schedules'
-  | 'monitoring-setup'
   | 'calendar'
   | 'workers'
   | 'assignments'
   | 'shifts'
   | 'audit-logs'
-  | 'settings'
   | 'access'
   | 'account'
 
@@ -33,18 +32,17 @@ export const NAV_LABEL: Record<NavTab, string> = {
   jobs: 'Jobs',
   exceptions: 'Exceptions',
   reports: 'Reports',
+  performance: 'Worker Performance',
   parameters: 'Parameters',
   activities: 'Check Types',
   machines: 'Machines',
   schedules: 'Schedules',
-  'monitoring-setup': 'Monitoring Setup',
   calendar: 'Plant Calendar',
   workers: 'Workers & Users',
   assignments: 'Machine Assignment',
   departments: 'Departments',
   shifts: 'Shifts',
   'audit-logs': 'Audit Logs',
-  settings: 'Settings',
   access: 'Manager Access',
   account: 'My Account'
 }
@@ -57,25 +55,23 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
   jobs: 'checks',
   exceptions: 'exceptions',
   reports: 'reports',
+  performance: 'performance',
   parameters: 'parameters',
   activities: 'activities',
   machines: 'machines',
   schedules: 'schedules',
-  // The overview reads check types and schedules; the entry shows with view on either (useCanOpen).
-  'monitoring-setup': 'activities',
   calendar: 'calendar',
   workers: 'workers',
   assignments: 'assignments',
   departments: 'departments',
   shifts: 'shifts',
-  'audit-logs': 'audit_logs',
-  settings: 'settings'
+  'audit-logs': 'audit_logs'
 }
 
 /** Pages in menu order, used to find where to land when the current page is not allowed. */
 export const NAV_ORDER: NavTab[] = [
-  'dashboard', 'checks', 'jobs', 'exceptions', 'reports', 'parameters', 'activities', 'machines', 'schedules', 'monitoring-setup', 'calendar',
-  'workers', 'assignments', 'departments', 'shifts', 'audit-logs', 'settings', 'access', 'account'
+  'dashboard', 'checks', 'jobs', 'exceptions', 'reports', 'performance', 'parameters', 'activities', 'machines', 'schedules', 'calendar',
+  'workers', 'assignments', 'departments', 'shifts', 'audit-logs', 'access', 'account'
 ]
 
 /** Whether the signed-in user may open a page. */
@@ -84,7 +80,6 @@ export function useCanOpen() {
   return (tab: NavTab) => {
     if (tab === 'account') return true
     if (tab === 'access') return isAdmin
-    if (tab === 'monitoring-setup') return can('activities') || can('schedules')
     const module = NAV_MODULE[tab]
     return module ? can(module) : false
   }
@@ -108,6 +103,10 @@ interface NavItem {
   icon: React.ReactNode
   badge?: number
   badgeColor?: string
+  /** Shown instead of the page name, for an entry that stands for several pages. */
+  label?: string
+  /** The pages this entry covers; it is highlighted on any of them. Defaults to its own page. */
+  matches?: NavTab[]
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -121,6 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const closeButton = useRef<HTMLButtonElement>(null)
   const canOpen = useCanOpen()
+  const { user } = useAuth()
 
   useEffect(() => {
     if (!mobileOpen) return
@@ -139,25 +139,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [mobileOpen, onMobileClose])
 
+  // Quality Monitoring is one entry for three pages (Overview, Checks, Jobs). It opens the first
+  // one this account may see; the page itself offers the others as tabs.
+  const monitoringTab = MONITORING_TABS.find(canOpen)
+  const monitoringItem: NavItem[] = monitoringTab
+    ? [
+        {
+          id: monitoringTab,
+          label: MONITORING_LABEL,
+          matches: [...MONITORING_TABS],
+          icon: <LayoutDashboard className="w-4 h-4" />,
+          badge: missedCount || undefined,
+          badgeColor: 'bg-red-100 text-red-700 border-red-200'
+        }
+      ]
+    : []
+
   const allGroups: { title: string; items: NavItem[] }[] = [
     {
       title: 'Monitoring',
       items: [
-        { id: 'dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
-        {
-          id: 'checks',
-          icon: <ClipboardCheck className="w-4 h-4" />,
-          badge: missedCount || undefined,
-          badgeColor: 'bg-red-100 text-red-700 border-red-200'
-        },
-        { id: 'jobs', icon: <Briefcase className="w-4 h-4" /> },
+        ...monitoringItem,
         {
           id: 'exceptions',
           icon: <AlertOctagon className="w-4 h-4" />,
           badge: exceptionCount || undefined,
           badgeColor: 'bg-amber-100 text-amber-800 border-amber-200'
         },
-        { id: 'reports', icon: <FileSpreadsheet className="w-4 h-4" /> }
+        { id: 'reports', icon: <FileSpreadsheet className="w-4 h-4" /> },
+        { id: 'performance', icon: <Gauge className="w-4 h-4" /> }
       ]
     },
     {
@@ -167,7 +177,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'activities', icon: <Workflow className="w-4 h-4" /> },
         { id: 'machines', icon: <Cpu className="w-4 h-4" /> },
         { id: 'schedules', icon: <CalendarClock className="w-4 h-4" /> },
-        { id: 'monitoring-setup', icon: <GaugeCircle className="w-4 h-4" /> },
         { id: 'calendar', icon: <CalendarOff className="w-4 h-4" /> },
         { id: 'workers', icon: <Users className="w-4 h-4" /> },
         { id: 'assignments', icon: <Link2 className="w-4 h-4" /> },
@@ -180,7 +189,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { id: 'access', icon: <ShieldCheck className="w-4 h-4" /> },
         { id: 'audit-logs', icon: <History className="w-4 h-4" /> },
-        { id: 'settings', icon: <Settings className="w-4 h-4" /> },
         { id: 'account', icon: <UserRound className="w-4 h-4" /> }
       ]
     }
@@ -195,7 +203,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <img src="/logo.png" alt="" className="w-8 h-8 rounded-lg shadow-xs" />
       <div>
         <div className="text-[13px] font-semibold tracking-tight text-ink leading-none">Quality Monitoring</div>
-        <div className="text-[11px] text-ink-muted tracking-tight mt-1">Admin Panel</div>
+        <div className="text-[11px] text-ink-muted tracking-tight mt-1">{portalLabel(user?.role)}</div>
       </div>
     </div>
   )
@@ -206,7 +214,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div key={group.title} className="space-y-0.5">
           <div className="px-2 py-1 text-[11px] font-medium text-ink-faint uppercase tracking-wider">{group.title}</div>
           {group.items.map((item) => {
-            const isActive = currentTab === item.id
+            const isActive = (item.matches ?? [item.id]).includes(currentTab as NavTab)
             return (
               <Link
                 key={item.id}
@@ -221,7 +229,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <div className="flex items-center gap-2.5">
                   <span className={isActive ? 'text-accent' : 'text-ink-muted'}>{item.icon}</span>
-                  <span>{NAV_LABEL[item.id]}</span>
+                  <span>{item.label ?? NAV_LABEL[item.id]}</span>
                 </div>
                 {item.badge !== undefined && (
                   <span className={`text-[11px] font-mono font-bold px-1.5 rounded border ${item.badgeColor}`}>{item.badge}</span>

@@ -19,6 +19,7 @@ import { machineDaysRouter } from './routes/machineDays'
 import { calendarYearsRouter, weeklyRulesRouter } from './routes/calendarYears'
 import { usersRouter } from './routes/users'
 import { monitoringRouter } from './routes/monitoring'
+import { performanceRouter } from './routes/performance'
 import { jobsRouter } from './routes/jobs'
 import { workerRouter } from './routes/worker'
 import { accessRouter } from './routes/access'
@@ -37,7 +38,7 @@ export function createApp() {
     next()
   })
   // Expose Content-Disposition so the admin site (another origin) can read download filenames.
-  app.use(cors({ exposedHeaders: ['Content-Disposition'] }))
+  app.use(cors({ exposedHeaders: ['Content-Disposition', 'X-Total-Count'] }))
   app.use(express.json({ limit: '1mb' }))
 
   app.get('/api/health', (_req, res) => {
@@ -74,6 +75,7 @@ export function createApp() {
   admin.use('/users', usersRouter)
   admin.use('/access', accessRouter)
   admin.use('/jobs', jobsRouter)
+  admin.use('/performance', performanceRouter)
   admin.use('/', monitoringRouter)
   app.use('/api', admin)
 

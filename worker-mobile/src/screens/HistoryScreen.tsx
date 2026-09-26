@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { View, Text, ScrollView, RefreshControl, Pressable, Image } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { ApiError, fileUrl, getHistory, getHistoryFilters } from '../services/api'
+import { fileUrl, getHistory, getHistoryFilters } from '../services/api'
+import { friendlyMessage } from '../utils/friendlyError'
 import { HistoryFilterOptions, HistoryItem, HistoryPage, HistoryQuery } from '../types'
 import { formatTime } from '../utils/format'
 import { formatDateKey } from '../utils/dates'
@@ -107,7 +108,7 @@ export const HistoryScreen: React.FC<Props> = ({ refreshKey, onOpenRecord }) => 
       setData(await getHistory(query))
       setError(null)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Please try again.')
+      setError(friendlyMessage(err))
     }
   }, [query])
 

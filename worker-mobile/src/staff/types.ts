@@ -19,6 +19,7 @@ export type ModuleKey =
   | 'audit_logs'
   | 'settings'
   | 'calendar'
+  | 'performance'
 
 export type Access = 'none' | 'view' | 'manage'
 export type Permissions = Record<ModuleKey, Access>
@@ -358,7 +359,16 @@ export interface MachineSummary {
   open: number
 }
 
+/** Which department a dashboard covers; a Manager sees only their own. */
+export interface DepartmentScope {
+  departmentId: string | null
+  departmentName: string | null
+  restricted: boolean
+  missingDepartment: boolean
+}
+
 export interface DashboardData {
+  scope?: DepartmentScope
   from: string
   to: string
   kpi: KPISummary
@@ -551,69 +561,6 @@ export interface RunningJob {
   endedAt: string | null
 }
 
-/** One shift's schedule of a check type, with its rolling timer. */
-export interface OverviewSchedule {
-  id: string
-  shiftId: string
-  shiftName: string
-  intervalMinutes: number
-  mode: ScheduleMode
-  startTime: string | null
-  endTime: string | null
-  isActive: boolean
-  workerId: string | null
-  workerName: string | null
-  nextDueAt: string | null
-  lastSubmittedAt: string | null
-}
-
-/** One parameter of a check type, with the evidence the worker must capture for it. */
-export interface OverviewParameter {
-  parameterId: string
-  name: string
-  code: string
-  type: ParameterType
-  unit: string | null
-  rule: string | null
-  isRequired: boolean
-  isEnabled: boolean
-  requirePhoto: boolean
-  requireVideo: boolean
-  allowNa: boolean
-  appliesWhen: AppliesWhen
-  sortOrder: number
-}
-
-/** A check type as it runs on one machine. */
-export interface OverviewCheckType {
-  activityId: string
-  activityName: string
-  activityCode: string
-  isActive: boolean
-  allowManual: boolean
-  requireJobNo: boolean
-  requirePhoto: boolean
-  requireVideo: boolean
-  /** JOB when any schedule on this machine is job-based, INTERVAL with interval schedules, else MANUAL. */
-  mode: MonitoringMode
-  schedules: OverviewSchedule[]
-  parameters: OverviewParameter[]
-}
-
-export interface OverviewMachine {
-  id: string
-  name: string
-  code: string
-  status: MachineStatus
-  departmentName: string | null
-  runningJob: RunningJob | null
-  checkTypes: OverviewCheckType[]
-}
-
-/** Machine-centric view of the monitoring configuration (GET /api/monitoring-overview). */
-export interface MonitoringOverview {
-  machines: OverviewMachine[]
-}
 /** Traceability for an Item Code / Job No. / worker report (GET /api/reports/trace). */
 export interface TraceCounts {
   checks: number

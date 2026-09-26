@@ -1,4 +1,5 @@
 import type { CurrentUser } from '../types'
+import { friendlyMessage } from './friendlyError'
 
 /** Backend address. Set VITE_API_URL to override; defaults to port 4000 on the same host. */
 export const API_URL = ((import.meta.env.VITE_API_URL as string | undefined) || `${window.location.protocol}//${window.location.hostname}:4000`).replace(/\/$/, '')
@@ -112,7 +113,7 @@ function withQuery(path: string, query?: Query) {
   return qs ? `${path}?${qs}` : path
 }
 
-async function request<T>(method: string, path: string, body?: unknown, retry = true): Promise<T> {
+async function requestResponse(method: string, path: string, body?: unknown, retry = true): Promise<Response> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   const token = storage.get(ACCESS_KEY)
   if (token) headers.Authorization = `Bearer ${token}`
@@ -120,19 +121,41 @@ async function request<T>(method: string, path: string, body?: unknown, retry = 
 
   const res = await send(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
 
-  if (res.status === 401 && retry && (await refresh())) return request<T>(method, path, body, false)
+  if (res.status === 401 && retry && (await refresh())) return requestResponse(method, path, body, false)
   if (res.status === 401) {
     clearTokens()
     unauthorizedHandler?.()
     throw new ApiError(401, await errorMessage(res))
   }
   if (!res.ok) throw new ApiError(res.status, await errorMessage(res))
+  return res
+}
+
+async function request<T>(method: string, path: string, body?: unknown, retry = true): Promise<T> {
+  const res = await requestResponse(method, path, body, retry)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
 }
 
+/**
+ * A list the server pages: the rows of this page, plus how many entries the filters match in
+ * total (the `X-Total-Count` header). Servers that do not send it report the rows they returned.
+ */
+export interface Page<T> {
+  rows: T[]
+  total: number
+}
+
+async function getPage<T>(path: string, query?: Query): Promise<Page<T>> {
+  const res = await requestResponse('GET', withQuery(path, query))
+  const rows = (await res.json()) as T[]
+  const total = Number(res.headers.get('X-Total-Count'))
+  return { rows, total: Number.isFinite(total) && total >= 0 ? total : rows.length }
+}
+
 export const api = {
   get: <T>(path: string, query?: Query) => request<T>('GET', withQuery(path, query)),
+  getPage,
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
   put: <T>(path: string, body?: unknown) => request<T>('PUT', path, body ?? {}),
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body ?? {}),
@@ -215,4 +238,5 @@ export async function changePassword(currentPassword: string, newPassword: strin
   saveTokens(tokens)
 }
 
-export const errorText = (err: unknown) => (err instanceof Error ? err.message : 'Something went wrong')
+/** What went wrong in plain words, with what to do next; technical details are never shown (lib/friendlyError.ts). */
+export const errorText = (err: unknown) => friendlyMessage(err)

@@ -247,6 +247,21 @@ export interface CheckForm {
 }
 
 /** A photo or video taken with the camera in this session. */
+/** "My performance": this worker's own figures, calculated by the backend. */
+export interface MyPerformance {
+  assigned: number
+  completed: number
+  /** assigned - completed. */
+  missed: number
+  missedChecks: number
+  exceptions: number
+  open: number
+  score: number
+  completionRate: number
+  /** Points lost per missed check, set by an Admin. */
+  penaltyPerMissed: number
+}
+
 export interface Capture {
   uri: string
   capturedAt: string

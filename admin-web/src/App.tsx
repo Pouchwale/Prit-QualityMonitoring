@@ -7,7 +7,8 @@ import { AuthProvider, useAuth } from './lib/auth'
 import { ToastProvider } from './components/common/Toast'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Sidebar, NAV_LABEL, NAV_ORDER, useCanOpen, type NavTab } from './components/layout/Sidebar'
-import { LOGIN_PATH, NAV_PATH, checkPath, safeNext, signOutIntent, tabFromPath } from './lib/routes'
+import { LOGIN_PATH, MONITORING_LABEL, MONITORING_TAB_LABEL, NAV_PATH, checkPath, isMonitoringTab, safeNext, signOutIntent, tabFromPath } from './lib/routes'
+import { MonitoringTabs } from './components/layout/MonitoringTabs'
 import { Topbar } from './components/layout/Topbar'
 import { LoginPage } from './pages/LoginPage'
 
@@ -16,19 +17,18 @@ import { QualityChecksPage } from './pages/admin/QualityChecksPage'
 import { QualityCheckDetailPage } from './pages/admin/QualityCheckDetailPage'
 import { ExceptionsPage } from './pages/admin/ExceptionsPage'
 import { ReportsPage } from './pages/admin/ReportsPage'
+import { PerformancePage } from './pages/admin/PerformancePage'
 import { MachinesPage } from './pages/admin/MachinesPage'
 import { DepartmentsPage } from './pages/admin/DepartmentsPage'
 import { ParametersPage } from './pages/admin/ParametersPage'
 import { ActivitiesPage } from './pages/admin/ActivitiesPage'
 import { SchedulesPage } from './pages/admin/SchedulesPage'
-import { MonitoringSetupPage } from './pages/admin/MonitoringSetupPage'
 import { JobsPage } from './pages/admin/JobsPage'
 import { WorkersPage } from './pages/admin/WorkersPage'
 import { AssignmentsPage } from './pages/admin/AssignmentsPage'
 import { ShiftsPage } from './pages/admin/ShiftsPage'
 import { PlantCalendarPage } from './pages/admin/PlantCalendarPage'
 import { AuditLogsPage } from './pages/admin/AuditLogsPage'
-import { SettingsPage } from './pages/admin/SettingsPage'
 import { ManagerAccessPage } from './pages/admin/ManagerAccessPage'
 import { AccountPage } from './pages/admin/AccountPage'
 
@@ -106,15 +106,19 @@ const Shell: React.FC = () => {
   const fromTab = (location.state as { from?: NavTab } | null)?.from
   const isDetail = /^\/quality-checks\/[^/]+/.test(location.pathname)
   const current: NavTab | null = isDetail ? (fromTab ?? 'checks') : tabFromPath(location.pathname)
-  const title = isDetail ? 'Check Details' : current ? NAV_LABEL[current] : 'Page not found'
+  // Overview, Checks and Jobs are one module: the sidebar and the header name the module, while
+  // the browser tab names the view, so two open tabs can still be told apart.
+  const onMonitoring = !isDetail && isMonitoringTab(current)
+  const title = isDetail ? 'Check Details' : onMonitoring ? MONITORING_LABEL : current ? NAV_LABEL[current] : 'Page not found'
+  const browserTitle = !isDetail && isMonitoringTab(current) ? MONITORING_TAB_LABEL[current] : title
 
   // Every page starts at the top (the menu closes from its own link), and the browser tab names the page.
   useEffect(() => {
     document.querySelector('main')?.scrollTo({ top: 0 })
   }, [location.pathname])
   useEffect(() => {
-    document.title = `${title} · Quality Monitoring`
-  }, [title])
+    document.title = `${browserTitle} · Quality Monitoring`
+  }, [browserTitle])
 
   if (!user) return null
 
@@ -156,24 +160,24 @@ const Shell: React.FC = () => {
         <main className="app-shell flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6">
           <Routes>
             <Route index element={<FirstAllowed />} />
-            <Route path={NAV_PATH.dashboard} element={<Guard tab="dashboard"><DashboardPage onViewCheck={viewCheck} onNavigate={navigate} /></Guard>} />
-            <Route path={NAV_PATH.checks} element={<Guard tab="checks"><QualityChecksPage onViewCheck={viewCheck} /></Guard>} />
+            {/* Quality Monitoring: one module, three views, each keeping its own address. */}
+            <Route path={NAV_PATH.dashboard} element={<Guard tab="dashboard"><DashboardPage onViewCheck={viewCheck} onNavigate={navigate} tabs={<MonitoringTabs current="dashboard" />} /></Guard>} />
+            <Route path={NAV_PATH.checks} element={<Guard tab="checks"><QualityChecksPage onViewCheck={viewCheck} tabs={<MonitoringTabs current="checks" />} /></Guard>} />
             <Route path={`${NAV_PATH.checks}/:checkId`} element={<CheckDetailRoute />} />
-            <Route path={NAV_PATH.jobs} element={<Guard tab="jobs"><JobsPage onViewCheck={viewCheck} /></Guard>} />
+            <Route path={NAV_PATH.jobs} element={<Guard tab="jobs"><JobsPage onViewCheck={viewCheck} tabs={<MonitoringTabs current="jobs" />} /></Guard>} />
             <Route path={NAV_PATH.exceptions} element={<Guard tab="exceptions"><ExceptionsPage onViewCheck={viewCheck} /></Guard>} />
             <Route path={NAV_PATH.reports} element={<Guard tab="reports"><ReportsPage /></Guard>} />
+            <Route path={NAV_PATH.performance} element={<Guard tab="performance"><PerformancePage /></Guard>} />
             <Route path={NAV_PATH.machines} element={<Guard tab="machines"><MachinesPage /></Guard>} />
             <Route path={NAV_PATH.departments} element={<Guard tab="departments"><DepartmentsPage /></Guard>} />
             <Route path={NAV_PATH.parameters} element={<Guard tab="parameters"><ParametersPage /></Guard>} />
             <Route path={NAV_PATH.activities} element={<Guard tab="activities"><ActivitiesPage /></Guard>} />
             <Route path={NAV_PATH.calendar} element={<Guard tab="calendar"><PlantCalendarPage /></Guard>} />
             <Route path={NAV_PATH.schedules} element={<Guard tab="schedules"><SchedulesPage /></Guard>} />
-            <Route path={NAV_PATH['monitoring-setup']} element={<Guard tab="monitoring-setup"><MonitoringSetupPage onNavigate={navigate} /></Guard>} />
             <Route path={NAV_PATH.workers} element={<Guard tab="workers"><WorkersPage /></Guard>} />
             <Route path={NAV_PATH.assignments} element={<Guard tab="assignments"><AssignmentsPage /></Guard>} />
             <Route path={NAV_PATH.shifts} element={<Guard tab="shifts"><ShiftsPage /></Guard>} />
             <Route path={NAV_PATH['audit-logs']} element={<Guard tab="audit-logs"><AuditLogsPage /></Guard>} />
-            <Route path={NAV_PATH.settings} element={<Guard tab="settings"><SettingsPage onPlantNameChange={(name) => setPlantName(name)} /></Guard>} />
             <Route path={NAV_PATH.access} element={<Guard tab="access"><ManagerAccessPage /></Guard>} />
             <Route path={NAV_PATH.account} element={<AccountPage />} />
             <Route path="*" element={<NotFoundPage />} />
