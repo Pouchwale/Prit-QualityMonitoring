@@ -36,7 +36,6 @@ const GROUPS: { title: string; detail?: string; entries: Entry[] }[] = [
     title: 'People',
     entries: [
       { label: 'Workers & Users', description: 'Accounts, roles and app access', screen: 'users', icon: 'people-outline', module: 'workers' },
-      { label: 'Machine Assignment', description: 'Machines each worker handles', screen: 'assignments', icon: 'git-network-outline', module: 'assignments' },
       { label: 'Manager Access', description: 'What each Manager may do', screen: 'managerAccess', icon: 'shield-checkmark-outline', adminOnly: true }
     ]
   },

@@ -146,7 +146,6 @@ export const ManagerAccessPage: React.FC = () => {
       role: 'MANAGER',
       isActive: form.isActive,
       appAccess: form.appAccess,
-      machineIds: [],
       ...(form.password ? { password: form.password } : {})
     }
 
@@ -187,8 +186,7 @@ export const ManagerAccessPage: React.FC = () => {
           shiftId: record.shiftId,
           phone: record.phone,
           isActive: true,
-          appAccess: record.appAccess,
-          machineIds: []
+          appAccess: record.appAccess
         })
         notify('success', 'Manager activated', `${toggling.name} can sign in again with the same access.`)
       }

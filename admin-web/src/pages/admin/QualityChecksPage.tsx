@@ -81,7 +81,7 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
     downloadCsv(
       `quality-checks_${filters.from}_${filters.to}${filters.status ? `_${filters.status.toLowerCase()}` : ''}.csv`,
       // prettier-ignore
-      ['Scheduled at', 'Check code', 'Machine', 'Machine code', 'Department', 'Check type', 'Worker', 'Employee ID', 'Shift', 'Status', 'Result', 'Submission type', 'Item Code', 'Job No.', 'Submitted at', 'Parameters', 'Parameters outside limits', 'N/A parameters', 'Exception reason', 'Evidence URLs'],
+      ['Scheduled at', 'Check code', 'Machine', 'Machine code', 'Department', 'Check type', 'Worker', 'Employee ID', 'Shift', 'Status', 'Result', 'Submission type', 'Item Code', 'PO No.', 'Submitted at', 'Parameters', 'Parameters outside limits', 'N/A parameters', 'Exception reason', 'Evidence URLs'],
       rows.map((c) => [
         formatDateTime(c.scheduledAt),
         c.code,
@@ -193,7 +193,7 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
                   <th className="py-2.5 px-3 font-semibold">Status</th>
                   <th className="py-2.5 px-3 font-semibold" title={RESULT_HINT}>Result</th>
                   <th className="py-2.5 px-3 font-semibold">Item Code</th>
-                  <th className="py-2.5 px-3 font-semibold">Job No.</th>
+                  <th className="py-2.5 px-3 font-semibold">PO No.</th>
                   <th className="py-2.5 px-3 font-semibold">Evidence</th>
                   <th className="py-2.5 px-3 font-semibold">Submitted</th>
                   <th className="py-2.5 px-3" />

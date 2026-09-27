@@ -156,9 +156,9 @@ const formFromActivity = (a: Activity): ActivityForm => ({
   machineIds: [...a.machineIds]
 })
 
-/** Job No. / Photo / Video labels for what the worker must provide for the whole check. */
+/** PO No. / Photo / Video labels for what the worker must provide for the whole check. */
 const evidenceLabels = (a: Pick<Activity, 'requireJobNo' | 'requirePhoto' | 'requireVideo'>) =>
-  [a.requireJobNo && 'Job No.', a.requirePhoto && 'Overall photo', a.requireVideo && 'Overall video'].filter((x): x is string => !!x)
+  [a.requireJobNo && 'PO No.', a.requirePhoto && 'Overall photo', a.requireVideo && 'Overall video'].filter((x): x is string => !!x)
 
 /** "Photo · Video · N/A · Only during a job" (or "Every 1 hour" on a job-based type) for one parameter. */
 const parameterFlags = (p: Activity['parameters'][number], jobBased = false) =>
@@ -453,7 +453,13 @@ const ActivityForm: React.FC<{ params: { id?: string } }> = ({ params }) => {
       form.parameters.filter((_, i) => i !== index)
     )
 
-  const availableParameters = (allParameters ?? []).filter((p) => !form.parameters.some((fp) => fp.parameterId === p.id))
+  /**
+   * A check type may only use the parameters of its own department. A parameter with no department
+   * is unassigned and fits every check type; a check type with no department can use anything.
+   */
+  const forThisDepartment = (p: Parameter) => !form.departmentId || p.departmentIds.length === 0 || p.departmentIds.includes(form.departmentId)
+  const unusedParameters = (allParameters ?? []).filter((p) => !form.parameters.some((fp) => fp.parameterId === p.id))
+  const availableParameters = unusedParameters.filter(forThisDepartment)
 
   const addParameter = () => {
     const parameter = availableParameters.find((p) => p.id === addParameterId)
@@ -544,7 +550,14 @@ const ActivityForm: React.FC<{ params: { id?: string } }> = ({ params }) => {
             <FormSection title="Details">
               <Input label="Name" required value={form.name} onChangeText={(v) => update('name', v)} placeholder="e.g. Printing Hourly Check" />
               <Input label="Code" required value={form.code} onChangeText={(v) => update('code', v)} placeholder="e.g. PRT-HOURLY" autoCapitalize="characters" />
-              <SelectField label="Department" value={form.departmentId} emptyLabel="No department" options={departmentOptions} onChange={(v) => update('departmentId', v)} />
+              <SelectField
+                label="Department"
+                hint="Only this department's workers do this check. No department: every worker."
+                value={form.departmentId}
+                emptyLabel="No department"
+                options={departmentOptions}
+                onChange={(v) => update('departmentId', v)}
+              />
               <Input
                 label="Description"
                 value={form.description}
@@ -562,7 +575,7 @@ const ActivityForm: React.FC<{ params: { id?: string } }> = ({ params }) => {
 
             <FormSection title="Worker form requirements" description="What the worker must provide before submitting. Prefer per-parameter evidence below over one photo for the whole check.">
               <View className="gap-2">
-                <ToggleField label="Job No. required" description="Worker enters the job number." value={form.requireJobNo} onChange={(v) => update('requireJobNo', v)} />
+                <ToggleField label="PO No. required" description="Worker enters the PO number." value={form.requireJobNo} onChange={(v) => update('requireJobNo', v)} />
                 <ToggleField
                   label="Allow manual submission"
                   description="Worker may start this check from the machine screen without waiting for a notification."

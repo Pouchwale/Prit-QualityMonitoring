@@ -146,6 +146,9 @@ export interface JobRow {
   plannedFor: string | null
   note: string | null
   forceClosed: boolean
+  /** The department doing this job, fixed when a worker started it. */
+  departmentId: string | null
+  departmentName: string | null
   /** NONE: no Job Start/End parameters. PENDING: open. DONE: submitted. */
   startCheck: 'NONE' | 'PENDING' | 'DONE'
   endCheck: 'NONE' | 'PENDING' | 'DONE'
@@ -167,7 +170,7 @@ export interface JobFilters {
   running?: boolean
   statuses?: (typeof jobs.$inferSelect)['status'][]
   ids?: string[]
-  /** Only jobs on machines of this department (a Manager sees their own department). */
+  /** Only jobs of this department (a Manager sees their own department). */
   departmentId?: string
   /** Extra condition, e.g. a Manager with no department who may see nothing. */
   where?: SQL
@@ -186,7 +189,8 @@ export async function listJobs(filters: JobFilters = {}): Promise<JobRow[]> {
   if (filters.running === false) where.push(inArray(jobs.status, ['COMPLETED', 'CANCELLED']))
   if (filters.statuses?.length) where.push(inArray(jobs.status, filters.statuses))
   if (filters.ids) where.push(inArray(jobs.id, filters.ids.length ? filters.ids : ['00000000-0000-0000-0000-000000000000']))
-  if (filters.departmentId) where.push(eq(machines.departmentId, filters.departmentId))
+  // The department that ran the job, fixed when a worker started it (not the machine's).
+  if (filters.departmentId) where.push(eq(jobs.departmentId, filters.departmentId))
   if (filters.where) where.push(filters.where)
 
   const rows = await db
@@ -194,12 +198,14 @@ export async function listJobs(filters: JobFilters = {}): Promise<JobRow[]> {
       job: jobs,
       machineName: machines.name,
       machineCode: machines.code,
+      departmentName: departments.name,
       startedByName: starter.name,
       endedByName: ender.name,
       assignedWorkerName: assignee.name
     })
     .from(jobs)
     .innerJoin(machines, eq(jobs.machineId, machines.id))
+    .leftJoin(departments, eq(jobs.departmentId, departments.id))
     .leftJoin(starter, eq(jobs.startedById, starter.id))
     .leftJoin(ender, eq(jobs.endedById, ender.id))
     .leftJoin(assignee, eq(jobs.assignedWorkerId, assignee.id))
@@ -263,6 +269,8 @@ export async function listJobs(filters: JobFilters = {}): Promise<JobRow[]> {
       plannedFor: r.job.plannedFor,
       note: r.job.note,
       forceClosed: r.job.forceClosed,
+      departmentId: r.job.departmentId,
+      departmentName: r.departmentName,
       startCheck: edge(list, 'JOB_START'),
       endCheck: edge(list, 'JOB_END'),
       handovers: handoverRows.filter((h) => h.jobId === r.job.id).length,
@@ -389,7 +397,9 @@ export async function monitoringOverview(): Promise<OverviewMachine[]> {
         unit: parameters.unit,
         minValue: parameters.minValue,
         maxValue: parameters.maxValue,
-        options: parameters.options
+        options: parameters.options,
+        materialOptions: parameters.materialOptions,
+        multiSelect: parameters.multiSelect
       })
       .from(activityParameters)
       .innerJoin(parameters, eq(activityParameters.parameterId, parameters.id))
@@ -470,7 +480,9 @@ export async function monitoringOverview(): Promise<OverviewMachine[]> {
                   unit: p.unit,
                   minValue: p.minValue,
                   maxValue: p.maxValue,
-                  options: p.options
+                  options: p.options,
+                  materialOptions: p.materialOptions,
+                  multiSelect: p.multiSelect
                 }),
                 isRequired: p.isRequired,
                 isEnabled: p.isEnabled,

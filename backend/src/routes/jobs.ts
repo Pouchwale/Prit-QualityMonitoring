@@ -2,9 +2,9 @@ import { Router, type Request } from 'express'
 import { z } from 'zod'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db/client'
-import { jobs, machines, qualityChecks, users, workerMachines } from '../db/schema'
-import { idParam, optionalText } from '../lib/validate'
-import { badRequest, conflict, notFound } from '../lib/http'
+import { jobs, machines, qualityChecks, users } from '../db/schema'
+import { idParam, optionalText, optionalUuid } from '../lib/validate'
+import { badRequest, conflict, HttpError, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
 import { requireModule } from '../lib/permissions'
 import { addDays, parseDateKey } from '../lib/time'
@@ -88,26 +88,26 @@ jobsRouter.get('/:id', requireModule('checks', 'view'), async (req, res) => {
 
 const planInput = z.object({
   machineId: z.uuid('Choose the machine'),
-  jobNo: z.string().trim().min(1, 'Enter the Job No.').max(60),
+  jobNo: z.string().trim().min(1, 'Enter the PO No.').max(60),
   itemCode: optionalText(60),
-  assignedWorkerId: z.uuid().nullish(),
   plannedFor: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Choose a date')
     .nullish(),
-  note: optionalText(500)
+  note: optionalText(500),
+  /**
+   * Which department the job is for. Optional: a planned job with none takes the department of
+   * the worker who starts it. A Manager always plans in their own department.
+   */
+  departmentId: optionalUuid
 })
 
-/** The worker must be an active worker assigned to the machine (Machine Assignment). */
-async function assertWorkerOnMachine(workerId: string | null | undefined, machineId: string) {
-  if (!workerId) return
-  const [row] = await db
-    .select({ role: users.role, isActive: users.isActive, name: users.name, machineId: workerMachines.machineId })
-    .from(users)
-    .leftJoin(workerMachines, and(eq(workerMachines.userId, users.id), eq(workerMachines.machineId, machineId)))
-    .where(eq(users.id, workerId))
-  if (!row || row.role !== 'WORKER' || !row.isActive) throw badRequest('Choose an active worker')
-  if (!row.machineId) throw badRequest(`${row.name} is not assigned to this machine. Assign the machine first in Machine Assignment.`)
+/** The department a planned job belongs to. A Manager may only plan for their own. */
+async function plannedDepartment(req: Request, requested?: string | null) {
+  const scope = await departmentScope(req.user!)
+  if (!scope.restricted) return requested ?? null
+  if (requested && requested !== scope.departmentId) throw new HttpError(403, 'This department is not yours')
+  return scope.departmentId ?? null
 }
 
 /** Plans a job: it waits on the machine for the worker to start it. */
@@ -115,18 +115,17 @@ jobsRouter.post('/', requireModule('checks', 'manage'), async (req, res) => {
   const body = planInput.parse(req.body)
   const [machine] = await db.select().from(machines).where(eq(machines.id, body.machineId))
   if (!machine) throw notFound('Machine')
-  await assertWorkerOnMachine(body.assignedWorkerId, body.machineId)
   const [row] = await db
     .insert(jobs)
     .values({
       machineId: body.machineId,
       jobNo: body.jobNo,
       itemCode: body.itemCode,
-      assignedWorkerId: body.assignedWorkerId ?? null,
       plannedFor: body.plannedFor ?? null,
       note: body.note,
       status: 'PLANNED',
       startedAt: null,
+      departmentId: await plannedDepartment(req, body.departmentId),
       plannedById: req.user!.id
     })
     .returning()
@@ -143,16 +142,15 @@ jobsRouter.put('/:id', requireModule('checks', 'manage'), async (req, res) => {
   const before = await jobById(id)
   if (!before) throw notFound('Job')
   if (before.status !== 'PLANNED') throw conflict('Only a planned job can be edited. Use Handover to change the worker of a running job.')
-  await assertWorkerOnMachine(body.assignedWorkerId, body.machineId)
   const [row] = await db
     .update(jobs)
     .set({
       machineId: body.machineId,
       jobNo: body.jobNo,
       itemCode: body.itemCode,
-      assignedWorkerId: body.assignedWorkerId ?? null,
       plannedFor: body.plannedFor ?? null,
       note: body.note,
+      departmentId: await plannedDepartment(req, body.departmentId),
       updatedAt: new Date()
     })
     .where(and(eq(jobs.id, id), eq(jobs.status, 'PLANNED')))

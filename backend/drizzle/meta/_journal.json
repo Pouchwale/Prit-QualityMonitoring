@@ -127,6 +127,41 @@
       "when": 1790352778640,
       "tag": "0017_exception_reasons",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790419040973,
+      "tag": "0018_drop_machine_assignment",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790441869197,
+      "tag": "0019_dropdown_multi_select",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790484868999,
+      "tag": "0020_record_department",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790492094698,
+      "tag": "0021_parameter_departments",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790504869654,
+      "tag": "0022_corona_treatment_material",
+      "breakpoints": true
     }
   ]
 }

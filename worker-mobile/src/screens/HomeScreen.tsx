@@ -12,6 +12,7 @@ import { SectionHeader } from '../components/ui/SectionHeader'
 import { ListGroup } from '../components/ui/ListGroup'
 import { Icon } from '../components/ui/Icon'
 import { EmptyState, ErrorState, Loading } from '../components/ui/LoadState'
+import { ScoreCard } from '../components/ScoreCard'
 import { formatClockRange } from '../utils/datetime'
 
 export type { AssignedMachine } from '../types'
@@ -66,7 +67,7 @@ function byUrgency(a: AssignedMachine, b: AssignedMachine) {
 
 /**
  * Step 1 of a check: the worker picks the machine they are standing at.
- * Only the machines the admin assigned to this worker are listed.
+ * Every running machine is listed: the worker picks the one they are on and starts a job on it.
  */
 export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine }) => {
   const insets = useSafeAreaInsets()
@@ -86,7 +87,7 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
       setPlant(status)
       setMachines(mine)
       setError(null)
-      // Alerts follow the list, which only holds the worker's assigned machines.
+      // Alerts follow the list of machines the worker can pick from.
       syncLocalAlerts(today)
     } catch (err) {
       setError(friendlyMessage(err))
@@ -128,14 +129,19 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
         contentContainerClassName="px-5 pb-10"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} />}
       >
-        <LargeHeader eyebrow={formatDate(new Date())} title="Select Machine">
-          <View className="mt-1.5 flex-row items-center">
-            <Icon name="time-outline" size={16} color="muted" />
-            <Text className="ml-1.5 flex-1 text-[15px] text-ink-secondary" numberOfLines={1}>
-              {shift}
-            </Text>
+        <View className="flex-row items-center">
+          <View className="flex-1">
+            <LargeHeader eyebrow={formatDate(new Date())} title="Select Machine">
+              <View className="mt-1.5 flex-row items-center">
+                <Icon name="time-outline" size={16} color="muted" />
+                <Text className="ml-1.5 flex-1 text-[15px] text-ink-secondary" numberOfLines={1}>
+                  {shift}
+                </Text>
+              </View>
+            </LargeHeader>
           </View>
-        </LargeHeader>
+          <ScoreCard refreshKey={refreshKey} />
+        </View>
 
         {machines === null && error ? (
           <ErrorState message={error} onRetry={load} />
@@ -144,8 +150,8 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
         ) : machines.length === 0 ? (
           <EmptyState
             icon="construct-outline"
-            title="No machine assigned"
-            message="Ask your supervisor to assign your machine. Until then you get no checks."
+            title="No machine is running"
+            message="No machine is set up and active right now. Ask your supervisor."
             action={{ label: 'Refresh', onPress: load }}
           />
         ) : (
@@ -232,7 +238,7 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
 
             {others.length > 0 ? (
               <View>
-                <SectionHeader size="large" title={due.length ? 'Other machines' : 'My machines'} />
+                <SectionHeader size="large" title={due.length ? 'Other machines' : 'All machines'} />
                 <ListGroup>
                   {others.map((m) => {
                     const status = quietStatus(m, plant.closed)

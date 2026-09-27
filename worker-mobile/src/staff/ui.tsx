@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Image,
@@ -15,6 +15,7 @@ import {
   type KeyboardTypeOptions
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { KeyboardAvoider, KeyboardAwareScrollView, dismissKeyboard, useRevealInput } from '../utils/keyboard'
 import { VideoView, useVideoPlayer } from 'expo-video'
 import { cssInterop } from 'nativewind'
 import { DatePicker } from '../components/DatePicker'
@@ -212,28 +213,29 @@ interface ScreenProps extends HeaderProps {
 export const Screen: React.FC<ScreenProps> = ({ children, onRefresh, refreshing = false, footer, scroll = true, ...header }) => {
   const insets = useSafeAreaInsets()
   const body = scroll ? (
-    <ScrollView
+    <KeyboardAwareScrollView
       className="flex-1"
       contentContainerClassName="px-4 pt-2 gap-6"
       contentContainerStyle={{ paddingBottom: footer ? 24 : Math.max(insets.bottom, 16) + 16 }}
-      keyboardShouldPersistTaps="handled"
       refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={ICON_COLOR.muted} /> : undefined}
     >
       {children}
-    </ScrollView>
+    </KeyboardAwareScrollView>
   ) : (
     <View className="flex-1">{children}</View>
   )
   return (
-    <KeyboardAvoidingView className="flex-1 bg-staff-bg" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <View className="flex-1 bg-staff-bg">
       <Header {...header} />
       {body}
       {footer ? (
-        <View className="border-t border-staff-line bg-staff-card px-4 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
-          {footer}
-        </View>
+        <KeyboardAvoider>
+          <View className="border-t border-staff-line bg-staff-card px-4 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
+            {footer}
+          </View>
+        </KeyboardAvoider>
       ) : null}
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 
@@ -923,6 +925,7 @@ export const Input: React.FC<{
   maxLength?: number
 }> = ({ label, value, onChangeText, placeholder, required, hint, error, secure, multiline, keyboardType, autoCapitalize, editable = true, maxLength }) => {
   const [focused, setFocused] = useState(false)
+  const reveal = useRevealInput()
   const border = error ? 'border-missed' : focused ? 'border-staff-accent' : 'border-staff-field'
   return (
     <View>
@@ -940,7 +943,10 @@ export const Input: React.FC<{
         editable={editable}
         maxLength={maxLength}
         accessibilityLabel={label}
-        onFocus={() => setFocused(true)}
+        onFocus={() => {
+          setFocused(true)
+          reveal?.()
+        }}
         onBlur={() => setFocused(false)}
         textAlignVertical={multiline ? 'top' : 'center'}
         className={`rounded-xl border px-3.5 text-[16px] ${border} ${multiline ? 'min-h-[96px] py-2.5' : 'h-12'} ${editable ? 'bg-staff-card text-staff-ink' : 'bg-staff-fill text-staff-muted'}`}
@@ -955,7 +961,9 @@ export const SearchField: React.FC<{ value: string; onChangeText: (v: string) =>
   onChangeText,
   placeholder = 'Search',
   accessibilityLabel
-}) => (
+}) => {
+  const reveal = useRevealInput()
+  return (
   <View className="h-11 flex-row items-center gap-2 rounded-xl bg-staff-card pl-3 pr-1">
     <Icon name="search-outline" size={18} color="muted" />
     <TextInput
@@ -966,6 +974,7 @@ export const SearchField: React.FC<{ value: string; onChangeText: (v: string) =>
       autoCorrect={false}
       autoCapitalize="none"
       accessibilityLabel={accessibilityLabel ?? placeholder}
+      onFocus={() => reveal?.()}
       className="h-11 flex-1 text-[16px] text-staff-ink"
     />
     {value ? (
@@ -974,7 +983,8 @@ export const SearchField: React.FC<{ value: string; onChangeText: (v: string) =>
       </Pressable>
     ) : null}
   </View>
-)
+  )
+}
 
 export interface Option<T extends string = string> {
   value: T
@@ -1010,18 +1020,24 @@ export const Sheet: React.FC<{ title: string; onClose: () => void; closeLabel?: 
   footer
 }) => {
   const insets = useSafeAreaInsets()
+  // A sheet opens quietly: nothing is focused, so no keyboard jumps up over it.
+  useEffect(() => {
+    dismissKeyboard()
+  }, [])
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable className="flex-1 bg-black/40" onPress={onClose} accessibilityLabel="Close" />
-      <View className="max-h-[85%] rounded-t-[20px] bg-staff-card" style={{ paddingBottom: footer ? 0 : Math.max(insets.bottom, 12) }}>
-        <SheetTop title={title} actionLabel={closeLabel} onAction={onClose} />
-        {children}
-        {footer ? (
-          <View className="border-t border-staff-line px-4 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
-            {footer}
-          </View>
-        ) : null}
-      </View>
+      <KeyboardAvoider>
+        <View className="max-h-[85%] rounded-t-[20px] bg-staff-card" style={{ paddingBottom: footer ? 0 : Math.max(insets.bottom, 12) }}>
+          <SheetTop title={title} actionLabel={closeLabel} onAction={onClose} />
+          {children}
+          {footer ? (
+            <View className="border-t border-staff-line px-4 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
+              {footer}
+            </View>
+          ) : null}
+        </View>
+      </KeyboardAvoider>
     </Modal>
   )
 }
@@ -1042,6 +1058,7 @@ function OptionSheet<T extends string>({
   onClose: () => void
 }) {
   const [search, setSearch] = useState('')
+  const revealOption = useRevealInput()
   const filtered = search ? options.filter((o) => `${o.label} ${o.detail ?? ''}`.toLowerCase().includes(search.toLowerCase())) : options
   return (
     <Sheet title={title} onClose={onClose} closeLabel={multiple ? 'Done' : 'Close'}>
@@ -1056,6 +1073,7 @@ function OptionSheet<T extends string>({
               placeholderTextColor={PLACEHOLDER}
               autoCorrect={false}
               accessibilityLabel="Search options"
+              onFocus={() => revealOption?.()}
               className="h-11 flex-1 text-[16px] text-staff-ink"
             />
           </View>

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Modal, View, Text, Pressable, ScrollView, Platform } from 'react-native'
+import { Modal, View, Text, Pressable, Platform } from 'react-native'
+import { KeyboardAvoider, KeyboardAwareScrollView } from '../utils/keyboard'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { HistoryFilterOptions, HistoryQuery } from '../types'
 import { dateKey, daysAgo, formatDateKey, parseDateKey } from '../utils/dates'
@@ -123,7 +124,7 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
           </Pressable>
         </View>
 
-        <ScrollView className="flex-1" contentContainerClassName="px-5 pb-8 pt-5">
+        <KeyboardAwareScrollView className="flex-1" contentContainerClassName="px-5 pb-8 pt-5">
           <View className="gap-7">
             <View>
               <SectionHeader title="Date" />
@@ -263,9 +264,10 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
               )}
             </View>
           </View>
-        </ScrollView>
+        </KeyboardAwareScrollView>
 
-        <View className="border-t border-line bg-surface px-5 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
+        <KeyboardAvoider>
+          <View className="border-t border-line bg-surface px-5 pt-3" style={{ paddingBottom: Math.max(insets.bottom, 12) }}>
           <Button
             label="Show results"
             onPress={() => {
@@ -274,7 +276,8 @@ export const HistoryFilters: React.FC<Props> = ({ visible, query, options, onApp
               else onApply(draft)
             }}
           />
-        </View>
+          </View>
+        </KeyboardAvoider>
       </View>
     </Modal>
   )

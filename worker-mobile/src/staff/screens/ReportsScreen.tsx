@@ -109,7 +109,7 @@ export const ReportsScreen: React.FC = () => {
   const [downloading, setDownloading] = useState(false)
   const { data, error, loading, reload } = useQuery<QualityCheck[]>('/api/quality-checks', { ...filterQuery(filters), result: filters.status })
   const checks = useMemo(() => data ?? [], [data])
-  /** An Item Code, Job No. or worker report: adds the traceability sections. */
+  /** An Item Code, PO No. or worker report: adds the traceability sections. */
   const traced = !!(filters.itemCode || filters.jobNo || filters.workerId)
   const trace = useQuery<TraceReport>(traced ? '/api/reports/trace' : null, { ...filterQuery(filters), result: filters.status })
   const workerName = filters.workerId
@@ -117,7 +117,7 @@ export const ReportsScreen: React.FC = () => {
       checks.find((c) => c.submittedById === filters.workerId || c.workerId === filters.workerId)?.workerName ??
       'selected worker')
     : null
-  const traceScope = [filters.itemCode && `Item Code ${filters.itemCode}`, filters.jobNo && `Job No. ${filters.jobNo}`, workerName]
+  const traceScope = [filters.itemCode && `Item Code ${filters.itemCode}`, filters.jobNo && `PO No. ${filters.jobNo}`, workerName]
     .filter(Boolean)
     .join(' · ')
 
@@ -190,7 +190,7 @@ export const ReportsScreen: React.FC = () => {
     for (const c of checks) for (const v of c.values) if (!params.some((p) => p.name === v.parameterName)) params.push({ name: v.parameterName, unit: v.unit })
     const csv = toCsv(
       [
-        'Check code', 'Scheduled at', 'Machine', 'Machine code', 'Department', 'Check type', 'Shift', 'Worker', 'Employee ID', 'Status', 'Result', 'Submission type', 'Item Code', 'Job No.',
+        'Check code', 'Scheduled at', 'Machine', 'Machine code', 'Department', 'Check type', 'Shift', 'Worker', 'Employee ID', 'Status', 'Result', 'Submission type', 'Item Code', 'PO No.',
         'Submitted at', 'Next check due', 'N/A parameters',
         'Parameters outside limits', ...params.map((p) => (p.unit ? `${p.name} (${p.unit})` : p.name)), 'Exception reason', 'Exception remark', 'Exception status', 'Photo URLs', 'Video URLs'
       ],

@@ -262,7 +262,7 @@ export interface QualityReport {
   submissionTypes: SubmissionTypeCounts
   outOfLimits: OutOfLimitsRow[]
   analysis: string[]
-  /** Traceability for an Item Code, Job No. or worker report; null for a general report. */
+  /** Traceability for an Item Code, PO No. or worker report; null for a general report. */
   trace: TraceReport | null
 }
 
@@ -364,7 +364,7 @@ export async function buildQualityReport(
     uploadDir: string
     filterLabels: string[]
     /**
-     * Add the traceability sections (per Item Code, Job No. and worker, changes and corrections).
+     * Add the traceability sections (per Item Code, PO No. and worker, changes and corrections).
      * `context` holds the checks that can precede the reported ones (same filters without the
      * worker filter); the reported checks themselves are used when it is left out.
      */
@@ -430,7 +430,7 @@ export async function buildQualityReport(
       status: c.status,
       result: resultLabel(c),
       exception: c.exception?.reason ?? DASH,
-      remarks: [itemCodeOf(c) ? `Item Code ${itemCodeOf(c)}` : null, jobNoOf(c) ? `Job No. ${jobNoOf(c)}` : null].filter(Boolean).join(' · ') || DASH
+      remarks: [itemCodeOf(c) ? `Item Code ${itemCodeOf(c)}` : null, jobNoOf(c) ? `PO No. ${jobNoOf(c)}` : null].filter(Boolean).join(' · ') || DASH
     }
   })
 

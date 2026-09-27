@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { Edit2, Info, KeyRound, Plus, Search, UserX } from 'lucide-react'
-import type { Department, Machine, Role, Shift, User } from '../../types'
+import type { Department, Role, Shift, User } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { ROLE_LABEL, useAuth } from '../../lib/auth'
@@ -8,7 +8,7 @@ import { formatClockRange, formatDateTime } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
 import { DataState } from '../../components/common/DataState'
-import { Field, FormError, MultiSelectList, Select, TextInput, Toggle } from '../../components/common/Form'
+import { Field, FormError, Select, TextInput, Toggle } from '../../components/common/Form'
 import { Modal } from '../../components/common/Modal'
 import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
@@ -64,7 +64,6 @@ interface FormState {
   password: string
   isActive: boolean
   appAccess: boolean
-  machineIds: string[]
 }
 
 const emptyForm: FormState = {
@@ -78,7 +77,6 @@ const emptyForm: FormState = {
   password: '',
   isActive: true,
   appAccess: true,
-  machineIds: []
 }
 
 export const WorkersPage: React.FC = () => {
@@ -88,7 +86,6 @@ export const WorkersPage: React.FC = () => {
   const canEditUser = (u: User) => allowedRoles.includes(u.role)
   const notify = useToast()
   const usersApi = useApi<User[]>('/api/users')
-  const machinesApi = useApi<Machine[]>('/api/machines')
   const departmentsApi = useApi<Department[]>('/api/departments')
   const shiftsApi = useApi<Shift[]>('/api/shifts')
 
@@ -104,7 +101,6 @@ export const WorkersPage: React.FC = () => {
   const canViewPasswords = me?.role === 'SUPER_ADMIN'
 
   const users = useMemo(() => usersApi.data ?? [], [usersApi.data])
-  const machines = machinesApi.data ?? []
   const departments = departmentsApi.data ?? []
   const shifts = shiftsApi.data ?? []
 
@@ -147,7 +143,6 @@ export const WorkersPage: React.FC = () => {
       password: '',
       isActive: u.isActive,
       appAccess: u.appAccess,
-      machineIds: u.machineIds
     })
     setFormError(null)
     setEditing(u)
@@ -165,7 +160,6 @@ export const WorkersPage: React.FC = () => {
     setSaving(true)
     setFormError(null)
     try {
-      const isWorker = form.role === 'WORKER'
       const body = {
         employeeId: form.employeeId.trim(),
         name: form.name.trim(),
@@ -177,7 +171,6 @@ export const WorkersPage: React.FC = () => {
         isActive: form.isActive,
         // Only meaningful for workers; keep the stored value for others (turning it off would sign them out).
         appAccess: form.appAccess,
-        machineIds: isWorker ? form.machineIds : [],
         ...(form.password ? { password: form.password } : {})
       }
       if (creating) {
@@ -209,14 +202,7 @@ export const WorkersPage: React.FC = () => {
 
   const departmentOptions = departments.filter((d) => d.isActive || d.id === form.departmentId)
   const shiftOptions = shifts.filter((s) => s.isActive || s.id === form.shiftId)
-  const machineItems = machines
-    .filter((m) => m.isActive || form.machineIds.includes(m.id))
-    .map((m) => ({
-      id: m.id,
-      label: m.isActive ? m.name : `${m.name} (disabled)`,
-      detail: [m.departmentName, m.code].filter(Boolean).join(' · ')
-    }))
-  const pickerError = machinesApi.error || departmentsApi.error || shiftsApi.error
+  const pickerError = departmentsApi.error || shiftsApi.error
 
   return (
     <div className="space-y-4">
@@ -276,7 +262,6 @@ export const WorkersPage: React.FC = () => {
                 <th className="py-2.5 px-3.5">Role</th>
                 <th className="py-2.5 px-3.5">Department</th>
                 <th className="py-2.5 px-3.5">Shift</th>
-                <th className="py-2.5 px-3.5">Machines</th>
                 <th className="py-2.5 px-3.5">Mobile app</th>
                 <th className="py-2.5 px-3.5">Status</th>
                 <th className="py-2.5 px-3.5">Last login</th>
@@ -285,7 +270,6 @@ export const WorkersPage: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-line">
               {filtered.map((u) => {
-                const worker = u.role === 'WORKER'
                 const self = u.id === me?.id
                 return (
                   <tr key={u.id} className="hover:bg-slate-50 transition-colors">
@@ -300,19 +284,6 @@ export const WorkersPage: React.FC = () => {
                     </td>
                     <td className="py-2.5 px-3.5 whitespace-nowrap text-slate-700">{u.departmentName ?? <span className="text-ink-faint">—</span>}</td>
                     <td className="py-2.5 px-3.5 whitespace-nowrap text-slate-700">{u.shiftName ?? <span className="text-ink-faint">—</span>}</td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap">
-                      {worker ? (
-                        u.machineIds.length ? (
-                          <span className="text-ink">{u.machineIds.length}</span>
-                        ) : (
-                          <span className="text-exception" title="This worker cannot see any checks">
-                            None
-                          </span>
-                        )
-                      ) : (
-                        <span className="text-ink-faint">—</span>
-                      )}
-                    </td>
                     <td className="py-2.5 px-3.5 whitespace-nowrap">
                       {u.appAccess ? (
                         <span className="text-success font-medium">Allowed</span>
@@ -447,24 +418,12 @@ export const WorkersPage: React.FC = () => {
           </div>
 
           {form.role === 'WORKER' && (
-            <div>
-              <div className="flex items-baseline justify-between mb-1">
-                <span className="text-xs font-semibold text-slate-700">Machines this worker can check</span>
-                <span className="text-[11px] text-ink-muted">{form.machineIds.length} selected</span>
-              </div>
-              <MultiSelectList
-                items={machineItems}
-                selected={form.machineIds}
-                onChange={(ids) => set('machineIds', ids)}
-                emptyText={machinesApi.loading ? 'Loading machines…' : 'No machines configured yet'}
-              />
-              <div className="flex items-start gap-1.5 mt-1.5 text-[11px] text-ink-muted">
-                <Info className="w-3.5 h-3.5 shrink-0 mt-px" />
-                <span>
-                  Schedules without an assigned worker show to every worker on the same shift who has access to that machine. Schedules assigned to
-                  a specific worker show only to that worker.
-                </span>
-              </div>
+            <div className="flex items-start gap-1.5 text-[11px] text-ink-muted">
+              <Info className="w-3.5 h-3.5 shrink-0 mt-px" />
+              <span>
+                Workers are not tied to machines. In the app a worker picks any running machine, starts a job on it, and the checks of that job are
+                theirs until the job ends or they hand it over.
+              </span>
             </div>
           )}
         </form>

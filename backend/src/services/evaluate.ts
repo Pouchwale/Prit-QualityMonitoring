@@ -12,6 +12,34 @@ export interface ParameterConfig {
   minValue: number | null
   maxValue: number | null
   options: string[]
+  /**
+   * Dropdown only: a first choice made before `options`, e.g. the material before the dyne. The
+   * reading is then stored as "<material>, <option>". Absent or empty for an ordinary dropdown.
+   */
+  materialOptions?: string[] | null
+  /** Dropdown only: the worker may choose several options. Absent (older callers) means one. */
+  multiSelect?: boolean | null
+}
+
+/** How several chosen dropdown options are stored and shown: one readable, comma-separated value. */
+export const MULTI_SEPARATOR = ', '
+
+/**
+ * The options a worker chose for a dropdown, from either a list or the stored text. An option whose
+ * own text contains a comma is matched whole first, so it is never split in half.
+ */
+export function dropdownSelection(p: ParameterConfig, raw: unknown): string[] {
+  const parts = Array.isArray(raw)
+    ? raw.map((v) => String(v).trim())
+    : (() => {
+        const text = String(raw).trim()
+        if (p.options.includes(text)) return [text]
+        if (!p.multiSelect && !p.materialOptions?.length) return [text]
+        return text.split(',').map((v) => v.trim())
+      })()
+  const chosen = parts.filter(Boolean)
+  // Kept in the order the admin listed them, so the same choice always reads the same way.
+  return p.multiSelect ? p.options.filter((o) => chosen.includes(o)).concat(chosen.filter((c) => !p.options.includes(c))) : chosen
 }
 
 const formatNumber = (n: number) => String(Number(n.toFixed(4)))
@@ -29,8 +57,12 @@ export function ruleText(p: ParameterConfig): string | null {
       return 'Pass or Fail'
     case 'YES_NO':
       return 'Yes or No'
-    case 'DROPDOWN':
-      return p.options.length ? `Choose one: ${p.options.join(', ')}` : null
+    case 'DROPDOWN': {
+      if (!p.options.length) return null
+      const verb = p.multiSelect ? 'Choose one or more' : 'Choose one'
+      if (p.materialOptions?.length) return `Material: ${p.materialOptions.join(' / ')}, then ${verb.toLowerCase()}: ${p.options.join(', ')}`
+      return `${verb}: ${p.options.join(', ')}`
+    }
     case 'PHOTO':
       return 'Photo'
     default:
@@ -38,7 +70,8 @@ export function ruleText(p: ParameterConfig): string | null {
   }
 }
 
-export function isEmpty(raw: unknown) {
+export function isEmpty(raw: unknown): boolean {
+  if (Array.isArray(raw)) return raw.every((v) => isEmpty(v))
   return raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')
 }
 
@@ -83,8 +116,20 @@ export function evaluateValue(p: ParameterConfig, raw: unknown): { value: string
       return { value: v, result: 'NA' }
     }
     case 'DROPDOWN': {
-      if (!p.options.includes(text)) throw badRequest(`${p.name}: choose one of the listed options`)
-      return { value: text, result: 'NA' }
+      const chosen = dropdownSelection(p, raw)
+      if (p.materialOptions?.length) {
+        // Two answers in one reading: the material, then the option. Both are required.
+        const material = chosen.find((c) => p.materialOptions!.includes(c))
+        const option = chosen.find((c) => p.options.includes(c))
+        if (!material) throw badRequest(`${p.name}: choose the material first`)
+        if (!option) throw badRequest(`${p.name}: choose one of the listed options`)
+        if (chosen.some((c) => c !== material && c !== option)) throw badRequest(`${p.name}: choose one material and one option`)
+        return { value: [material, option].join(MULTI_SEPARATOR), result: 'NA' }
+      }
+      const unknown = chosen.find((c) => !p.options.includes(c))
+      if (unknown || chosen.length === 0) throw badRequest(`${p.name}: choose ${p.multiSelect ? 'from' : 'one of'} the listed options`)
+      if (!p.multiSelect && chosen.length > 1) throw badRequest(`${p.name}: choose one of the listed options`)
+      return { value: [...new Set(chosen)].join(MULTI_SEPARATOR), result: 'NA' }
     }
     case 'PHOTO':
       // The answer is the photo itself; the submit route checks that it is attached.

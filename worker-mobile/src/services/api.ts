@@ -412,7 +412,7 @@ export const startManualCheck = (machineId: string, activityId: string) =>
   request<CheckSummary & { created: boolean }>('POST', `/api/worker/machines/${machineId}/checks`, { activityId })
 
 /**
- * Start Job: a planned job, or a new one with its Job No. and Item Code. The job waits for the
+ * Start Job: a planned job, or a new one with its PO No. and Item Code. The job waits for the
  * returned Job Start check(s) before its scheduled checks begin.
  */
 export const startJob = (machineId: string, job: { plannedJobId: string } | { jobNo: string; itemCode?: string }) =>

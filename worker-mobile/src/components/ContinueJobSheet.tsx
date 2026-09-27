@@ -38,7 +38,7 @@ export const ContinueJobSheet: React.FC<Props> = ({ visible, jobNo, itemCode, en
               Continue the job or end the job?
             </Text>
             <Text className="mt-1 text-center text-[16px] text-ink-secondary">
-              Job No. {jobNo}
+              PO No. {jobNo}
               {itemCode ? ` · ${itemCode}` : ''}
             </Text>
           </View>

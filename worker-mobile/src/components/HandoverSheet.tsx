@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Modal, View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native'
+import { Modal, View, Text, Pressable, ActivityIndicator } from 'react-native'
+import { KeyboardAvoider, KeyboardAwareScrollView, dismissKeyboard } from '../utils/keyboard'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { getHandoverOptions, handoverJob } from '../services/api'
 import { friendlyMessage } from '../utils/friendlyError'
@@ -93,7 +94,8 @@ export const HandoverSheet: React.FC<Props> = ({ visible, job, onCancel, onDone 
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
       <View className="flex-1 justify-end bg-black/40">
         <Pressable className="flex-1" onPress={onCancel} accessible={false} />
-        <View className="max-h-[90%] rounded-t-[24px] bg-canvas px-5 pt-2" style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}>
+        <KeyboardAvoider>
+          <View className="max-h-[90%] rounded-t-[24px] bg-canvas px-5 pt-2" style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}>
           <View className="mb-2 h-1.5 w-10 self-center rounded-full bg-line-strong" />
           <View className="flex-row items-center">
             <Pressable onPress={onCancel} accessibilityRole="button" accessibilityLabel="Cancel" className="h-12 min-w-[72px] justify-center active:opacity-50">
@@ -103,7 +105,7 @@ export const HandoverSheet: React.FC<Props> = ({ visible, job, onCancel, onDone 
             <View className="min-w-[72px]" />
           </View>
           <Text className="mb-4 mt-1 text-center text-[15px] text-ink-muted" numberOfLines={2}>
-            Job No. {job.jobNo}
+            PO No. {job.jobNo}
             {job.itemCode ? ` · ${job.itemCode}` : ''} stays running with its history
           </Text>
 
@@ -112,7 +114,7 @@ export const HandoverSheet: React.FC<Props> = ({ visible, job, onCancel, onDone 
           ) : !options ? (
             <ActivityIndicator className="my-8" />
           ) : (
-            <ScrollView keyboardShouldPersistTaps="handled">
+            <KeyboardAwareScrollView>
               <Text className="mb-2 px-4 text-[15px] font-semibold text-ink-muted">Next shift</Text>
               <View className="overflow-hidden rounded-2xl bg-surface">
                 {options.shifts.map((s, i) =>
@@ -126,7 +128,7 @@ export const HandoverSheet: React.FC<Props> = ({ visible, job, onCancel, onDone 
               <Text className="mb-2 mt-6 px-4 text-[15px] font-semibold text-ink-muted">Worker who takes over</Text>
               {workers.length === 0 ? (
                 <Text className="px-4 text-[15px] leading-[20px] text-ink-muted">
-                  No other worker is assigned to this machine. Ask your supervisor to assign one in Machine Assignment.
+                  There is no other worker with app access to hand this job to.
                 </Text>
               ) : (
                 <View className="overflow-hidden rounded-2xl bg-surface">
@@ -151,11 +153,12 @@ export const HandoverSheet: React.FC<Props> = ({ visible, job, onCancel, onDone 
                 <TextField multiline placeholder="e.g. Roll 3 running, ink topped up" value={note} onChangeText={setNote} accessibilityLabel="Note for the next worker" variant="outlined" maxLength={500} />
               </View>
               {error ? <Text className="mt-3 text-[15px] font-medium text-missed">{error}</Text> : null}
-            </ScrollView>
+            </KeyboardAwareScrollView>
           )}
 
-          <Button label="Hand over job" icon="swap-horizontal-outline" onPress={confirm} loading={sending} disabled={!options} className="mt-5" />
-        </View>
+            <Button label="Hand over job" icon="swap-horizontal-outline" onPress={confirm} loading={sending} disabled={!options} className="mt-5" />
+          </View>
+        </KeyboardAvoider>
       </View>
     </Modal>
   )

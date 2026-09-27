@@ -154,9 +154,9 @@ export const SchedulesScreen: React.FC<{ params: Record<string, unknown> }> = ()
     return [...map.values()].sort((a, b) => a.machineName.localeCompare(b.machineName))
   }, [schedules, search, shiftFilter])
 
-  // Schedules whose machine has no worker on that shift create no checks; one line per machine and shift.
-  const gaps = [...new Map(schedules.filter((s) => s.isActive && s.checkWorkers.length === 0).map((s) => [`${s.machineName}|${s.shiftName}`, s])).values()]
-  const shownGaps = showAllGaps ? gaps : gaps.slice(0, 2)
+  // A machine is monitored while a job runs on it, so a schedule needs no worker of its own.
+  const gaps: typeof schedules = []
+  const shownGaps = gaps
 
   const refresh = () => {
     reload()
@@ -177,7 +177,7 @@ export const SchedulesScreen: React.FC<{ params: Record<string, unknown> }> = ()
         <Notice tone="missed" title={gaps.length === 1 ? 'Shift with no worker: its checks are not scheduled' : `${gaps.length} shifts with no worker: their checks are not scheduled`}>
           {shownGaps.map((g) => (
             <Text key={`${g.machineName}|${g.shiftName}`} className="mt-1 text-[14px] leading-[19px] text-staff-ink2">
-              <Text className="font-semibold text-staff-ink">{g.machineName}</Text> · {g.shiftName} — assign a worker on {g.shiftName} to {g.machineName} in Machine Assignment.
+              <Text className="font-semibold text-staff-ink">{g.machineName}</Text> · {g.shiftName}
             </Text>
           ))}
           {gaps.length > 2 ? (
@@ -216,10 +216,6 @@ export const SchedulesScreen: React.FC<{ params: Record<string, unknown> }> = ()
                 {blocked ? <Notice tone="exception" message={blocked} /> : null}
                 <List>
                   {g.rows.map((s) => {
-                    const assigned =
-                      s.checkWorkers.length === 0
-                        ? null
-                        : `${s.checkWorkers.map((w) => w.name).join(', ')}${s.checkWorkers.length === 1 ? ` ${s.checkWorkers[0].employeeId}` : ''}${!s.workerId ? ' (by shift)' : ''}`
                     return (
                       <Row
                         key={s.id}
@@ -230,15 +226,9 @@ export const SchedulesScreen: React.FC<{ params: Record<string, unknown> }> = ()
                           s.startTime && s.endTime ? `${formatClockRange(s.startTime, s.endTime)}` : 'Whole shift',
                           `${s.shiftName} ${formatClockRange(s.shiftStartTime, s.shiftEndTime)}`
                         )}
-                        detail={facts(assigned ? `Assigned to ${assigned}` : `No worker on ${s.shiftName}`, timerLine(s))}
+                        detail={timerLine(s)}
                         detailLines={2}
-                        right={
-                          !s.isActive ? (
-                            <Badge label="Paused" tone="exception" />
-                          ) : s.checkWorkers.length === 0 ? (
-                            <Badge label="No worker" tone="missed" />
-                          ) : undefined
-                        }
+                        right={!s.isActive ? <Badge label="Paused" tone="exception" /> : undefined}
                         onPress={canEdit ? () => push('scheduleForm', { schedule: s }) : undefined}
                         accessibilityLabel={canEdit ? `Edit ${s.activityName} schedule on ${s.machineName}` : undefined}
                       />
@@ -394,11 +384,6 @@ export const ScheduleFormScreen: React.FC<{ params: { schedule?: Schedule; id?: 
     return { times, text: `${times.length === 1 ? 'Check at' : 'Checks at'} ${shown} (${times.length} per shift)` }
   }, [selectedShift, intervalValid, windowValid, form.useWindow, form.startTime, form.endTime, interval])
 
-  // Same rule as the backend (services/workerAssignment.ts): workers on this shift first, else workers with no fixed shift.
-  const onMachine = form.machineId ? workers.filter((w) => w.isActive && w.appAccess && w.machineIds.includes(form.machineId)) : []
-  const onShift = onMachine.filter((w) => w.shiftId === form.shiftId)
-  const eligibleWorkers = !form.shiftId ? [] : onShift.length ? onShift : onMachine.filter((w) => !w.shiftId)
-  const assignedWorker = workers.find((w) => w.id === form.workerId)
   const machineBlocked = selectedMachine && (selectedMachine.status !== 'ACTIVE' || !selectedMachine.isActive)
 
   const pickerError = machinesApi.error || activitiesApi.error || shiftsApi.error || workersApi.error
@@ -527,20 +512,6 @@ export const ScheduleFormScreen: React.FC<{ params: { schedule?: Schedule; id?: 
         <ToggleField label="Active" description="Paused schedules generate no new checks." value={form.isActive} onChange={(v) => set('isActive', v)} />
       </FormSection>
 
-      <FormSection title="Worker">
-        <SelectField
-          label="Assigned worker"
-          hint="Optional. Leave on automatic to give the checks to the worker assigned to this machine on this shift."
-          value={form.workerId}
-          emptyLabel="Automatic: worker on this shift"
-          options={workerOptions.map((w) => ({
-            value: w.id,
-            label: `${w.name} (${w.employeeId})${w.shiftName ? ` · ${w.shiftName}` : ''}${w.isActive ? '' : ' (disabled)'}`
-          }))}
-          onChange={(v) => set('workerId', v)}
-        />
-      </FormSection>
-
       {preview ? (
         <Card className="gap-2 p-4">
           <Text className="text-[13px] font-semibold leading-[18px] text-staff-muted" accessibilityRole="header">
@@ -562,20 +533,9 @@ export const ScheduleFormScreen: React.FC<{ params: { schedule?: Schedule; id?: 
           ) : null}
           {!form.isActive ? <Text className="text-[14px] leading-[19px] text-staff-muted">Schedule is paused: nothing will be generated.</Text> : null}
           {form.machineId ? (
-            assignedWorker ? (
-              <Text className="text-[14px] leading-[19px] text-staff-ink2">Checks are assigned to {assignedWorker.name}.</Text>
-            ) : eligibleWorkers.length > 0 ? (
-              <Text className="text-[14px] leading-[19px] text-staff-ink2">
-                {eligibleWorkers.length === 1
-                  ? `Checks are assigned to ${eligibleWorkers[0].name}.`
-                  : `Checks are shared between ${eligibleWorkers.map((w) => w.name).join(', ')}.`}
-              </Text>
-            ) : !workersApi.loading ? (
-              <Text className="text-[14px] font-medium leading-[19px] text-missed">
-                No worker on {selectedShift?.name ?? 'this shift'} is assigned to {selectedMachine?.name ?? 'this machine'}. No checks are created until you assign one in
-                Machine Assignment.
-              </Text>
-            ) : null
+            <Text className="text-[14px] leading-[19px] text-staff-ink2">
+              Checks belong to the worker running the job on the machine. Nothing is created while no job is running.
+            </Text>
           ) : null}
         </Card>
       ) : null}

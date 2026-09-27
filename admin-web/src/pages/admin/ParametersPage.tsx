@@ -12,7 +12,7 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { DataState } from '../../components/common/DataState'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
-import { Field, FormError, Select, TextArea, TextInput, Toggle, inputClass } from '../../components/common/Form'
+import { Field, FormError, MultiSelectList, Select, TextArea, TextInput, Toggle, inputClass } from '../../components/common/Form'
 
 const PARAMETER_TYPES: ParameterType[] = ['NUMBER', 'TEXT', 'DROPDOWN', 'YES_NO', 'PASS_FAIL', 'PHOTO']
 
@@ -25,11 +25,13 @@ interface ParameterBody {
   minValue: number | null
   maxValue: number | null
   options: string[]
+  materialOptions: string[]
+  multiSelect: boolean
   isRequired: boolean
   isActive: boolean
   sortOrder: number
   description: string | null
-  departmentId: string | null
+  departmentIds: string[]
 }
 
 interface ParameterForm {
@@ -40,10 +42,12 @@ interface ParameterForm {
   minValue: string
   maxValue: string
   options: string[]
+  materialOptions: string[]
+  multiSelect: boolean
   isRequired: boolean
   isActive: boolean
   description: string
-  departmentId: string
+  departmentIds: string[]
 }
 
 const emptyForm: ParameterForm = {
@@ -54,10 +58,12 @@ const emptyForm: ParameterForm = {
   minValue: '',
   maxValue: '',
   options: [''],
+  materialOptions: [],
+  multiSelect: false,
   isRequired: true,
   isActive: true,
   description: '',
-  departmentId: ''
+  departmentIds: []
 }
 
 const formFromParameter = (p: Parameter): ParameterForm => ({
@@ -68,10 +74,12 @@ const formFromParameter = (p: Parameter): ParameterForm => ({
   minValue: p.minValue === null ? '' : String(p.minValue),
   maxValue: p.maxValue === null ? '' : String(p.maxValue),
   options: p.options.length ? [...p.options] : [''],
+  materialOptions: [...p.materialOptions],
+  multiSelect: p.multiSelect,
   isRequired: p.isRequired,
   isActive: p.isActive,
   description: p.description ?? '',
-  departmentId: p.departmentId ?? ''
+  departmentIds: [...p.departmentIds]
 })
 
 /** Full body for an existing parameter, so partial updates (e.g. enable/disable) keep every other field. */
@@ -83,11 +91,13 @@ const bodyFromParameter = (p: Parameter): ParameterBody => ({
   minValue: p.minValue,
   maxValue: p.maxValue,
   options: p.options,
+  materialOptions: p.materialOptions,
+  multiSelect: p.multiSelect,
   isRequired: p.isRequired,
   isActive: p.isActive,
   sortOrder: p.sortOrder,
   description: p.description,
-  departmentId: p.departmentId
+  departmentIds: p.departmentIds
 })
 
 const toNumberOrNull = (value: string) => (value.trim() === '' ? null : Number(value))
@@ -120,7 +130,7 @@ export const ParametersPage: React.FC = () => {
       if (!showDisabled && !p.isActive) return false
       if (typeFilter !== 'ALL' && p.type !== typeFilter) return false
       if (!q) return true
-      return [p.name, p.code, p.rule ?? '', p.description ?? ''].some((s) => s.toLowerCase().includes(q))
+      return [p.name, p.code, p.departmentNames.join(' '), p.rule ?? '', p.description ?? ''].some((s) => s.toLowerCase().includes(q))
     })
   }, [parameters, search, typeFilter, showDisabled])
 
@@ -151,6 +161,7 @@ export const ParametersPage: React.FC = () => {
     e?.preventDefault()
     const isNumber = form.type === 'NUMBER'
     const options = form.type === 'DROPDOWN' ? form.options.map((o) => o.trim()).filter(Boolean) : []
+    const materialOptions = form.type === 'DROPDOWN' ? form.materialOptions.map((o) => o.trim()).filter(Boolean) : []
     const minValue = isNumber ? toNumberOrNull(form.minValue) : null
     const maxValue = isNumber ? toNumberOrNull(form.maxValue) : null
 
@@ -168,11 +179,13 @@ export const ParametersPage: React.FC = () => {
       minValue,
       maxValue,
       options,
+      materialOptions,
+      multiSelect: form.type === 'DROPDOWN' && form.multiSelect,
       isRequired: form.isRequired,
       isActive: form.isActive,
       sortOrder: editing ? editing.sortOrder : nextSortOrder,
       description: form.description.trim() || null,
-      departmentId: form.departmentId || null
+      departmentIds: form.departmentIds
     }
 
     setSaving(true)
@@ -237,7 +250,7 @@ export const ParametersPage: React.FC = () => {
     }
   }
 
-  const departmentOptions = (departments ?? []).filter((d) => d.isActive || d.id === form.departmentId)
+  const departmentOptions = (departments ?? []).filter((d) => d.isActive || form.departmentIds.includes(d.id))
   const filtersActive = search.trim() !== '' || typeFilter !== 'ALL'
 
   return (
@@ -260,7 +273,7 @@ export const ParametersPage: React.FC = () => {
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 lg:top-2.5 lg:translate-y-0 text-ink-faint pointer-events-none" />
           <input
             type="text"
-            placeholder="Search name, code or rule…"
+            placeholder="Search name, code, department or rule…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className={`${inputClass} pl-8`}
@@ -308,6 +321,7 @@ export const ParametersPage: React.FC = () => {
                 <th className="py-2.5 px-3 w-16">Order</th>
                 <th className="py-2.5 px-3">Parameter</th>
                 <th className="py-2.5 px-3">Code</th>
+                <th className="py-2.5 px-3">Department</th>
                 <th className="py-2.5 px-3">Input type</th>
                 <th className="py-2.5 px-3">Rule</th>
                 <th className="py-2.5 px-3">Default</th>
@@ -348,10 +362,16 @@ export const ParametersPage: React.FC = () => {
                   </td>
                   <td className="py-2 px-3">
                     <span className={`font-semibold ${p.isActive ? 'text-ink' : 'text-ink-muted'}`}>{p.name}</span>
-                    {p.departmentName && <span className="ml-1.5 text-[11px] lg:text-[10px] text-ink-muted">· {p.departmentName}</span>}
                     {p.description && <span className="block text-[11px] text-ink-muted truncate max-w-xs">{p.description}</span>}
                   </td>
                   <td className="py-2 px-3 font-mono text-ink-secondary whitespace-nowrap">{p.code}</td>
+                  <td className="py-2 px-3 whitespace-nowrap">
+                    {p.departmentNames.length ? (
+                      <span className="text-ink">{p.departmentNames.join(', ')}</span>
+                    ) : (
+                      <span className="text-ink-faint">Unassigned</span>
+                    )}
+                  </td>
                   <td className="py-2 px-3 whitespace-nowrap">
                     <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-accent text-[11px] lg:text-[10px] font-medium">
                       {PARAMETER_TYPE_LABEL[p.type]}
@@ -458,16 +478,21 @@ export const ParametersPage: React.FC = () => {
                 ))}
               </Select>
             </Field>
-            <Field label="Department" hint="Optional. Helps group parameters.">
-              <Select value={form.departmentId} onChange={(e) => update('departmentId', e.target.value)}>
-                <option value="">All departments</option>
-                {departmentOptions.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
+            {/* Not a <Field>: that renders a <label>, which would bind the heading to the first box. */}
+            <div>
+              <span className="block text-[13px] lg:text-xs font-semibold text-slate-700 mb-1">Departments</span>
+              <MultiSelectList
+                items={departmentOptions.map((d) => ({ id: d.id, label: d.name, detail: d.isActive ? null : 'disabled' }))}
+                selected={form.departmentIds}
+                onChange={(ids) => update('departmentIds', ids)}
+                emptyText={departments === null ? 'Loading departments…' : 'No departments configured yet'}
+              />
+              <span className="block text-[11px] text-ink-muted mt-1">
+                {form.departmentIds.length
+                  ? `${form.departmentIds.length} selected. Only these departments' check types can use this parameter.`
+                  : 'None selected: unassigned, so every check type can use it.'}
+              </span>
+            </div>
           </div>
 
           {form.type === 'NUMBER' && (
@@ -508,6 +533,44 @@ export const ParametersPage: React.FC = () => {
           {form.type === 'DROPDOWN' && (
             <div className="p-3 bg-slate-50 border border-line rounded space-y-2">
               <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-700">First choice (optional)</span>
+                <span className="text-[11px] text-ink-muted">Asked before the options below</span>
+              </div>
+              <div className="space-y-1.5">
+                {form.materialOptions.map((option, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <span className="w-5 text-right font-mono text-[11px] text-ink-muted">{index + 1}</span>
+                    <TextInput
+                      value={option}
+                      onChange={(e) => update('materialOptions', form.materialOptions.map((o, i) => (i === index ? e.target.value : o)))}
+                      placeholder="e.g. BOPP 38"
+                    />
+                    <button
+                      type="button"
+                      title="Remove"
+                      onClick={() => update('materialOptions', form.materialOptions.filter((_, i) => i !== index))}
+                      className="p-1 rounded text-ink-muted hover:text-failed hover:bg-white"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                type="button"
+                onClick={() => update('materialOptions', [...form.materialOptions, ''])}
+                icon={<Plus className="w-3 h-3" />}
+              >
+                Add first choice
+              </Button>
+              <p className="text-[11px] text-ink-muted">
+                {form.materialOptions.some((o) => o.trim())
+                  ? 'The worker picks one of these first, then one of the options below. Both are recorded together, e.g. "BOPP 38, 40 Dyne".'
+                  : 'Leave empty for an ordinary dropdown. Fill it in to ask the worker something first, such as the material.'}
+              </p>
+              <div className="flex items-center justify-between pt-1 border-t border-line">
                 <span className="text-xs font-semibold text-slate-700">
                   Dropdown options<span className="text-failed"> *</span>
                 </span>
@@ -543,6 +606,18 @@ export const ParametersPage: React.FC = () => {
               >
                 Add option
               </Button>
+              <div className="pt-1 border-t border-line">
+                <Toggle
+                  checked={form.multiSelect}
+                  onChange={(v) => update('multiSelect', v)}
+                  label="Allow multiple selection"
+                  description={
+                    form.multiSelect
+                      ? 'The worker can pick several options; they are recorded together, separated by commas.'
+                      : 'The worker picks one option.'
+                  }
+                />
+              </div>
             </div>
           )}
 

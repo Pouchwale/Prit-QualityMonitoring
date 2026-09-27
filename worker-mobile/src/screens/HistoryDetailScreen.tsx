@@ -218,7 +218,7 @@ export const HistoryDetailScreen: React.FC<Props> = ({ checkId, onClose }) => {
                 <DetailRow label="Department" value={record.departmentName ?? '—'} />
                 {record.shiftName ? <DetailRow label="Shift" value={record.shiftName} /> : null}
                 {record.itemCode ? <DetailRow label="Item Code" value={record.itemCode} /> : null}
-                {record.jobNo ? <DetailRow label="Job No." value={record.jobNo} /> : null}
+                {record.jobNo ? <DetailRow label="PO No." value={record.jobNo} /> : null}
                 {record.submissionType ? (
                   <DetailRow label="Started by" value={record.submissionType === 'MANUAL' ? 'Manual' : 'Notification'} />
                 ) : null}

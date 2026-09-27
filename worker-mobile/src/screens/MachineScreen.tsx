@@ -100,7 +100,7 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
       resyncLocalAlerts()
       const first = started.startChecks[0]
       if (first) onStart(first.id)
-      else showSuccess('Job started', `Job No. ${started.job.jobNo} is running. The scheduled checks follow the admin's plan.`)
+      else showSuccess('Job started', `PO No. ${started.job.jobNo} is running. The scheduled checks follow the admin's plan.`)
     } catch (err) {
       showError(err, { title: 'Could not start the job' })
     } finally {
@@ -111,7 +111,7 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
   /** End Job: opens the Job End check; the job completes when it is submitted. */
   const finishJob = () => {
     if (!job) return
-    showDialog('End this job?', `Job No. ${job.jobNo}: you will check the Job End parameters and submit them to complete the job.`, [
+    showDialog('End this job?', `PO No. ${job.jobNo}: you will check the Job End parameters and submit them to complete the job.`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'End Job',
@@ -125,7 +125,7 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
             resyncLocalAlerts()
             const first = ended.endChecks[0]
             if (first) onStart(first.id)
-            else showSuccess('Job completed', `Job No. ${job.jobNo} is completed.`)
+            else showSuccess('Job completed', `PO No. ${job.jobNo} is completed.`)
           } catch (err) {
             showError(err, { title: 'Could not end the job' })
           } finally {
@@ -309,7 +309,7 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
             await load()
             // This job's reminders now belong to the next worker.
             resyncLocalAlerts()
-            showSuccess('Job handed over', `${toName} now has Job No. ${job.jobNo} and its pending checks. They have been notified.`)
+            showSuccess('Job handed over', `${toName} now has PO No. ${job.jobNo} and its pending checks. They have been notified.`)
           }}
         />
       ) : null}

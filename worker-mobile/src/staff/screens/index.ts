@@ -6,7 +6,6 @@ import { CheckDetailScreen, ChecksScreen, TestCheckScreen } from './ChecksScreen
 import { ExceptionDetailScreen, ExceptionsScreen } from './ExceptionsScreens'
 import { ReportsScreen } from './ReportsScreen'
 import { USERS_SCREENS } from './UsersScreens'
-import { ASSIGNMENTS_SCREENS } from './AssignmentsScreens'
 import { MANAGER_ACCESS_SCREENS } from './ManagerAccessScreens'
 import { CALENDAR_SCREENS } from './CalendarScreens'
 import { CALENDAR_YEARS_SCREENS } from './CalendarYearsScreens'
@@ -39,7 +38,6 @@ const GROUPS: Record<string, AnyScreen>[] = [
   },
   PERFORMANCE_SCREENS,
   USERS_SCREENS,
-  ASSIGNMENTS_SCREENS,
   MANAGER_ACCESS_SCREENS,
   CALENDAR_SCREENS,
   CALENDAR_YEARS_SCREENS,

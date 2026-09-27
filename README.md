@@ -16,9 +16,9 @@ One system, one backend and one PostgreSQL database, used from:
 | `admin-web/` | Admin panel for admins and managers | React, Vite, TypeScript, Tailwind CSS |
 | `worker-mobile/` | Mobile app for every role (Workers, Managers, Admins, Super Admin): Android app and, exported for the web, the web app | Expo, React Native, React Native Web, TypeScript, NativeWind (Tailwind) |
 
-All configuration (machines, workers, departments, shifts, schedules, parameters, check types, photo/video rules, machine assignment) lives in PostgreSQL. The worker app reads the latest configuration from the backend every time a check is opened.
+All configuration (machines, workers, departments, shifts, schedules, parameters, check types, photo/video rules) lives in PostgreSQL. The worker app reads the latest configuration from the backend every time a check is opened.
 
-**Machine assignment decides everything a worker sees.** In **Admin → Machine Assignment** you choose which machines each worker is responsible for. A worker only sees, submits and is alerted about checks for those machines, even if a schedule names them. Change the assignment and the next checks and alerts follow the new machine immediately.
+**The running job decides everything a worker sees.** Workers are not tied to machines: in the app a worker sees every machine that is running, picks the one they are on and starts a job on it. From then until the job ends, that machine's checks and alerts are theirs. Ending the job frees the machine for anyone; a handover passes it, and its open checks, to another worker.
 
 ## 1. Backend
 
@@ -78,7 +78,7 @@ How it works: sign-in still uses the one-way bcrypt hash. Next to it the passwor
 Workers, Managers, Admins and the Super Admin sign in to the **same mobile app** with their usual employee ID and password. The app reads the account's role and permissions from the backend (`GET /api/auth/me`) and opens:
 
 - **Worker:** the worker screens as before (Today, History, Profile, checks, exceptions, alerts).
-- **Admin / Super Admin:** a plant dashboard (progress, closed-day and shift-without-worker warnings, missed checks, repeated misses, recent submissions, setup issues) and every admin panel module: Quality Checks, Exceptions, Reports (CSV and PDF), Plant Calendar with annual calendars and weekly rules, Workers & Users, Machine Assignment, Manager Access, Machines, Check Types, Parameters, Schedules, Departments, Shifts, Audit Logs and My Account.
+- **Admin / Super Admin:** a plant dashboard (progress, closed-day and shift-without-worker warnings, missed checks, repeated misses, recent submissions, setup issues) and every admin panel module: Quality Checks, Exceptions, Reports (CSV and PDF), Plant Calendar with annual calendars and weekly rules, Workers & Users, Manager Access, Machines, Check Types, Parameters, Schedules, Departments, Shifts, Audit Logs and My Account.
 - **Manager:** a monitoring dashboard (today's progress, missed checks by worker, exceptions awaiting review, their own access) and only the modules granted in Manager Access, as View or Manage.
 
 Tabs and actions follow the permissions: a module without access is not shown, and edit/add/delete buttons only appear with Manage. Permissions are re-read every minute and when the app returns to the foreground. **The backend still checks every request**, so hidden screens are not the protection: Workers get 403 on every staff API, staff accounts get 403 on the worker APIs, Managers get 403 outside their modules and on Admin/Super Admin features (Manager Access, Admin accounts, passwords).
@@ -116,7 +116,6 @@ Every page has its own address (react-router-dom), so pages can be bookmarked, r
 | Schedules | `/schedules` |
 | Plant Calendar | `/plant-calendar` |
 | Workers & Users | `/workers` |
-| Machine Assignment | `/machine-assignment` |
 | Departments | `/departments` |
 | Shifts | `/shifts` |
 | Audit Logs | `/audit-logs` |
@@ -159,13 +158,14 @@ Android builds allow plain `http://` (`expo-build-properties` → `usesCleartext
 
 ## Who does each check
 
-Every quality check is stored with the worker responsible for it, and the admin panel, reports, worker app and alerts all use that worker (`backend/src/services/workerAssignment.ts`). The worker comes from **Machine Assignment** and each worker's shift:
+Every quality check is stored with the worker responsible for it, and the admin panel, reports, worker app and alerts all use that worker. That worker is **whoever started the job running on the machine** (`jobs.assigned_worker_id`):
 
-1. the worker named on the schedule, if they are still assigned to the machine;
-2. otherwise, the worker assigned to the machine who works that shift;
-3. otherwise, a worker assigned to the machine who has no fixed shift.
+1. the worker picks any running machine in the app and starts a job on it (a planned job, or a new PO No.);
+2. from then on every check of that machine — the job's start, its interval checks and its end — belongs to them, and their phone is the one alerted;
+3. a **handover** passes the job and its open checks to another worker;
+4. ending the job releases the machine: anyone can pick it up next.
 
-When several workers qualify, checks are shared evenly between them. When nobody qualifies, the shift has no worker for that machine: **no checks are created for it**, and the Dashboard, Schedules and Machine Assignment pages show "Shift with no worker" until one is assigned. Open checks follow changes: if a machine is taken away from a worker, or a worker is disabled, their upcoming checks move to the right worker, or are removed when nobody is left. At startup, older checks stored without a worker are repaired: submitted checks take the worker who submitted them, missed checks take the responsible worker under the current assignment, and missed checks on shifts that have no worker are removed.
+A machine with no running job is not being monitored: **no checks are created for it**, nothing is alerted and nothing can be missed. There is no permanent worker-machine assignment; the plant decides what is monitored by starting and ending jobs.
 
 ## Monitoring setup: what each parameter needs
 
@@ -178,6 +178,21 @@ Check Types, Machines and Schedules decide what a worker must do; nothing in the
 - **Every interval** — the check is due every N minutes during the shift.
 - **Job-based** — checks run only while a job is running on that machine.
 - **Manual only** — no schedule; the worker submits when needed.
+
+**A dropdown may ask something first** (Parameters → a Dropdown → *First choice*). **Corona Treatment** uses it: the worker picks the material (BOPP 38 / PET 56), and only then the dyne — **38, 40 and 56 Dyne, always all three, whichever material was chosen**. Both answers are recorded together as one reading, "BOPP 38, 40 Dyne", so the check detail, history, CSV and PDF show them without any change. The separate *Treatment* parameter is merged into it and is no longer on any check type; readings already taken against it keep their own snapshot. Leave *First choice* empty and the dropdown behaves exactly as before.
+
+**Dropdown parameters** (Parameters → a Dropdown → *Allow multiple selection*) are single select by default, exactly as before. Turn the setting on and the worker can tap several options instead of one; they are recorded together as one comma-separated reading ("GMG, Pantone"), so the check detail, history, CSV and PDF show them without any change. The options themselves are never touched by the setting, an existing dropdown stays single select until an admin changes it, and an older worker app that knows nothing about the setting simply sends the one option it can choose.
+
+**Per department** (Parameters → *Departments*, and Check Types → *Department*): a quality parameter can be used by **several departments** — Viscosity by Pouch and Label, a Nail Test by Sleeve alone. A check type then only offers the parameters of its own department, so the Label check type lists Viscosity and the Sleeve one does not. A parameter with **no** department is unassigned and every check type can use it, which is how every parameter behaved before. The departments a parameter serves are stored in `parameter_departments`, and the Parameters list shows them as one column ("Pouch, Label", or "Unassigned").
+
+**Per department** (Check Types → Department): a check type that names a department is done **only by the workers of that department**. A Label worker is offered the **Label** check type, a Sleeve worker the **Sleeve** one, and neither is shown the other's; a check type with **no department** belongs to the whole plant and every worker gets it, so a plant that does not use departments is unaffected. This is enforced by the backend (`services/checkTypeScope.ts`), not by the app: the worker app is only ever sent the check types it may show, starting another department's check answers **403**, and neither the shift schedules nor the job scheduler create a check for a worker who is not in its department. Staff screens still show every check type. The plant ships with two of them:
+
+| Check type | Department | Parameters |
+| --- | --- | --- |
+| **Label** | Label | Artwork, Corona Treatment, Label, White Window Test, Deep Punching, Registration, Print Pressure Value, Addition, Text Matter, Direction, Treatment, Shared Card, Ink Photo |
+| **Sleeve** | Sleeve | Artwork, Corona Treatment, Label, Nail Test, Deep Punching, Registration, Print Pressure Value, Addition, Text Matter, Duration, Shared Card, Ink Photo |
+
+Label uses the **White Window Test** and Sleeve the **Nail Test**, in place of the older Tape Test. They are created once, on start-up (`backend/src/db/ensureCheckTypes.ts`), reusing the parameters and departments the plant already has; everything an admin changes afterwards stays as they set it.
 
 **Not Applicable reasons** are configurable (**Check Types → N/A reasons**, in the admin panel and the mobile staff app alike; "Other" requires a remark). A parameter marked Not Applicable is recorded with its reason, never counted as Missed or Failed, and the check still counts as Completed.
 
@@ -213,13 +228,13 @@ Only one check per machine and check type is open at a time (a database rule, no
 
 **Manual submission:** the worker opens the machine and taps **Start check** at any time, without waiting for a notification. Manual submissions follow exactly the same required fields, evidence rules and limits, are marked **Manual** in the check, reports and CSV, and reset the timer the same way.
 
-**Jobs (shift schedules in Job-based mode):** on a machine with job-based schedules the worker taps **Start job** (Job No.) and **End job**. Those checks are due from the job start and then every interval; nothing is due, and nothing is Missed, when no job is running. Parameters set to "Only while a job is running" are skipped automatically with the reason "No job running" when there is no job.
+**Jobs (shift schedules in Job-based mode):** on a machine with job-based schedules the worker taps **Start job** (PO No.) and **End job**. Those checks are due from the job start and then every interval; nothing is due, and nothing is Missed, when no job is running. Parameters set to "Only while a job is running" are skipped automatically with the reason "No job running" when there is no job.
 
 ## Job-based check types: every parameter on its own frequency
 
 A check type set to **Job-based** (Check Types → When it is checked) is checked per job, not per shift. Each parameter has its own **When checked**: Job start, Every 1 hour, Every 2 hours, Every 3 hours, a custom interval (5–1440 minutes), or Job end. There is no frequency for the check type as a whole; its **Grace** only says how long a scheduled check stays open before it counts as Missed (`backend/src/services/jobMonitoring.ts`).
 
-1. **Start Job** (a job planned by an Admin/Manager on the **Jobs** page, or a new Job No.): the Job Start check asks for every Job start parameter once. The job becomes active when it is submitted.
+1. **Start Job** (a job planned by an Admin/Manager on the **Jobs** page, or a new PO No.): the Job Start check asks for every Job start parameter once. The job becomes active when it is submitted.
 2. **Scheduled checks:** every interval parameter runs on its own clock, counted from the job start and then from its own last submission. A check (and its notification) asks for **only the parameters due at that time**; parameters due at the same time (within a minute, or already overdue) share one check. Example with Viscosity every 1 h, Print Quality and Tape Test every 2 h, Registration every 3 h: 11:00 Viscosity; 12:00 Viscosity, Print Quality and Tape Test; 13:00 Viscosity and Registration.
 3. After each scheduled check the worker is asked **Continue the job or end the job?**. **End Job** is also a button on the machine screen.
 4. **End Job** withdraws every scheduled check of the job that is not submitted yet (they are never notified and never count as Missed) and opens the **Job End check** with all Job end parameters. The job is **Completed** only when it is submitted.
@@ -278,12 +293,21 @@ The code is in `backend/src/services/weeklyRules.ts`, `calendarYears.ts` (review
 
 ## Departments: what a Manager sees
 
-An Admin or the Super Admin sees the whole plant. A **Manager sees only their own department** — the department on their account (Workers & Users → the manager → Department). Data belongs to the department of the **machine** it happened on, so a Pouch Manager's Dashboard, Quality Checks, Exceptions, Jobs and Reports contain only Pouch machines, their checks, their workers and their jobs. Worker Performance also uses the worker's own department, because it is about people.
+An Admin or the Super Admin sees the whole plant. A **Manager sees only their own department** — the department on their account (Workers & Users → the manager → Department).
+
+**Machines are shared: the department belongs to the work, not to the machine.** The same machine runs Pouch work on one job and Label work on the next, so no department is set on a machine. Instead:
+
+- a **job** takes its department when a worker starts it, from that worker's account, and keeps it for good — a handover to a worker of another department moves who is responsible, never which department the job belongs to (`jobs.department_id`);
+- a **check** takes the department of the job it was done in, or of its check type when it was done outside a job (`quality_checks.department_id`);
+- a job an Admin only **plans** may name a department, or leave it to the worker who starts it. A Manager plans in their own department and cannot plan into another.
+
+A Pouch Manager's Dashboard, Quality Checks, Exceptions, Jobs and Reports therefore contain the Pouch work done on every machine, and none of the Label work done on those same machines. Worker Performance uses the worker's own department instead, because it is about people.
 
 Everything is enforced by the backend (`services/departmentScope.ts`), not by hiding things on screen:
 
 - the department of the signed-in Manager is read from the database on every request, so a change by an Admin applies at once;
-- a `departmentId` in the request that is not the Manager's own is refused with **403**, and a `machineId`, `workerId`, check or job of another department simply returns nothing or **404**;
+- a `departmentId` in the request that is not the Manager's own is refused with **403**, and a `workerId`, check or job of another department simply returns nothing or **404**;
+- a **shared machine is open to every Manager**: a machine is only refused when it names a department that is not theirs;
 - a Manager whose account has no department yet sees nothing and is told to ask an Admin;
 - the Dashboard and the mobile Home screen show which department they cover.
 
@@ -293,18 +317,18 @@ Workers are unaffected: they only ever see their own checks and their own perfor
 
 **Admin → Worker Performance** shows, for the chosen period, every worker's assigned checks, how many were completed, how many were not, and the resulting score. Workers see only their own figures, under **My performance** on the Profile screen of the app.
 
-The score is a penalty, not a percentage:
+The score is how much of the worker's work is **still not done**, as a negative percentage:
 
 ```
-missed = assigned - completed
-score  = missed x penalty per missed check      (default -1)
+completion % = completed / assigned x 100
+score        = completion % - 100 = -(pending %)
 ```
 
-So 100 assigned with 90 completed is 10 missed and a score of **-10**; everything completed is **0**. "Missed" counts every check that was not completed: gone past its time, taken as an exception, or still open. The table also shows that breakdown and the completion rate, for reference.
+So 100 assigned with 80 completed is 80% complete, 20% pending and a score of **-20%**; everything completed is **0%**, nothing completed is **-100%**, and a worker who was given no checks at all is **0%** rather than -100%. "Not completed" counts every check that was not completed: gone past its time, taken as an exception, or still open. The table also shows that breakdown next to the completion rate.
 
-**Changing the rule:** an Admin or the Super Admin sets **Penalty per missed check** in **Score settings** on the same page. Change it to -2 and the same 10 missed checks score -20 everywhere at once, for the admin panel, the mobile app and every past period. It is stored in the database (`score_settings`), so no new APK and no deployment is needed. Every change is kept with the previous value, the new value, who made it and when (`score_setting_history`), shown under **Change history** and written to the audit log.
+The score is a share, not a count, so ten missed out of ten reads the same as a hundred out of a hundred: **-100%**. The `score_settings` table and its `penalty per missed check` are still stored and still have their API and change history, but **the score no longer uses them**.
 
-**Filters:** date, date range, department, worker, machine, shift and Job No. The score is recalculated for whatever is selected, so "25/09/2026" scores only that day's checks.
+**Filters:** date, date range, department, worker, machine, shift and PO No. The score is recalculated for whatever is selected, so "25/09/2026" scores only that day's checks.
 
 **Departments decide who a Manager sees.** A Manager only ever sees the workers of their own department (the department on their account, Workers & Users → the manager → Department): a Pouch Manager sees Pouch workers, a Label Manager sees Label workers. The department filter is fixed to their own department and the worker list only offers its workers. This is enforced by the backend: a `departmentId` or `workerId` for another department in the request is ignored, and opening another department's worker answers **403**. A Manager whose account has no department yet sees nobody and is told to ask an Admin. Admins and the Super Admin see every department and can filter by it.
 
@@ -338,7 +362,7 @@ Fields the system does not record (corrective action, CAPA reference, a reason f
 
 ## Worker web app (iPhone and PC)
 
-iPhones cannot install the Android APK, so the same worker app is also built for the web. It is the same code as the Android app (Expo + React Native Web), uses the same APIs, login, machine assignment, checks and notifications, and is served by the backend:
+iPhones cannot install the Android APK, so the same worker app is also built for the web. It is the same code as the Android app (Expo + React Native Web), uses the same APIs, login, checks and notifications, and is served by the backend:
 
 ```bash
 cd worker-mobile
@@ -391,7 +415,7 @@ The backend checks every minute for checks that have just become due and alerts 
 | **Development or production build** | The backend sends them through Expo's push service | Yes, always |
 | **Worker web app** (iPhone, Android browser, PC) | The backend sends them through Web Push; the browser's service worker shows them | Yes, needs HTTPS (see above). On iPhone only from the Home Screen app |
 
-All three go to the same recipients (the workers assigned to the machine) and each check is notified once. **Admin → Machine Assignment → Test alert** reaches phones and browsers alike.
+All three go to the same recipient (the worker running the job) and each check is notified once. **Admin → Workers & Users → Test alert** reaches phones and browsers alike.
 
 Expo Go cannot receive server-sent push notifications (Expo removed that in SDK 53), which is why the app falls back to scheduling them locally during development. **The real setup is an installed APK with server push** — see `worker-mobile/PUSH_SETUP.md` for the full steps (Expo account, Firebase key, `eas build`, install, test).
 

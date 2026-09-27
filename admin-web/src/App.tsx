@@ -25,7 +25,6 @@ import { ActivitiesPage } from './pages/admin/ActivitiesPage'
 import { SchedulesPage } from './pages/admin/SchedulesPage'
 import { JobsPage } from './pages/admin/JobsPage'
 import { WorkersPage } from './pages/admin/WorkersPage'
-import { AssignmentsPage } from './pages/admin/AssignmentsPage'
 import { ShiftsPage } from './pages/admin/ShiftsPage'
 import { PlantCalendarPage } from './pages/admin/PlantCalendarPage'
 import { AuditLogsPage } from './pages/admin/AuditLogsPage'
@@ -175,7 +174,6 @@ const Shell: React.FC = () => {
             <Route path={NAV_PATH.calendar} element={<Guard tab="calendar"><PlantCalendarPage /></Guard>} />
             <Route path={NAV_PATH.schedules} element={<Guard tab="schedules"><SchedulesPage /></Guard>} />
             <Route path={NAV_PATH.workers} element={<Guard tab="workers"><WorkersPage /></Guard>} />
-            <Route path={NAV_PATH.assignments} element={<Guard tab="assignments"><AssignmentsPage /></Guard>} />
             <Route path={NAV_PATH.shifts} element={<Guard tab="shifts"><ShiftsPage /></Guard>} />
             <Route path={NAV_PATH['audit-logs']} element={<Guard tab="audit-logs"><AuditLogsPage /></Guard>} />
             <Route path={NAV_PATH.access} element={<Guard tab="access"><ManagerAccessPage /></Guard>} />

@@ -17,7 +17,6 @@ import {
   settings,
   shifts,
   users,
-  workerMachines
 } from '../db/schema'
 import { idParam, optionalUuid } from '../lib/validate'
 import { badRequest, notFound } from '../lib/http'
@@ -31,7 +30,8 @@ import { buildQualityReport } from '../services/reportData'
 import { buildTraceReport } from '../services/traceReport'
 import { renderQualityReport } from '../services/reportPdf'
 import { config } from '../config'
-import { coverageGaps, eligibleWorkers, loadWorkers, shiftAt } from '../services/workerAssignment'
+import { shiftAt } from '../services/shiftTime'
+import { RUNNING_STATUSES } from '../services/jobMonitoring'
 import { closureOn, plansBetween } from '../services/plantCalendar'
 import { machineClosureOn } from '../services/machineDays'
 import { makeCheckCode, prepareChecks } from '../services/checkGenerator'
@@ -57,20 +57,6 @@ async function scopeFor(req: Request, requested?: string) {
   const scope = await departmentScope(req.user!)
   const departmentId = scopedDepartmentId(scope, requested)
   return { scope, departmentId, where: seesNothing(scope) ? blockAll : undefined }
-}
-
-/** Schedules that create no checks because their machine has no worker on that shift. */
-async function gapDetails(departmentId?: string) {
-  const ids = await coverageGaps()
-  if (ids.length === 0) return []
-  return db
-    .select({ scheduleId: schedules.id, machineName: machines.name, shiftName: shifts.name, activityName: activities.name })
-    .from(schedules)
-    .innerJoin(machines, eq(schedules.machineId, machines.id))
-    .innerJoin(shifts, eq(schedules.shiftId, shifts.id))
-    .innerJoin(activities, eq(schedules.activityId, activities.id))
-    .where(and(inArray(schedules.id, ids), departmentId ? eq(machines.departmentId, departmentId) : undefined))
-    .orderBy(asc(machines.name), asc(shifts.startTime))
 }
 
 const formatDay = (d: Date) => formatLocalDate(d)
@@ -119,7 +105,7 @@ const checkFilters = z.object({
   shiftId: z.uuid().optional(),
   activityId: z.uuid().optional(),
   departmentId: z.uuid().optional(),
-  /** Whole Item Code / Job No., case-insensitive (the check's own, or its job's). */
+  /** Whole Item Code / PO No., case-insensitive (the check's own, or its job's). */
   itemCode: z.string().trim().max(60).optional(),
   jobNo: z.string().trim().max(60).optional()
 })
@@ -189,27 +175,27 @@ monitoringRouter.post('/quality-checks', requireModule('checks', 'manage'), asyn
 
   let shiftId: string | null = null
   let workerId = body.workerId
+  // The department of the work: the job running on the machine, else the check type's.
+  let departmentId: string | null = activity.departmentId
   if (body.workerId) {
     const [worker] = await db.select().from(users).where(eq(users.id, body.workerId))
     if (!worker || worker.role !== 'WORKER') throw badRequest('Choose a worker account')
     if (!worker.isActive || !worker.appAccess) throw badRequest('This worker cannot sign in to the app')
-    const [access] = await db
-      .select({ machineId: workerMachines.machineId })
-      .from(workerMachines)
-      .where(and(eq(workerMachines.userId, body.workerId), eq(workerMachines.machineId, machine.id)))
-    if (!access) throw badRequest(`${worker.name} is not assigned to ${machine.name}. Assign the machine to the worker first.`)
     shiftId = worker.shiftId
+    departmentId = departmentId ?? worker.departmentId
   } else {
-    // "Any worker": the check goes to the worker on the machine for the shift running at its start time.
+    // "Any worker": the check goes to whoever is running the job on this machine, as usual.
     const shift = await shiftAt(scheduledAt)
     shiftId = shift?.id ?? null
-    const [candidate] = eligibleWorkers(await loadWorkers(), machine.id, shiftId, null)
-    if (!candidate) {
-      throw badRequest(
-        `No worker is assigned to ${machine.name}${shift ? ` on ${shift.name}` : ''}. Assign a worker in Machine Assignment, or choose a worker.`
-      )
+    const [running] = await db
+      .select({ assignedWorkerId: jobs.assignedWorkerId, departmentId: jobs.departmentId })
+      .from(jobs)
+      .where(and(eq(jobs.machineId, machine.id), inArray(jobs.status, [...RUNNING_STATUSES])))
+    if (!running?.assignedWorkerId) {
+      throw badRequest(`No job is running on ${machine.name}, so no worker is responsible for it. Start a job on the machine, or choose a worker.`)
     }
-    workerId = candidate.id
+    workerId = running.assignedWorkerId
+    departmentId = running.departmentId ?? departmentId
   }
 
   await db.insert(machineActivities).values({ machineId: machine.id, activityId: activity.id }).onConflictDoNothing()
@@ -221,6 +207,7 @@ monitoringRouter.post('/quality-checks', requireModule('checks', 'manage'), asyn
       machineId: machine.id,
       activityId: activity.id,
       workerId,
+      departmentId,
       shiftId,
       scheduledAt,
       windowEndsAt: new Date(scheduledAt.getTime() + body.windowMinutes * 60_000),
@@ -337,12 +324,11 @@ monitoringRouter.get('/dashboard', requireAnyView('dashboard', 'checks', 'except
   const fromKey = dateKey(from)
   const plan = (await plansBetween(fromKey, fromKey)).get(fromKey)
   const machinePlan = plan ? { machineIds: [...plan], count: plan.size } : null
-  const workerGaps = await gapDetails(departmentId)
-  res.json({ from, to, scope, kpi, byMachine: [...byMachine.values()], recent, closure, machinePlan, workerGaps })
+  res.json({ from, to, scope, kpi, byMachine: [...byMachine.values()], recent, closure, machinePlan })
 })
 
 /**
- * Traceability for the Quality Reports: per Item Code, Job No. and worker, and every reading
+ * Traceability for the Quality Reports: per Item Code, PO No. and worker, and every reading
  * change and correction, for the same filters as the report. The detailed records themselves
  * come from /quality-checks with the same filters.
  */
@@ -371,18 +357,18 @@ monitoringRouter.get('/reports/trace', requireModule('reports', 'view'), async (
 })
 
 /**
- * Item Codes and Job Nos. recorded in a period, for the report filters' suggestion lists: from
+ * Item Codes and PO Nos. recorded in a period, for the report filters' suggestion lists: from
  * the checks (submitted values) and from the jobs that ran in the period.
  */
 monitoringRouter.get('/reports/filter-values', requireModule('reports', 'view'), async (req, res) => {
   const { from, to } = dateRange(req)
   const { departmentId, where } = await scopeFor(req)
-  // A Manager is only suggested the Item Codes and Job Nos. of their own department.
+  // A Manager is only suggested the Item Codes and PO Nos. of their own department.
   const ofDepartment = departmentId
-    ? sql`exists (select 1 from ${machines} where ${machines.id} = ${qualityChecks.machineId} and ${machines.departmentId} = ${departmentId})`
+    ? eq(qualityChecks.departmentId, departmentId)
     : undefined
   const jobsOfDepartment = departmentId
-    ? sql`exists (select 1 from ${machines} where ${machines.id} = ${jobs.machineId} and ${machines.departmentId} = ${departmentId})`
+    ? eq(jobs.departmentId, departmentId)
     : undefined
   const [fromChecks, fromJobs] = await Promise.all([
     db
@@ -441,11 +427,11 @@ monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports',
     if (row) labels.push(`Department: ${row.name}`)
   }
   if (f.itemCode) labels.push(`Item Code: ${f.itemCode}`)
-  if (f.jobNo) labels.push(`Job No.: ${f.jobNo}`)
+  if (f.jobNo) labels.push(`PO No.: ${f.jobNo}`)
   if (f.status.length) labels.push(`Status: ${f.status.map((s) => RESULT_LABEL[s]).join(', ')}`)
   if (f.result.length) labels.push(`Result: ${f.result.map((r) => RESULT_LABEL[r]).join(', ')}`)
 
-  // An Item Code, Job No. or worker report also gets the traceability sections. With a worker or
+  // An Item Code, PO No. or worker report also gets the traceability sections. With a worker or
   // result filter, the readings that come before (by anyone) are needed to find the changes.
   const traced = !!(f.itemCode || f.jobNo || f.workerId)
   const traceContext =

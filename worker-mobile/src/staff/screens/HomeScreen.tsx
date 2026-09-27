@@ -73,7 +73,6 @@ export const HomeScreen: React.FC = () => {
   const missed = useQuery<QualityCheck[]>(canList ? '/api/quality-checks' : null, { from: addDaysKey(date, -(REPEAT_WINDOW_DAYS - 1)), to: date, status: 'MISSED' })
   const dayChecks = useQuery<QualityCheck[]>(canList && !isAdmin ? '/api/quality-checks' : null, { from: date, to: date })
   const exceptions = useQuery<ExceptionRecord[]>(can('exceptions') ? '/api/exceptions' : null, { from: addDaysKey(dateKey(), -29), to: dateKey() })
-  const workers = useQuery<User[]>(isAdmin && can('assignments') ? '/api/users' : null, { role: 'WORKER' })
   const years = useQuery<{ years: CalendarYearSummary[] }>(isAdmin && can('calendar') ? '/api/calendar-years' : null)
   // Only needed for the welcome card of a Manager without monitoring access ("Your access" lives on My Account).
   const modules = useQuery<ModuleInfo[]>(!isAdmin && !monitoring && !canList ? '/api/access/modules' : null)
@@ -87,11 +86,10 @@ export const HomeScreen: React.FC = () => {
   const reloadMissed = missed.reload
   const reloadDay = dayChecks.reload
   const reloadExceptions = exceptions.reload
-  const reloadWorkers = workers.reload
   const reloadYears = years.reload
   const reloadAll = useCallback(async () => {
-    await Promise.all([reloadDashboard(), reloadMissed(), reloadDay(), reloadExceptions(), reloadWorkers(), reloadYears()])
-  }, [reloadDashboard, reloadMissed, reloadDay, reloadExceptions, reloadWorkers, reloadYears])
+    await Promise.all([reloadDashboard(), reloadMissed(), reloadDay(), reloadExceptions(), reloadYears()])
+  }, [reloadDashboard, reloadMissed, reloadDay, reloadExceptions, reloadYears])
 
   // Monitoring data refreshes every minute, like the web dashboard.
   useEffect(() => {
@@ -132,7 +130,6 @@ export const HomeScreen: React.FC = () => {
     [data?.byMachine]
   )
 
-  const workersWithoutMachines = (workers.data ?? []).filter((w) => w.isActive && w.machineIds.length === 0)
   const nextYear = new Date().getFullYear() + 1
   const nextYearCalendar = (years.data?.years ?? []).find((y) => y.year === nextYear)
   const needsNextYear = years.data && new Date().getMonth() >= 9 && (!nextYearCalendar || nextYearCalendar.status !== 'APPROVED')
@@ -146,24 +143,6 @@ export const HomeScreen: React.FC = () => {
 
   // ---- warnings (setup problems someone can act on), shown as one compact group
   const warnings: Warning[] = []
-  if (data && (data.workerGaps ?? []).length > 0 && (isAdmin || can('schedules') || can('assignments'))) {
-    warnings.push({
-      key: 'gaps',
-      tone: 'missed',
-      title: `${data.workerGaps.length === 1 ? 'Shift with no worker' : `${data.workerGaps.length} shifts with no worker`}: checks are not scheduled`,
-      message: [...new Set(data.workerGaps.map((g) => `${g.machineName} · ${g.shiftName}`))].join(', '),
-      action: can('assignments') ? { label: 'Machine Assignment', onPress: () => push('assignments') } : null
-    })
-  }
-  if (isAdmin && workersWithoutMachines.length > 0) {
-    warnings.push({
-      key: 'workers',
-      tone: 'exception',
-      title: `${workersWithoutMachines.length} active worker${workersWithoutMachines.length === 1 ? ' has' : 's have'} no machine`,
-      message: workersWithoutMachines.map((w) => w.name).join(', '),
-      action: { label: 'Assign machines', onPress: () => push('assignments') }
-    })
-  }
   if (needsNextYear) {
     warnings.push({
       key: 'calendar',

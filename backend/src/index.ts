@@ -7,11 +7,11 @@ import { createApp } from './app'
 import { removeLegacyPlantLabel } from './db/cleanupLegacy'
 import { ensureSuperAdmin } from './db/ensureSuperAdmin'
 import { ensureNewParameters } from './db/ensureNewParameters'
+import { ensureCheckTypes } from './db/ensureCheckTypes'
 import path from 'node:path'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { db } from './db/client'
 import { prepareChecks } from './services/checkGenerator'
-import { repairCheckWorkers } from './services/workerAssignment'
 import { fixHolidayCalendar2026Adjustments, importHolidayCalendar2026 } from './db/holidayCalendar2026'
 import { ensureWeeklyOffSetting, purgeAllClosedDays } from './services/plantCalendar'
 import { ensureDefaultWeeklyRules } from './services/weeklyRules'
@@ -81,6 +81,9 @@ http.createServer(app).listen(config.port, '0.0.0.0', () => {
   ensureSuperAdmin().catch((err) => console.error('Super Admin check failed', err))
   ensureNewParameters()
     .then((added) => added && console.log(`Parameters: added ${added} new quality parameter(s) as optional on every check type.`))
+    // The Label and Sleeve department check types, after the parameters they share.
+    .then(() => ensureCheckTypes())
+    .then((made) => made && console.log(`Check Types: created ${made} department check type(s) (Label, Sleeve).`))
     .catch((err) => console.error('Adding the new parameters failed', err))
   // Load the 2026 company holiday calendar (once), then give every stored check its worker,
   // both before the first scheduler pass.
@@ -95,8 +98,6 @@ http.createServer(app).listen(config.port, '0.0.0.0', () => {
     .then(() => purgeAllClosedDays())
     .then((removed) => removed && console.log(`Plant Calendar: removed ${removed} unsubmitted check(s) on closed dates.`))
     .catch((err) => console.error('Closed-day cleanup failed', err))
-    .then(() => repairCheckWorkers())
-    .catch((err) => console.error('Check worker repair failed', err))
     .finally(() => {
       tick()
       setInterval(tick, TICK_MS)

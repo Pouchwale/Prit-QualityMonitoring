@@ -11,13 +11,13 @@ import {
   qualityChecks,
   shifts,
   users,
-  workerMachines
 } from '../db/schema'
 import { badRequest, conflict, forbidden, notFound } from '../lib/http'
 import { MINUTE, addDays, dateKey, startOfDay } from '../lib/time'
 import { invalidateCheckGeneration, makeCheckCode } from './checkGenerator'
+import { checkTypeInDepartment, userDepartmentId, userDepartments } from './checkTypeScope'
 import { machineOffBetween } from './plantCalendar'
-import { shiftAt, shiftFor } from './workerAssignment'
+import { shiftAt, shiftFor } from './shiftTime'
 
 /**
  * Job-based quality monitoring.
@@ -59,9 +59,15 @@ export interface JobParameter {
 export interface JobCheckType {
   activityId: string
   name: string
+  /** The department this check type belongs to; null means the whole plant. */
+  departmentId: string | null
   graceMinutes: number
   parameters: JobParameter[]
 }
+
+/** Only the check types a worker of this department does (services/checkTypeScope.ts). */
+export const jobCheckTypesFor = (types: JobCheckType[], workerDepartmentId: string | null) =>
+  types.filter((t) => checkTypeInDepartment(t.departmentId, workerDepartmentId))
 
 /** The job-based check types of a machine, with their enabled parameters and frequencies. */
 export async function jobCheckTypes(machineIds: string[]): Promise<Map<string, JobCheckType[]>> {
@@ -72,6 +78,7 @@ export async function jobCheckTypes(machineIds: string[]): Promise<Map<string, J
       machineId: machineActivities.machineId,
       activityId: activities.id,
       name: activities.name,
+      departmentId: activities.departmentId,
       graceMinutes: activities.graceMinutes,
       parameterId: parameters.id,
       parameterName: parameters.name,
@@ -97,7 +104,7 @@ export async function jobCheckTypes(machineIds: string[]): Promise<Map<string, J
     const list = result.get(r.machineId) ?? []
     let type = list.find((t) => t.activityId === r.activityId)
     if (!type) {
-      type = { activityId: r.activityId, name: r.name, graceMinutes: r.graceMinutes, parameters: [] }
+      type = { activityId: r.activityId, name: r.name, departmentId: r.departmentId, graceMinutes: r.graceMinutes, parameters: [] }
       list.push(type)
     }
     type.parameters.push({
@@ -134,6 +141,7 @@ async function createEdgeChecks(tx: Tx, job: JobRow, kind: 'JOB_START' | 'JOB_EN
         machineId: job.machineId,
         activityId: type.activityId,
         workerId: job.assignedWorkerId,
+        departmentId: job.departmentId,
         shiftId,
         scheduledAt: now,
         windowEndsAt: addDays(now, START_END_WINDOW_DAYS),
@@ -176,7 +184,9 @@ export interface StartInput {
  * check type of the machine has Job Start parameters.
  */
 export async function startJob(input: StartInput): Promise<{ job: JobRow; startCheckIds: string[] }> {
-  const types = (await jobCheckTypes([input.machineId])).get(input.machineId) ?? []
+  // The worker who starts the job owns its checks, so only their department's check types apply.
+  const starterDepartment = await userDepartmentId(input.userId)
+  const types = jobCheckTypesFor((await jobCheckTypes([input.machineId])).get(input.machineId) ?? [], starterDepartment)
   // Read before the transaction: everything inside it goes through the transaction's connection.
   const shiftId = (await shiftAt(new Date()))?.id ?? null
   const result = await db.transaction(async (tx) => {
@@ -189,7 +199,16 @@ export async function startJob(input: StartInput): Promise<{ job: JobRow; startC
       if (planned.assignedWorkerId && planned.assignedWorkerId !== input.userId) throw forbidden('This job is assigned to another worker')
       const [updated] = await tx
         .update(jobs)
-        .set({ status: 'STARTING', startedAt: now, startedById: input.userId, assignedWorkerId: input.userId, updatedAt: now })
+        .set({
+          status: 'STARTING',
+          startedAt: now,
+          startedById: input.userId,
+          assignedWorkerId: input.userId,
+          // The department is fixed here, by the worker who starts the job. A department chosen
+          // when the job was planned is kept only when the worker's account has none.
+          departmentId: starterDepartment ?? planned.departmentId,
+          updatedAt: now
+        })
         .where(eq(jobs.id, planned.id))
         .returning()
         .catch((err) => {
@@ -198,7 +217,7 @@ export async function startJob(input: StartInput): Promise<{ job: JobRow; startC
       job = updated
     } else {
       const jobNo = input.jobNo?.trim()
-      if (!jobNo) throw badRequest('Enter the Job No.')
+      if (!jobNo) throw badRequest('Enter the PO No.')
       const [created] = await tx
         .insert(jobs)
         .values({
@@ -208,7 +227,8 @@ export async function startJob(input: StartInput): Promise<{ job: JobRow; startC
           status: 'STARTING',
           startedAt: now,
           startedById: input.userId,
-          assignedWorkerId: input.userId
+          assignedWorkerId: input.userId,
+          departmentId: starterDepartment
         })
         .onConflictDoNothing()
         .returning()
@@ -249,9 +269,12 @@ export async function activateIfStarted(jobId: string) {
  * are created; with no Job End parameters the job completes at once.
  */
 export async function requestEnd(jobId: string, userId: string): Promise<{ job: JobRow; endCheckIds: string[]; withdrawn: number }> {
-  const [first] = await db.select({ machineId: jobs.machineId }).from(jobs).where(eq(jobs.id, jobId))
+  const [first] = await db.select({ machineId: jobs.machineId, assignedWorkerId: jobs.assignedWorkerId }).from(jobs).where(eq(jobs.id, jobId))
   if (!first) throw notFound('Job')
-  const types = (await jobCheckTypes([first.machineId])).get(first.machineId) ?? []
+  const types = jobCheckTypesFor(
+    (await jobCheckTypes([first.machineId])).get(first.machineId) ?? [],
+    first.assignedWorkerId ? await userDepartmentId(first.assignedWorkerId) : null
+  )
   const shiftId = (await shiftAt(new Date()))?.id ?? null
   return db.transaction(async (tx) => {
     let job = await lockJob(tx, jobId)
@@ -354,11 +377,6 @@ export async function handover(input: HandoverInput) {
       .from(users)
       .where(eq(users.id, input.toUserId))
     if (!target || target.role !== 'WORKER' || !target.isActive || !target.appAccess) throw badRequest('Choose an active worker with app access')
-    const [assigned] = await tx
-      .select({ userId: workerMachines.userId })
-      .from(workerMachines)
-      .where(and(eq(workerMachines.userId, target.id), eq(workerMachines.machineId, job.machineId)))
-    if (!assigned) throw badRequest(`${target.name} is not assigned to this machine. Assign the machine first in Machine Assignment.`)
     if (input.shiftId) {
       const [shift] = await tx.select({ id: shifts.id }).from(shifts).where(eq(shifts.id, input.shiftId))
       if (!shift) throw badRequest('Choose a shift')
@@ -454,12 +472,13 @@ function planIntervalChecks(params: JobParameter[], activatedAt: Date, checks: I
  * is never given a new check: only an ACTIVE job (read under the lock) gets one.
  */
 export async function generateJobIntervalChecks(now: Date): Promise<number> {
-  const active = await db.select({ id: jobs.id, machineId: jobs.machineId }).from(jobs).where(eq(jobs.status, 'ACTIVE'))
+  const active = await db.select({ id: jobs.id, machineId: jobs.machineId, assignedWorkerId: jobs.assignedWorkerId }).from(jobs).where(eq(jobs.status, 'ACTIVE'))
   if (active.length === 0) return 0
-  const [typesByMachine, shiftRows, machineOff] = await Promise.all([
+  const [typesByMachine, shiftRows, machineOff, departmentByWorker] = await Promise.all([
     jobCheckTypes([...new Set(active.map((j) => j.machineId))]),
     db.select().from(shifts).where(eq(shifts.isActive, true)),
-    machineOffBetween(addDays(startOfDay(now), -1), addDays(startOfDay(now), 2))
+    machineOffBetween(addDays(startOfDay(now), -1), addDays(startOfDay(now), 2)),
+    userDepartments(active.map((j) => j.assignedWorkerId))
   ])
 
   let created = 0
@@ -482,7 +501,9 @@ export async function generateJobIntervalChecks(now: Date): Promise<number> {
         .from(qualityChecks)
         .where(and(eq(qualityChecks.jobId, job.id), eq(qualityChecks.kind, 'JOB_INTERVAL')))
       let made = 0
-      for (const type of typesByMachine.get(job.machineId) ?? []) {
+      // The job's worker does only their own department's check types.
+      const workerDepartment = job.assignedWorkerId ? (departmentByWorker.get(job.assignedWorkerId) ?? null) : null
+      for (const type of jobCheckTypesFor(typesByMachine.get(job.machineId) ?? [], workerDepartment)) {
         const params = type.parameters.filter((p) => p.frequency === 'INTERVAL')
         if (params.length === 0) continue
         const plan = planIntervalChecks(params, activatedAt, checks.filter((c) => c.activityId === type.activityId), now)
@@ -502,6 +523,7 @@ export async function generateJobIntervalChecks(now: Date): Promise<number> {
             machineId: job.machineId,
             activityId: type.activityId,
             workerId: job.assignedWorkerId,
+            departmentId: job.departmentId,
             shiftId: shiftFor(shiftRows, plan.at)?.id ?? null,
             scheduledAt: plan.at,
             windowEndsAt: new Date(plan.at.getTime() + type.graceMinutes * MINUTE),
@@ -528,9 +550,13 @@ export async function generateJobIntervalChecks(now: Date): Promise<number> {
  * to one check now with every interval parameter, and each parameter's frequency restarts from it.
  */
 export async function startIntervalCheckNow(jobId: string, activityId: string) {
-  const [first] = await db.select({ machineId: jobs.machineId }).from(jobs).where(eq(jobs.id, jobId))
+  const [first] = await db.select({ machineId: jobs.machineId, assignedWorkerId: jobs.assignedWorkerId }).from(jobs).where(eq(jobs.id, jobId))
   if (!first) throw notFound('Job')
-  const type = ((await jobCheckTypes([first.machineId])).get(first.machineId) ?? []).find((t) => t.activityId === activityId)
+  const types = jobCheckTypesFor(
+    (await jobCheckTypes([first.machineId])).get(first.machineId) ?? [],
+    first.assignedWorkerId ? await userDepartmentId(first.assignedWorkerId) : null
+  )
+  const type = types.find((t) => t.activityId === activityId)
   if (!type) throw badRequest('This check type is not job-based on this machine')
   const ids = type.parameters.filter((p) => p.frequency === 'INTERVAL').map((p) => p.parameterId)
   if (ids.length === 0) throw badRequest('This check type has no interval parameters')
@@ -562,6 +588,7 @@ export async function startIntervalCheckNow(jobId: string, activityId: string) {
         machineId: job.machineId,
         activityId,
         workerId: job.assignedWorkerId,
+        departmentId: job.departmentId,
         shiftId,
         scheduledAt: now,
         windowEndsAt: new Date(now.getTime() + type.graceMinutes * MINUTE),

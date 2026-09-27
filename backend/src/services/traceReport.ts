@@ -1,10 +1,10 @@
 import type { CheckDto } from './checks'
 
 /**
- * Traceability for the Quality Reports: what happened to one Item Code, Job No. or worker.
+ * Traceability for the Quality Reports: what happened to one Item Code, PO No. or worker.
  *
  * Built from the checks of the report (all their readings, exceptions and who did them):
- *  - per Item Code, per Job No. and per worker: how many checks, results, readings and issues;
+ *  - per Item Code, per PO No. and per worker: how many checks, results, readings and issues;
  *  - changes: a parameter reading that differs from the previous reading of the same parameter
  *    for the same item, job and machine, with who recorded it and when;
  *  - corrections: changes where the previous reading was outside its limits and the new one is
@@ -50,7 +50,7 @@ export interface TraceWorker extends TraceGroup {
   workerId: string | null
   name: string
   employeeId: string | null
-  /** Every Item Code this worker checked, with its Job Nos. and number of checks. */
+  /** Every Item Code this worker checked, with its PO Nos. and number of checks. */
   items: WorkerItem[]
 }
 
@@ -87,7 +87,7 @@ export interface TraceReport {
   changes: TraceChange[]
 }
 
-/** The Item Code / Job No. of a check: its own, or the job's when it recorded none. */
+/** The Item Code / PO No. of a check: its own, or the job's when it recorded none. */
 export const itemCodeOf = (c: CheckDto) => (c.itemCode?.trim() || c.job?.itemCode?.trim() || '')
 export const jobNoOf = (c: CheckDto) => (c.jobNo?.trim() || c.job?.jobNo?.trim() || '')
 /** Who did the check: the worker who submitted it, else the worker it was assigned to. */

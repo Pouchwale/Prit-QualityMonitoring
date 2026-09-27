@@ -9,7 +9,6 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { DataState } from '../../components/common/DataState'
 import { CheckStatusBadge } from '../../components/common/StatusBadge'
 import { CLOSURE_TYPES } from '../../lib/closureTypes'
-import { WorkerCoverageAlert } from '../../components/common/WorkerCoverageAlert'
 import { DateInput } from '../../components/common/DateTimeInputs'
 
 const REFRESH_MS = 60_000
@@ -130,19 +129,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
           </>
         }
       />
-
-      {data && (
-        <WorkerCoverageAlert
-          gaps={data.workerGaps ?? []}
-          action={
-            canOpen('assignments') ? (
-              <Button size="sm" variant="outline" onClick={() => onNavigate('assignments')} className="hidden sm:inline-flex">
-                Machine Assignment
-              </Button>
-            ) : undefined
-          }
-        />
-      )}
 
       {data?.closure && (
         <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-line bg-white shadow-2xs" role="status">

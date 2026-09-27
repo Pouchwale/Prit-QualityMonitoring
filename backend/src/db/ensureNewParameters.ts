@@ -16,7 +16,6 @@ export const NEW_PARAMETERS: NewParameter[] = [
   { name: 'Text Matter', code: 'TEXT-MATTER', type: 'PASS_FAIL', description: 'Printed text matches the approved artwork' },
   { name: 'Duration', code: 'DURATION', type: 'NUMBER', unit: 'min' },
   { name: 'Interval', code: 'INTERVAL', type: 'NUMBER', unit: 'min' },
-  { name: 'Treatment', code: 'TREATMENT', type: 'DROPDOWN', options: ['BOPP 38', 'PET 56'], description: 'Film and treatment level' },
   {
     name: 'Shared Card',
     code: 'SHARED-CARD',

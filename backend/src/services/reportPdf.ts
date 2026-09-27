@@ -275,10 +275,10 @@ const readingText = (value: string) => (/^(PASS|FAIL|YES|NO)$/.test(value) ? val
 const listText = (values: string[]) => (values.filter(Boolean).length ? values.filter(Boolean).join(', ') : NONE)
 const countCell = (n: number, color?: string): TableCell => ({ text: String(n), alignment: 'center', color: n && color ? color : INK })
 
-/** Per Item Code or per Job No.: checks, results, readings, changes, who and where. */
-function traceGroupTable(rows: TraceGroup[], first: 'Item Code' | 'Job No.'): Content {
+/** Per Item Code or per PO No.: checks, results, readings, changes, who and where. */
+function traceGroupTable(rows: TraceGroup[], first: 'Item Code' | 'PO No.'): Content {
   if (rows.length === 0) return empty('No records.')
-  const other = first === 'Item Code' ? 'Job Nos.' : 'Item Codes'
+  const other = first === 'Item Code' ? 'PO Nos.' : 'Item Codes'
   return {
     table: {
       headerRows: 1,
@@ -306,7 +306,7 @@ function traceGroupTable(rows: TraceGroup[], first: 'Item Code' | 'Job No.'): Co
   }
 }
 
-/** The four traceability sections: Item Codes, Job Nos., workers with their items, changes. */
+/** The four traceability sections: Item Codes, PO Nos., workers with their items, changes. */
 function traceSections(trace: TraceReport): Content[] {
   const c = trace.counts
   return [
@@ -317,8 +317,8 @@ function traceSections(trace: TraceReport): Content[] {
       `${c.checks} checks · ${c.completed} completed · ${c.missed} missed · ${c.exceptions} exception · ${c.readings} readings (${c.outsideLimits} outside limits, ${c.notApplicable} not applicable) · ${c.changes} changes, ${c.corrections} corrections.`
     ),
     traceGroupTable(trace.items, 'Item Code'),
-    section('7.2', 'Job No. Traceability'),
-    traceGroupTable(trace.jobs, 'Job No.'),
+    section('7.2', 'PO No. Traceability'),
+    traceGroupTable(trace.jobs, 'PO No.'),
     section('7.3', 'Worker Activity by Item Code', 'Checks are counted for the worker who submitted them, or the worker they were assigned to.'),
     ...(trace.workers.length === 0
       ? [empty('No records.')]
@@ -339,7 +339,7 @@ function traceSections(trace: TraceReport): Content[] {
                   dontBreakRows: true,
                   widths: gridWidths([90, '*', 40, 44, 40, 44, 44]),
                   body: [
-                    header(['Item Code', 'Job Nos.', 'Checks', 'Completed', 'Missed', 'Exception', 'Changes']),
+                    header(['Item Code', 'PO Nos.', 'Checks', 'Completed', 'Missed', 'Exception', 'Changes']),
                     ...w.items.map((i) => [
                       { text: i.itemCode || NONE, bold: true },
                       { text: listText(i.jobNos) },
@@ -370,7 +370,7 @@ function traceSections(trace: TraceReport): Content[] {
             dontBreakRows: true,
             widths: gridWidths([40, 58, 64, 56, '*', 70, 58]),
             body: [
-              header(['Date / Time', 'Machine', 'Item / Job No.', 'Parameter', 'Change', 'Type', 'By / Previous']),
+              header(['Date / Time', 'Machine', 'Item / PO No.', 'Parameter', 'Change', 'Type', 'By / Previous']),
               ...trace.changes.map((ch) => [
                 when(ch.at),
                 pair(ch.machineName, ch.machineCode),
@@ -565,7 +565,7 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
     groupTable(report.byDate, 'Date')
   ]
 
-  // 7.1–7.4 Traceability, for an Item Code, Job No. or worker report
+  // 7.1–7.4 Traceability, for an Item Code, PO No. or worker report
   if (report.trace) content.push(...traceSections(report.trace))
 
   // 8. Detailed log — every scheduled check, one row each
@@ -646,7 +646,7 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
                     text: [
                       { text: 'Item Code: ', style: 'metaLabel' },
                       detail.itemCode,
-                      { text: '   Job No.: ', style: 'metaLabel' },
+                      { text: '   PO No.: ', style: 'metaLabel' },
                       detail.jobNo,
                       { text: '   Evidence: ', style: 'metaLabel' },
                       `${detail.photos} photo${detail.photos === 1 ? '' : 's'}${detail.videos ? `, ${detail.videos} video` : ''}`

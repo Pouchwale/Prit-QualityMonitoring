@@ -21,6 +21,66 @@ export function numberStatus(p: FormParameter, raw: string): 'ok' | 'out' | null
   return ok ? 'ok' : 'out'
 }
 
+/**
+ * A multi-select dropdown keeps its answer as one comma-separated value, exactly as the server
+ * stores and the reports show it. An option whose own text has a comma is matched whole first.
+ */
+export function selectedOptions(p: FormParameter, raw: string): string[] {
+  const text = raw.trim()
+  if (text === '') return []
+  if (p.options.includes(text)) return [text]
+  if (!p.multiSelect && !hasMaterial(p)) return [text]
+  return text.split(',').map((v) => v.trim()).filter(Boolean)
+}
+
+/** Adds or removes one option, keeping the admin's order. */
+export function toggleOption(p: FormParameter, chosen: string[], option: string): string {
+  const next = chosen.includes(option) ? chosen.filter((c) => c !== option) : [...chosen, option]
+  return p.options.filter((o) => next.includes(o)).join(', ')
+}
+
+/** This dropdown asks for a material before its options, e.g. Corona Treatment. */
+export const hasMaterial = (p: FormParameter) => (p.materialOptions?.length ?? 0) > 0
+
+/** The material and the option already chosen, from the stored "<material>, <option>" value. */
+export function materialAnswer(p: FormParameter, raw: string) {
+  const chosen = selectedOptions(p, raw)
+  return {
+    material: chosen.find((c) => p.materialOptions?.includes(c)) ?? null,
+    option: chosen.find((c) => p.options.includes(c)) ?? null
+  }
+}
+
+/** The value after changing one half of the answer; the other half is kept. */
+export const materialValue = (material: string | null, option: string | null) => [material, option].filter(Boolean).join(', ')
+
+/** One dropdown choice. Same look as before: tinted with a tick once it is the answer. */
+const Chip: React.FC<{
+  label: string
+  selected: boolean
+  invalid?: boolean
+  role?: 'radio' | 'checkbox'
+  accessibilityLabel: string
+  onPress: () => void
+}> = ({ label, selected, invalid = false, role = 'radio', accessibilityLabel, onPress }) => (
+  <Pressable
+    onPress={onPress}
+    accessibilityRole={role}
+    accessibilityLabel={accessibilityLabel}
+    accessibilityState={{ checked: selected }}
+    className={`h-12 min-w-[30%] flex-row items-center justify-center rounded-xl border px-4 ${
+      selected ? 'border-accent bg-accent-soft' : invalid ? 'border-missed bg-surface' : 'border-transparent bg-subtle active:opacity-60'
+    }`}
+  >
+    {selected ? (
+      <View className="mr-1.5">
+        <Icon name="checkmark" size={18} color="accent" />
+      </View>
+    ) : null}
+    <Text className={`text-[17px] ${selected ? 'font-semibold text-accent' : 'font-medium text-ink'}`}>{label}</Text>
+  </Pressable>
+)
+
 type Tone = 'success' | 'missed' | 'accent'
 
 /** Literal class strings per tone (NativeWind needs them written out). */
@@ -127,28 +187,70 @@ export const ParameterInput: React.FC<Props> = ({ parameter: p, value, onChange,
         />
       )}
 
-      {p.type === 'DROPDOWN' && (
-        <View className="flex-row flex-wrap gap-2" accessibilityRole="radiogroup">
+      {p.type === 'DROPDOWN' && hasMaterial(p) ? (
+        // Two answers, in order: the material, then the option. The options never depend on the
+        // material, they simply wait until one is chosen so the worker answers in the right order.
+        <View className="gap-3">
+          <View>
+            <Text className="mb-1.5 text-[15px] font-medium text-ink-muted">Material</Text>
+            <View className="flex-row flex-wrap gap-2" accessibilityRole="radiogroup">
+              {(p.materialOptions ?? []).map((material) => {
+                const answer = materialAnswer(p, value)
+                const selected = answer.material === material
+                return (
+                  <Chip
+                    key={material}
+                    label={material}
+                    selected={selected}
+                    invalid={invalid && !answer.material}
+                    accessibilityLabel={`${material} for ${p.name}`}
+                    onPress={() => onChange(materialValue(selected && !p.isRequired ? null : material, answer.option))}
+                  />
+                )
+              })}
+            </View>
+          </View>
+          {materialAnswer(p, value).material ? (
+            <View>
+              {/* No label: the card is already headed with the parameter's name. */}
+              <View className="flex-row flex-wrap gap-2" accessibilityRole="radiogroup">
+                {p.options.map((option) => {
+                  const answer = materialAnswer(p, value)
+                  const selected = answer.option === option
+                  return (
+                    <Chip
+                      key={option}
+                      label={option}
+                      selected={selected}
+                      invalid={invalid && !answer.option}
+                      accessibilityLabel={`${option} for ${p.name}`}
+                      onPress={() => onChange(materialValue(answer.material, selected && !p.isRequired ? null : option))}
+                    />
+                  )
+                })}
+              </View>
+            </View>
+          ) : (
+            <Text className="text-[15px] text-ink-muted">Choose the material first.</Text>
+          )}
+        </View>
+      ) : null}
+
+      {p.type === 'DROPDOWN' && !hasMaterial(p) && (
+        <View className="flex-row flex-wrap gap-2" accessibilityRole={p.multiSelect ? undefined : 'radiogroup'}>
           {p.options.map((option) => {
-            const selected = value === option
+            const chosen = selectedOptions(p, value)
+            const selected = chosen.includes(option)
             return (
-              <Pressable
+              <Chip
                 key={option}
-                onPress={() => onChange(selected && !p.isRequired ? '' : option)}
-                accessibilityRole="radio"
+                label={option}
+                selected={selected}
+                invalid={invalid}
+                role={p.multiSelect ? 'checkbox' : 'radio'}
                 accessibilityLabel={`${option} for ${p.name}`}
-                accessibilityState={{ checked: selected }}
-                className={`h-12 min-w-[30%] flex-row items-center justify-center rounded-xl border px-4 ${
-                  selected ? 'border-accent bg-accent-soft' : invalid ? 'border-missed bg-surface' : 'border-transparent bg-subtle active:opacity-60'
-                }`}
-              >
-                {selected ? (
-                  <View className="mr-1.5">
-                    <Icon name="checkmark" size={18} color="accent" />
-                  </View>
-                ) : null}
-                <Text className={`text-[17px] ${selected ? 'font-semibold text-accent' : 'font-medium text-ink'}`}>{option}</Text>
-              </Pressable>
+                onPress={() => onChange(p.multiSelect ? toggleOption(p, chosen, option) : selected && !p.isRequired ? '' : option)}
+              />
             )
           })}
         </View>
@@ -163,7 +265,7 @@ export const ParameterField: React.FC<Props> = ({ parameter: p, value, onChange,
     <FieldLabel
       label={p.name}
       required={p.isRequired}
-      hint={p.type === 'DROPDOWN' || p.type === 'YES_NO' || p.type === 'PASS_FAIL' ? null : p.rule}
+      hint={p.type === 'DROPDOWN' ? (p.multiSelect ? 'Select all that apply' : null) : p.type === 'YES_NO' || p.type === 'PASS_FAIL' ? null : p.rule}
     />
     <ParameterInput parameter={p} value={value} onChange={onChange} invalid={invalid} />
   </View>

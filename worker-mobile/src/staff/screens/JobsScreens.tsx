@@ -91,7 +91,7 @@ const JobsScreen: React.FC = () => {
           {jobs.map((j) => (
             <Row
               key={j.id}
-              title={`Job No. ${j.jobNo}${j.itemCode ? ` · ${j.itemCode}` : ''}`}
+              title={`PO No. ${j.jobNo}${j.itemCode ? ` · ${j.itemCode}` : ''}`}
               subtitle={`${j.machineName} · ${j.assignedWorkerName ?? 'Any worker'}`}
               detail={[
                 j.startedAt ? `Started ${formatDateTime(j.startedAt)}` : j.plannedFor ? `Planned for ${formatKey(j.plannedFor)}` : 'Planned',
@@ -127,8 +127,8 @@ const JobDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
     const ok = await confirm(
       planned ? 'Cancel planned job?' : 'Force close job?',
       planned
-        ? `Job No. ${job.jobNo} is removed from the worker's list.`
-        : `Job No. ${job.jobNo} is closed without its remaining checks. Open checks are removed; submitted records stay with the job.`,
+        ? `PO No. ${job.jobNo} is removed from the worker's list.`
+        : `PO No. ${job.jobNo} is closed without its remaining checks. Open checks are removed; submitted records stay with the job.`,
       planned ? 'Cancel job' : 'Force close',
       true
     )
@@ -136,7 +136,7 @@ const JobDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
     setClosing(true)
     try {
       await api.post(`/api/jobs/${job.id}/end`, {})
-      notify('success', planned ? 'Job cancelled' : 'Job closed', `Job No. ${job.jobNo}`)
+      notify('success', planned ? 'Job cancelled' : 'Job closed', `PO No. ${job.jobNo}`)
       reload()
     } catch (err) {
       notify('error', 'Could not close the job', errorText(err))
@@ -146,7 +146,7 @@ const JobDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
   }
 
   return (
-    <Screen title={job ? `Job No. ${job.jobNo}` : 'Job'} subtitle={job ? `${job.machineName} · ${job.machineCode}` : null} onRefresh={reload} refreshing={loading && !!data}>
+    <Screen title={job ? `PO No. ${job.jobNo}` : 'Job'} subtitle={job ? `${job.machineName} · ${job.machineCode}` : null} onRefresh={reload} refreshing={loading && !!data}>
       <DataState loading={loading} error={error} onRetry={reload} hasData={!!data}>
         {job && data ? (
           <>
@@ -232,14 +232,14 @@ const JobDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
   )
 }
 
-/** Plan a job (or edit a planned one): machine, Job No., Item Code, worker, date and note. */
+/** Plan a job (or edit a planned one): machine, PO No., Item Code, worker, date and note. */
 const JobPlanScreen: React.FC<{ params: { id?: string } }> = ({ params }) => {
   const { can, pop } = useStaff()
   const notify = useToast()
   const existing = useQuery<{ job: JobRow }>(params.id ? `/api/jobs/${params.id}` : null)
   const machines = useQuery<Machine[]>('/api/machines')
   const workers = useQuery<User[]>('/api/users', { role: 'WORKER' })
-  const [form, setForm] = useState<{ machineId: string; jobNo: string; itemCode: string; assignedWorkerId: string; plannedFor: string; note: string } | null>(null)
+  const [form, setForm] = useState<{ machineId: string; jobNo: string; itemCode: string; plannedFor: string; note: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const job = existing.data?.job
@@ -247,11 +247,10 @@ const JobPlanScreen: React.FC<{ params: { id?: string } }> = ({ params }) => {
     form ??
     (params.id
       ? job
-        ? { machineId: job.machineId, jobNo: job.jobNo, itemCode: job.itemCode ?? '', assignedWorkerId: job.assignedWorkerId ?? '', plannedFor: job.plannedFor ?? '', note: job.note ?? '' }
+        ? { machineId: job.machineId, jobNo: job.jobNo, itemCode: job.itemCode ?? '', plannedFor: job.plannedFor ?? '', note: job.note ?? '' }
         : null
-      : { machineId: '', jobNo: '', itemCode: '', assignedWorkerId: '', plannedFor: dateKey(), note: '' })
+      : { machineId: '', jobNo: '', itemCode: '', plannedFor: dateKey(), note: '' })
   const set = (patch: Partial<NonNullable<typeof value>>) => value && setForm({ ...value, ...patch })
-  const onMachine = useMemo(() => (workers.data ?? []).filter((w) => w.isActive && value && w.machineIds.includes(value.machineId)), [workers.data, value])
 
   if (!can('checks', 'manage')) {
     return (
@@ -264,21 +263,20 @@ const JobPlanScreen: React.FC<{ params: { id?: string } }> = ({ params }) => {
   const save = async () => {
     if (!value) return
     if (!value.machineId) return setError('Choose the machine')
-    if (!value.jobNo.trim()) return setError('Enter the Job No.')
+    if (!value.jobNo.trim()) return setError('Enter the PO No.')
     setSaving(true)
     setError(null)
     const body = {
       machineId: value.machineId,
       jobNo: value.jobNo.trim(),
       itemCode: value.itemCode.trim() || null,
-      assignedWorkerId: value.assignedWorkerId || null,
       plannedFor: value.plannedFor || null,
       note: value.note.trim() || null
     }
     try {
       if (params.id) await api.put(`/api/jobs/${params.id}`, body)
       else await api.post('/api/jobs', body)
-      notify('success', params.id ? 'Job updated' : 'Job planned', `Job No. ${body.jobNo}`)
+      notify('success', params.id ? 'Job updated' : 'Job planned', `PO No. ${body.jobNo}`)
       pop()
     } catch (err) {
       setError(errorText(err))
@@ -302,19 +300,10 @@ const JobPlanScreen: React.FC<{ params: { id?: string } }> = ({ params }) => {
             value={value.machineId}
             placeholder="Choose a machine"
             options={(machines.data ?? []).filter((m) => m.isActive).map((m) => ({ value: m.id, label: m.name, detail: m.code }))}
-            onChange={(machineId) => set({ machineId, assignedWorkerId: '' })}
+            onChange={(machineId) => set({ machineId })}
           />
-          <Input label="Job No." required value={value.jobNo} onChangeText={(jobNo) => set({ jobNo })} autoCapitalize="characters" maxLength={60} />
+          <Input label="PO No." required value={value.jobNo} onChangeText={(jobNo) => set({ jobNo })} autoCapitalize="characters" maxLength={60} />
           <Input label="Item Code" value={value.itemCode} onChangeText={(itemCode) => set({ itemCode })} autoCapitalize="characters" maxLength={60} />
-          <SelectField
-            label="Worker"
-            hint="Only workers assigned to this machine"
-            value={value.assignedWorkerId}
-            emptyLabel="Any worker on the machine"
-            disabled={!value.machineId}
-            options={onMachine.map((w) => ({ value: w.id, label: w.name, detail: w.employeeId }))}
-            onChange={(assignedWorkerId) => set({ assignedWorkerId })}
-          />
           <DateField label="Planned for" value={value.plannedFor} clearable onChange={(plannedFor) => set({ plannedFor })} />
           <Input label="Note" value={value.note} onChangeText={(note) => set({ note })} multiline maxLength={500} placeholder="Shown to the worker with the job" />
         </FormSection>
@@ -344,7 +333,7 @@ const JobHandoverScreen: React.FC<{ params: { id: string } }> = ({ params }) => 
     )
   }
   const options = (workers.data ?? [])
-    .filter((w) => job && w.isActive && w.appAccess && w.machineIds.includes(job.machineId) && w.id !== job.assignedWorkerId)
+    .filter((w) => job && w.isActive && w.appAccess && w.id !== job.assignedWorkerId)
     .sort((a, b) => Number(b.shiftId === shiftId) - Number(a.shiftId === shiftId))
   const save = async () => {
     if (!toUserId) return setError('Choose the worker')
@@ -363,7 +352,7 @@ const JobHandoverScreen: React.FC<{ params: { id: string } }> = ({ params }) => 
   return (
     <Screen
       title="Handover job"
-      subtitle={job ? `Job No. ${job.jobNo} stays running; its open checks move to the chosen worker` : null}
+      subtitle={job ? `PO No. ${job.jobNo} stays running; its open checks move to the chosen worker` : null}
       footer={<PrimaryButton label="Hand over" onPress={save} loading={saving} />}
     >
       <FormError message={error} />

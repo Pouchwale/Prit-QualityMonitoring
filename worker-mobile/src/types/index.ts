@@ -74,7 +74,7 @@ export interface CheckSummary {
 export interface Job {
   id: string
   machineId: string
-  /** The item being produced, entered with the Job No. when the job started. */
+  /** The item being produced, entered with the PO No. when the job started. */
   itemCode?: string | null
   jobNo: string
   /** Older servers leave it out: a job that is running. */
@@ -200,6 +200,10 @@ export interface FormParameter {
   minValue: number | null
   maxValue: number | null
   options: string[]
+  /** Dropdown only: a first choice (the material) made before the options. Absent on an older server. */
+  materialOptions?: string[]
+  /** Dropdown only: the worker may choose several options. Absent on an older server. */
+  multiSelect?: boolean
   description: string | null
   isRequired: boolean
   rule: string | null

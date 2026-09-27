@@ -130,15 +130,6 @@ export const machines = pgTable('machines', {
 })
 
 /** Machines a worker is allowed to check (worker access). */
-export const workerMachines = pgTable(
-  'worker_machines',
-  {
-    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-    machineId: uuid('machine_id').notNull().references(() => machines.id, { onDelete: 'cascade' })
-  },
-  (t) => [primaryKey({ columns: [t.userId, t.machineId] })]
-)
-
 export const parameters = pgTable('parameters', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
@@ -148,14 +139,34 @@ export const parameters = pgTable('parameters', {
   minValue: doublePrecision('min_value'),
   maxValue: doublePrecision('max_value'),
   options: jsonb('options').$type<string[]>().notNull().default([]),
+  /**
+   * Dropdown only: a first choice the worker makes before the options above, e.g. the material
+   * (BOPP 38 / PET 56) before the Corona Treatment dyne. Empty for an ordinary dropdown. Both
+   * answers are recorded together as one value, "BOPP 38, 40 Dyne".
+   */
+  materialOptions: jsonb('material_options').$type<string[]>().notNull().default([]),
+  /** Dropdown only: the worker may choose several options, stored as one comma-separated value. */
+  multiSelect: boolean('multi_select').notNull().default(false),
   /** Default for new activity assignments; each activity can override it. */
   isRequired: boolean('is_required').notNull().default(true),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   description: text('description'),
-  departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
   ...timestamps
 })
+
+/**
+ * The departments a parameter is used by. A parameter can serve several (Viscosity for Pouch and
+ * Label), and one with no row here is unassigned: every check type may use it.
+ */
+export const parameterDepartments = pgTable(
+  'parameter_departments',
+  {
+    parameterId: uuid('parameter_id').notNull().references(() => parameters.id, { onDelete: 'cascade' }),
+    departmentId: uuid('department_id').notNull().references(() => departments.id, { onDelete: 'cascade' })
+  },
+  (t) => [primaryKey({ columns: [t.parameterId, t.departmentId] }), index('parameter_departments_department_idx').on(t.departmentId)]
+)
 
 /** A quality check template (process) with its parameters and evidence rules. */
 export const activities = pgTable('activities', {
@@ -236,7 +247,7 @@ export const jobs = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     machineId: uuid('machine_id').notNull().references(() => machines.id, { onDelete: 'restrict' }),
-    /** The item (product) being produced in this job, entered with the Job No. */
+    /** The item (product) being produced in this job, entered with the PO No. */
     itemCode: text('item_code'),
     jobNo: text('job_no').notNull(),
     /** Null while the job is only planned (planned jobs insert it as null explicitly). */
@@ -256,6 +267,12 @@ export const jobs = pgTable(
     endRequestedById: uuid('end_requested_by_id').references(() => users.id, { onDelete: 'set null' }),
     /** Closed by an Admin/Manager without the Job End check. */
     forceClosed: boolean('force_closed').notNull().default(false),
+    /**
+     * The department doing this job. Machines are shared, so the department belongs to the work,
+     * not to the machine: it is fixed when a worker starts the job (their department) and never
+     * changes afterwards, not even on a handover to another department.
+     */
+    departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
     ...timestamps
   },
   (t) => [
@@ -363,6 +380,12 @@ export const qualityChecks = pgTable(
     kind: checkKindEnum('kind').notNull().default('SCHEDULED'),
     /** Job checks: exactly the parameters this check asks for. Null: every parameter of the check type. */
     parameterIds: uuid('parameter_ids').array(),
+    /**
+     * The department this check belongs to, written when the check is created: the job's
+     * department, or the check type's when there is no job. Managers are scoped by this, never by
+     * the machine, because a machine is used by several departments.
+     */
+    departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => [

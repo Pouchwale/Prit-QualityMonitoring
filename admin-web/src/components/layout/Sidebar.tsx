@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react'
-import { AlertOctagon, Building2, CalendarClock, CalendarOff, Clock3, Cpu, Factory, FileSpreadsheet, Gauge, History, LayoutDashboard, Link2, ShieldCheck, SlidersHorizontal, UserRound, Users, Workflow, X } from 'lucide-react'
+import { AlertOctagon, Building2, CalendarClock, CalendarOff, Clock3, Cpu, Factory, FileSpreadsheet, Gauge, History, LayoutDashboard, ShieldCheck, SlidersHorizontal, UserRound, Users, Workflow, X } from 'lucide-react'
 import type { ModuleKey } from '../../types'
 import { portalLabel, useAuth } from '../../lib/auth'
 import { Link } from 'react-router-dom'
@@ -19,7 +19,6 @@ export type NavTab =
   | 'schedules'
   | 'calendar'
   | 'workers'
-  | 'assignments'
   | 'shifts'
   | 'audit-logs'
   | 'access'
@@ -39,7 +38,6 @@ export const NAV_LABEL: Record<NavTab, string> = {
   schedules: 'Schedules',
   calendar: 'Plant Calendar',
   workers: 'Workers & Users',
-  assignments: 'Machine Assignment',
   departments: 'Departments',
   shifts: 'Shifts',
   'audit-logs': 'Audit Logs',
@@ -62,7 +60,6 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
   schedules: 'schedules',
   calendar: 'calendar',
   workers: 'workers',
-  assignments: 'assignments',
   departments: 'departments',
   shifts: 'shifts',
   'audit-logs': 'audit_logs'
@@ -71,7 +68,7 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
 /** Pages in menu order, used to find where to land when the current page is not allowed. */
 export const NAV_ORDER: NavTab[] = [
   'dashboard', 'checks', 'jobs', 'exceptions', 'reports', 'performance', 'parameters', 'activities', 'machines', 'schedules', 'calendar',
-  'workers', 'assignments', 'departments', 'shifts', 'audit-logs', 'access', 'account'
+  'workers', 'departments', 'shifts', 'audit-logs', 'access', 'account'
 ]
 
 /** Whether the signed-in user may open a page. */
@@ -179,7 +176,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'schedules', icon: <CalendarClock className="w-4 h-4" /> },
         { id: 'calendar', icon: <CalendarOff className="w-4 h-4" /> },
         { id: 'workers', icon: <Users className="w-4 h-4" /> },
-        { id: 'assignments', icon: <Link2 className="w-4 h-4" /> },
         { id: 'departments', icon: <Building2 className="w-4 h-4" /> },
         { id: 'shifts', icon: <Clock3 className="w-4 h-4" /> }
       ]

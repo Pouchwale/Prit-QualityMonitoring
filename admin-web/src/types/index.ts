@@ -15,7 +15,6 @@ export type ModuleKey =
   | 'shifts'
   | 'departments'
   | 'workers'
-  | 'assignments'
   | 'audit_logs'
   | 'settings'
   | 'calendar'
@@ -116,6 +115,13 @@ export interface Parameter {
   minValue: number | null
   maxValue: number | null
   options: string[]
+  /** Dropdown only: a first choice (e.g. the material) the worker makes before the options. */
+  materialOptions: string[]
+  /** Dropdown only: the worker may choose several options instead of one. */
+  multiSelect: boolean
+  /** The departments this parameter is used by. Empty: unassigned, so every check type may use it. */
+  departmentIds: string[]
+  departmentNames: string[]
   /** Default "required" value when the parameter is added to a quality check type. */
   isRequired: boolean
   isActive: boolean
@@ -173,8 +179,8 @@ export interface Activity {
   /** Job interval checks count as Missed this long after they are due. */
   graceMinutes: number
   isActive: boolean
-  parameters: ActivityParameter[]
   machineIds: string[]
+  parameters: ActivityParameter[]
 }
 
 export interface Schedule {
@@ -197,7 +203,6 @@ export interface Schedule {
   workerName: string | null
   workerEmployeeId: string | null
   /** Workers who get this schedule's checks. Empty: no worker on this machine and shift, so no checks. */
-  checkWorkers: { id: string; name: string; employeeId: string }[]
   /** Stored monitoring timer (schedule_timers), when the server sends it. */
   nextDueAt?: string | null
   lastSubmittedAt?: string | null
@@ -227,8 +232,6 @@ export interface User {
   appAccess: boolean
   lastLoginAt: string | null
   createdAt: string
-  /** Machines the worker may check. */
-  machineIds: string[]
 }
 
 export interface MediaFile {
@@ -371,6 +374,8 @@ export interface JobRow extends Job {
   plannedFor: string | null
   note: string | null
   forceClosed: boolean
+  /** The department doing this job, fixed when a worker started it. */
+  departmentId: string | null
   /** NONE: no Job Start / Job End parameters. PENDING: open. DONE: submitted. */
   startCheck: 'NONE' | 'PENDING' | 'DONE'
   endCheck: 'NONE' | 'PENDING' | 'DONE'
@@ -446,7 +451,6 @@ export interface DashboardData {
   recent: QualityCheck[]
   /** Set when the plant is closed on the chosen day (Plant Calendar). */
   closure: { id: string | null; date: string; type: ClosureType; label: string; reason: string | null; weeklyOff?: boolean } | null
-  workerGaps: WorkerGap[]
 }
 
 /** Plant Calendar entry type. WORKING is an adjustment working day: the plant runs normally. */
@@ -548,7 +552,7 @@ export interface PlantClosure {
 
 export type Settings = Record<string, unknown>
 
-/** Traceability for an Item Code / Job No. / worker report (GET /api/reports/trace). */
+/** Traceability for an Item Code / PO No. / worker report (GET /api/reports/trace). */
 export interface TraceCounts {
   checks: number
   completed: number

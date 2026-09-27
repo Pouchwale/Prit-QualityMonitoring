@@ -58,9 +58,14 @@ export const seesNothing = (scope: DepartmentScope) => scope.restricted && scope
 /** Extra condition for queries that cannot take a departmentId, e.g. a Manager who sees nothing. */
 export const blockAll = sql`false`
 
-/** Refuses a Manager who tries to open a machine outside their department. */
+/**
+ * Refuses a Manager who tries to open a machine that belongs to another department. A machine with
+ * no department is shared by the whole plant (the usual case: the same machine runs Pouch work one
+ * day and Label work the next), so it is open to every Manager.
+ */
 export async function assertMachineInScope(scope: DepartmentScope, machineId: string) {
   if (!scope.restricted) return
   const [row] = await db.select({ departmentId: machines.departmentId }).from(machines).where(eq(machines.id, machineId))
-  if (!scope.departmentId || row?.departmentId !== scope.departmentId) throw new HttpError(403, 'This machine is in another department')
+  if (!row || row.departmentId === null) return
+  if (row.departmentId !== scope.departmentId) throw new HttpError(403, 'This machine is in another department')
 }

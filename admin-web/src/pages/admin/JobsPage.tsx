@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { ArrowLeftRight, Briefcase, ExternalLink, Pencil, Plus, RefreshCw, StopCircle } from 'lucide-react'
-import type { CheckKind, JobHandover, JobRow, JobStatus, Machine, QualityCheck, Shift, User } from '../../types'
+import type { CheckKind, Department, JobHandover, JobRow, JobStatus, Machine, QualityCheck, Shift, User } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
@@ -62,11 +62,12 @@ interface PlanForm {
   machineId: string
   jobNo: string
   itemCode: string
-  assignedWorkerId: string
+  /** Empty: the department of the worker who starts the job. */
+  departmentId: string
   plannedFor: string
   note: string
 }
-const emptyPlan: PlanForm = { machineId: '', jobNo: '', itemCode: '', assignedWorkerId: '', plannedFor: '', note: '' }
+const emptyPlan: PlanForm = { machineId: '', jobNo: '', itemCode: '', departmentId: '', plannedFor: '', note: '' }
 
 /**
  * Jobs: plan and assign jobs, follow every running job (worker, Job Start / End check, pending,
@@ -89,6 +90,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
     ...(dated ? { from, to } : {})
   })
   const { data: machines } = useApi<Machine[]>('/api/machines')
+  const { data: departments } = useApi<Department[]>('/api/departments')
   const { data: workers } = useApi<User[]>(canManage ? '/api/users' : null, { role: 'WORKER' })
   const { data: shifts } = useApi<Shift[]>(canManage ? '/api/shifts' : null)
 
@@ -104,7 +106,6 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
   const [closing, setClosing] = useState<JobRow | null>(null)
 
   const rows = useMemo(() => data ?? [], [data])
-  const workersOn = (id: string) => (workers ?? []).filter((w) => w.isActive && w.machineIds.includes(id))
   const refreshAll = () => {
     reload()
     if (openId) detail.reload()
@@ -114,7 +115,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
     setEditing(job)
     setPlan(
       job
-        ? { machineId: job.machineId, jobNo: job.jobNo, itemCode: job.itemCode ?? '', assignedWorkerId: job.assignedWorkerId ?? '', plannedFor: job.plannedFor ?? '', note: job.note ?? '' }
+        ? { machineId: job.machineId, jobNo: job.jobNo, itemCode: job.itemCode ?? '', departmentId: job.departmentId ?? '', plannedFor: job.plannedFor ?? '', note: job.note ?? '' }
         : { ...emptyPlan, machineId: machineId || '', plannedFor: dateKey() }
     )
     setPlanError(null)
@@ -123,21 +124,21 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
 
   const savePlan = async () => {
     if (!plan.machineId) return setPlanError('Choose the machine')
-    if (!plan.jobNo.trim()) return setPlanError('Enter the Job No.')
+    if (!plan.jobNo.trim()) return setPlanError('Enter the PO No.')
     setSaving(true)
     setPlanError(null)
     const body = {
       machineId: plan.machineId,
       jobNo: plan.jobNo.trim(),
       itemCode: plan.itemCode.trim() || null,
-      assignedWorkerId: plan.assignedWorkerId || null,
+      departmentId: plan.departmentId || null,
       plannedFor: plan.plannedFor || null,
       note: plan.note.trim() || null
     }
     try {
       if (editing) await api.put(`/api/jobs/${editing.id}`, body)
       else await api.post('/api/jobs', body)
-      notify('success', editing ? 'Job updated' : 'Job planned', `Job No. ${body.jobNo}${body.assignedWorkerId ? '' : ' — any worker on the machine can start it'}`)
+      notify('success', editing ? 'Job updated' : 'Job planned', `PO No. ${body.jobNo} — any worker can start it on the machine`)
       setPlanOpen(false)
       refreshAll()
     } catch (err) {
@@ -152,7 +153,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
     if (!handover.toUserId) return setHandover({ ...handover, error: 'Choose the worker' })
     try {
       await api.post(`/api/jobs/${handover.job.id}/handover`, { toUserId: handover.toUserId, shiftId: handover.shiftId || null, note: handover.note.trim() || undefined })
-      notify('success', 'Job handed over', `Job No. ${handover.job.jobNo} and its open checks moved; the worker was notified.`)
+      notify('success', 'Job handed over', `PO No. ${handover.job.jobNo} and its open checks moved; the worker was notified.`)
       setHandover(null)
       refreshAll()
     } catch (err) {
@@ -228,7 +229,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
           <table className="stack-sm w-full text-left text-xs border-collapse">
             <thead className="bg-slate-50 border-b border-line text-ink-secondary text-[11px] uppercase tracking-wider">
               <tr>
-                <th className="py-2 px-3 font-semibold">Job No. / Item</th>
+                <th className="py-2 px-3 font-semibold">PO No. / Item</th>
                 <th className="py-2 px-3 font-semibold">Machine</th>
                 <th className="py-2 px-3 font-semibold">Status</th>
                 <th className="py-2 px-3 font-semibold">Worker now</th>
@@ -286,7 +287,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
       </DataState>
 
       {/* One job with all its records */}
-      <Drawer isOpen={!!openId} onClose={() => setOpenId(null)} title={job ? `Job No. ${job.jobNo}` : 'Job'} subtitle={job ? `${job.machineName} · ${job.machineCode}` : undefined} width="xl"
+      <Drawer isOpen={!!openId} onClose={() => setOpenId(null)} title={job ? `PO No. ${job.jobNo}` : 'Job'} subtitle={job ? `${job.machineName} · ${job.machineCode}` : undefined} width="xl"
         footer={
           job && canManage ? (
             <div className="flex flex-wrap gap-2 justify-end">
@@ -444,7 +445,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
         <div className="space-y-3">
           <FormError message={planError} />
           <Field label="Machine" required>
-            <Select value={plan.machineId} onChange={(e) => setPlan({ ...plan, machineId: e.target.value, assignedWorkerId: '' })}>
+            <Select value={plan.machineId} onChange={(e) => setPlan({ ...plan, machineId: e.target.value })}>
               <option value="">Choose a machine…</option>
               {machineOptions.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -454,7 +455,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
             </Select>
           </Field>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Job No." required>
+            <Field label="PO No." required>
               <TextInput value={plan.jobNo} onChange={(e) => setPlan({ ...plan, jobNo: e.target.value })} className="font-mono" maxLength={60} />
             </Field>
             <Field label="Item Code">
@@ -462,18 +463,18 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
             </Field>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Worker" hint="Only workers assigned to this machine. Leave empty for any of them.">
-              <Select value={plan.assignedWorkerId} onChange={(e) => setPlan({ ...plan, assignedWorkerId: e.target.value })} disabled={!plan.machineId}>
-                <option value="">Any worker on the machine</option>
-                {workersOn(plan.machineId).map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name} ({w.employeeId})
+            <Field label="Planned for" hint="The worker who starts this job on the machine becomes responsible for it.">
+              <DateInput value={plan.plannedFor} onChange={(e) => setPlan({ ...plan, plannedFor: e.target.value })} />
+            </Field>
+            <Field label="Department" hint="Leave empty to use the department of the worker who starts it.">
+              <Select value={plan.departmentId} onChange={(e) => setPlan({ ...plan, departmentId: e.target.value })}>
+                <option value="">Set when the job starts</option>
+                {(departments ?? []).filter((d) => d.isActive || d.id === plan.departmentId).map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
                   </option>
                 ))}
               </Select>
-            </Field>
-            <Field label="Planned for">
-              <DateInput value={plan.plannedFor} onChange={(e) => setPlan({ ...plan, plannedFor: e.target.value })} />
             </Field>
           </div>
           <Field label="Note">
@@ -487,7 +488,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
         isOpen={!!handover}
         onClose={() => setHandover(null)}
         title="Handover Job"
-        subtitle={handover ? `Job No. ${handover.job.jobNo} stays running; its open checks move to the chosen worker` : undefined}
+        subtitle={handover ? `PO No. ${handover.job.jobNo} stays running; its open checks move to the chosen worker` : undefined}
         footer={
           <>
             <Button size="sm" variant="outline" onClick={() => setHandover(null)}>
@@ -515,8 +516,8 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
             <Field label="Worker who takes over" required>
               <Select value={handover.toUserId} onChange={(e) => setHandover({ ...handover, toUserId: e.target.value, error: null })}>
                 <option value="">Choose a worker…</option>
-                {workersOn(handover.job.machineId)
-                  .filter((w) => w.id !== handover.job.assignedWorkerId && w.appAccess)
+                {(workers ?? [])
+                  .filter((w) => w.isActive && w.appAccess && w.id !== handover.job.assignedWorkerId)
                   .sort((a, b) => Number(b.shiftId === handover.shiftId) - Number(a.shiftId === handover.shiftId))
                   .map((w) => (
                     <option key={w.id} value={w.id}>
@@ -537,8 +538,8 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
         title={closing?.status === 'PLANNED' ? 'Cancel planned job?' : 'Force close job?'}
         message={
           closing?.status === 'PLANNED'
-            ? `Job No. ${closing?.jobNo} is removed from the worker's list.`
-            : `Job No. ${closing?.jobNo} is closed without its remaining checks. Open checks are removed; every submitted record stays with the job. This is recorded in the audit log.`
+            ? `PO No. ${closing?.jobNo} is removed from the worker's list.`
+            : `PO No. ${closing?.jobNo} is closed without its remaining checks. Open checks are removed; every submitted record stays with the job. This is recorded in the audit log.`
         }
         confirmLabel={closing?.status === 'PLANNED' ? 'Cancel job' : 'Force close'}
         danger
@@ -546,7 +547,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
           if (!closing) return
           try {
             await api.post(`/api/jobs/${closing.id}/end`)
-            notify('success', closing.status === 'PLANNED' ? 'Job cancelled' : 'Job closed', `Job No. ${closing.jobNo}`)
+            notify('success', closing.status === 'PLANNED' ? 'Job cancelled' : 'Job closed', `PO No. ${closing.jobNo}`)
             refreshAll()
           } catch (err) {
             notify('error', 'Could not close the job', errorText(err))

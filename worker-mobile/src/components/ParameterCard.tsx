@@ -68,6 +68,7 @@ export const ParameterCard: React.FC<Props> = ({
         <View className="flex-1">
           <Text className={`text-[17px] font-semibold leading-[22px] ${p.applicable ? 'text-ink' : 'text-ink-muted'}`}>{p.name}</Text>
           {p.rule && p.applicable && p.type !== 'PASS_FAIL' && p.type !== 'YES_NO' && p.type !== 'DROPDOWN' && p.type !== 'PHOTO' ? <Text className="mt-0.5 text-[15px] text-ink-muted">{p.rule}</Text> : null}
+          {p.type === 'DROPDOWN' && p.multiSelect && p.applicable ? <Text className="mt-0.5 text-[15px] text-ink-muted">Select all that apply</Text> : null}
           {!p.isRequired && p.applicable && !na ? <Text className="mt-0.5 text-[13px] text-ink-muted">Optional</Text> : null}
         </View>
         {done && p.applicable ? (

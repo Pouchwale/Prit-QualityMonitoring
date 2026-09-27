@@ -6,7 +6,7 @@ import { Badge, List, ListFooterLink, MetricCard, MiniStat, Notice, Row, Section
 
 // Same sections as the web panel's Reports (admin-web/src/pages/admin/reports/TraceSections.tsx).
 
-/** The Item Code / Job No. of a check: its own, or the job's when it recorded none. */
+/** The Item Code / PO No. of a check: its own, or the job's when it recorded none. */
 export const itemCodeOf = (c: QualityCheck) => c.itemCode?.trim() || c.job?.itemCode?.trim() || ''
 export const jobNoOf = (c: QualityCheck) => c.jobNo?.trim() || c.job?.jobNo?.trim() || ''
 /** Pass/Fail and Yes/No readings as words ("Pass", "No"); other readings unchanged. */
@@ -50,7 +50,7 @@ const groupBadge = (g: TraceGroup) =>
 
 const changeLabel = (ch: TraceChange) => (ch.correction ? 'Correction' : ch.wentOutside ? 'Went outside limits' : 'Change')
 
-/** Traceability for an Item Code, Job No. or worker report. */
+/** Traceability for an Item Code, PO No. or worker report. */
 export const TraceBlock: React.FC<{
   trace: TraceReport
   scope: string
@@ -69,7 +69,7 @@ export const TraceBlock: React.FC<{
         <MiniStat label="Changes" value={c.changes} tone="neutral" />
         <MiniStat label="Corrected" value={c.corrections} tone="success" accessibilityLabel={`${c.corrections} corrections`} />
         <MiniStat label="Items" value={trace.items.filter((i) => i.key).length} tone="neutral" accessibilityLabel="Item Codes" />
-        <MiniStat label="Jobs" value={trace.jobs.filter((j) => j.key).length} tone="neutral" accessibilityLabel="Job Nos." />
+        <MiniStat label="Jobs" value={trace.jobs.filter((j) => j.key).length} tone="neutral" accessibilityLabel="PO Nos." />
       </MetricCard>
 
       <Section title="Item Codes" detail="Times checked, jobs, workers and machines per item">
@@ -80,7 +80,7 @@ export const TraceBlock: React.FC<{
             <Row
               key={g.key || '—'}
               title={g.key || 'No Item Code'}
-              subtitle={`${plural(g.checks, 'check')} · ${g.completed} completed · Job Nos. ${list(g.jobNos)}`}
+              subtitle={`${plural(g.checks, 'check')} · ${g.completed} completed · PO Nos. ${list(g.jobNos)}`}
               subtitleLines={2}
               detail={groupDetail(g)}
               detailLines={5}
@@ -92,14 +92,14 @@ export const TraceBlock: React.FC<{
         />
       </Section>
 
-      <Section title="Job Nos." detail="Item codes, checks, workers and machines per job">
+      <Section title="PO Nos." detail="Item codes, checks, workers and machines per job">
         <Rows
           items={trace.jobs}
-          noun="job numbers"
+          noun="PO numbers"
           render={(g) => (
             <Row
               key={g.key || '—'}
-              title={g.key ? `Job No. ${g.key}` : 'No Job No.'}
+              title={g.key ? `PO No. ${g.key}` : 'No PO No.'}
               subtitle={`${plural(g.checks, 'check')} · ${g.completed} completed · Item Codes ${list(g.itemCodes)}`}
               subtitleLines={2}
               detail={groupDetail(g)}

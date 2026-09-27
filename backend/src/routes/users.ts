@@ -1,15 +1,15 @@
 import { Router, type RequestHandler } from 'express'
 import { z } from 'zod'
-import { and, asc, eq, inArray, notInArray } from 'drizzle-orm'
+import { asc, eq } from 'drizzle-orm'
 import { db } from '../db/client'
-import { departments, machines, managerPermissions, schedules, shifts, users, workerMachines } from '../db/schema'
+import { departments, managerPermissions, shifts, users } from '../db/schema'
 import { idParam, optionalText, optionalUuid } from '../lib/validate'
 import { HttpError, badRequest, notFound } from '../lib/http'
 import { audit, snapshot } from '../lib/audit'
 import { passwordColumns, verifyPassword, type AuthUser } from '../lib/auth'
 import { decryptPassword } from '../lib/passwordVault'
 import { canManage, isAdminRole, requireAnyView, requireModule, type Role } from '../lib/permissions'
-import { invalidateCheckGeneration, removeUpcomingChecks } from '../services/checkGenerator'
+import { invalidateCheckGeneration } from '../services/checkGenerator'
 import { sendTestNotification } from '../services/notifications'
 
 export const usersRouter = Router()
@@ -58,7 +58,6 @@ const base = {
   phone: optionalText(30),
   isActive: z.boolean().default(true),
   appAccess: z.boolean().default(true),
-  machineIds: z.array(z.uuid()).default([])
 }
 
 const createInput = z.object({ ...base, password: z.string().min(6, 'Password must be at least 6 characters') })
@@ -87,73 +86,35 @@ const publicColumns = {
 }
 
 // Pages that filter or assign by worker read this list; only Admins see non-worker accounts.
-usersRouter.get('/', requireAnyView('workers', 'assignments', 'schedules', 'checks', 'exceptions', 'reports'), async (req, res) => {
+usersRouter.get('/', requireAnyView('workers', 'schedules', 'checks', 'exceptions', 'reports'), async (req, res) => {
   const requested = z.enum(ROLES).optional().parse(req.query.role)
   const role = isAdminRole(req.user!.role) ? requested : 'WORKER'
   if (!isAdminRole(req.user!.role) && requested && requested !== 'WORKER') return res.json([])
-  const [rows, access] = await Promise.all([
-    db
-      .select({ ...publicColumns, departmentName: departments.name, shiftName: shifts.name })
-      .from(users)
-      .leftJoin(departments, eq(users.departmentId, departments.id))
-      .leftJoin(shifts, eq(users.shiftId, shifts.id))
-      .where(role ? eq(users.role, role) : undefined)
-      .orderBy(asc(users.name)),
-    db.select().from(workerMachines)
-  ])
-  res.json(
-    rows.map((u) => ({ ...u, machineIds: access.filter((a) => a.userId === u.id).map((a) => a.machineId) }))
-  )
+  const rows = await db
+    .select({ ...publicColumns, departmentName: departments.name, shiftName: shifts.name })
+    .from(users)
+    .leftJoin(departments, eq(users.departmentId, departments.id))
+    .leftJoin(shifts, eq(users.shiftId, shifts.id))
+    .where(role ? eq(users.role, role) : undefined)
+    .orderBy(asc(users.name))
+  res.json(rows)
 })
 
-async function setMachines(userId: string, machineIds: string[]) {
-  await db.delete(workerMachines).where(eq(workerMachines.userId, userId))
-  const unique = [...new Set(machineIds)]
-  if (unique.length) await db.insert(workerMachines).values(unique.map((machineId) => ({ userId, machineId })))
-  invalidateCheckGeneration()
-  return releaseOrphanSchedules(userId, unique)
-}
-
-/**
- * A schedule may name a worker. When a machine is taken away from that worker the
- * schedule would send checks nobody can see, so the worker is removed from it and the
- * checks go to the worker assigned to that machine on the shift (services/workerAssignment.ts).
- */
-async function releaseOrphanSchedules(userId: string, machineIds: string[]) {
-  const orphans = await db
-    .select({ id: schedules.id, machineId: schedules.machineId })
-    .from(schedules)
-    .where(
-      and(
-        eq(schedules.workerId, userId),
-        machineIds.length ? notInArray(schedules.machineId, machineIds) : undefined
-      )
-    )
-  if (orphans.length === 0) return []
-
-  await db
-    .update(schedules)
-    .set({ workerId: null })
-    .where(inArray(schedules.id, orphans.map((o) => o.id)))
-  for (const o of orphans) await removeUpcomingChecks({ scheduleId: o.id })
-  return orphans.map((o) => o.id)
-}
-
 usersRouter.post('/', accountManagers, async (req, res) => {
-  const { password, machineIds, ...data } = createInput.parse(req.body)
+  const { password, ...data } = createInput.parse(req.body)
   assertCanManageAccount(req.user!, data.role)
   const [row] = await db
     .insert(users)
     .values({ ...data, ...(await passwordColumns(password)) })
     .returning(publicColumns)
-  await setMachines(row.id, machineIds)
-  await audit(req, 'CREATE_USER', 'User', row.id, { newValue: { ...row, machineIds } })
+  invalidateCheckGeneration()
+  await audit(req, 'CREATE_USER', 'User', row.id, { newValue: row })
   res.status(201).json(row)
 })
 
 usersRouter.put('/:id', accountManagers, async (req, res) => {
   const id = idParam(req)
-  const { password, machineIds, ...data } = updateInput.parse(req.body)
+  const { password, ...data } = updateInput.parse(req.body)
   const [before] = await db.select().from(users).where(eq(users.id, id))
   if (!before) throw notFound('User')
   assertCanManageAccount(req.user!, before.role, data.role)
@@ -184,56 +145,25 @@ usersRouter.put('/:id', accountManagers, async (req, res) => {
     })
     .where(eq(users.id, id))
     .returning(publicColumns)
-  const released = await setMachines(id, machineIds)
+  invalidateCheckGeneration()
   // A former manager keeps no module permissions.
   if (before.role === 'MANAGER' && data.role !== 'MANAGER') {
     await db.delete(managerPermissions).where(eq(managerPermissions.userId, id))
   }
   await audit(req, password ? 'UPDATE_USER_AND_PASSWORD' : 'UPDATE_USER', 'User', id, {
     oldValue: snapshot(before),
-    newValue: { ...row, machineIds, releasedSchedules: released.length || undefined }
+    newValue: row
   })
-  res.json({ ...row, releasedSchedules: released.length })
-})
-
-/**
- * Machine assignment. This decides which checks the worker sees, can submit and
- * is notified about, so it has its own endpoint for the assignment screen.
- */
-usersRouter.put('/:id/machines', requireModule('assignments', 'manage'), async (req, res) => {
-  const id = idParam(req)
-  const { machineIds } = z.object({ machineIds: z.array(z.uuid()) }).parse(req.body)
-
-  const [user] = await db.select().from(users).where(eq(users.id, id))
-  if (!user) throw notFound('User')
-  if (user.role !== 'WORKER') throw badRequest('Only workers are assigned to machines')
-
-  const before = await db.select({ machineId: workerMachines.machineId }).from(workerMachines).where(eq(workerMachines.userId, id))
-  const released = await setMachines(id, machineIds)
-
-  const names = machineIds.length
-    ? (await db.select({ name: machines.name }).from(machines).where(inArray(machines.id, machineIds))).map((m) => m.name)
-    : []
-  await audit(req, 'ASSIGN_MACHINES', 'User', id, {
-    oldValue: { machineIds: before.map((b) => b.machineId) },
-    newValue: { machineIds, machines: names, releasedSchedules: released.length || undefined }
-  })
-  res.json({ id, machineIds, releasedSchedules: released.length })
+  res.json(row)
 })
 
 /** Sends a test notification to the worker's phones so the admin can verify the setup. */
-usersRouter.post('/:id/test-notification', requireModule('assignments', 'manage'), async (req, res) => {
+usersRouter.post('/:id/test-notification', requireModule('workers', 'manage'), async (req, res) => {
   const id = idParam(req)
   const [user] = await db.select().from(users).where(eq(users.id, id))
   if (!user) throw notFound('User')
 
-  const assigned = await db
-    .select({ name: machines.name })
-    .from(workerMachines)
-    .innerJoin(machines, eq(workerMachines.machineId, machines.id))
-    .where(eq(workerMachines.userId, id))
-
-  const result = await sendTestNotification(id, assigned.map((a) => a.name).join(', ') || undefined)
+  const result = await sendTestNotification(id)
   await audit(req, 'TEST_NOTIFICATION', 'User', id, { newValue: result })
   // With no registered device, say what the worker's device last reported so the admin knows why.
   res.json({ ...result, lastStatus: user.alertStatus ?? null })

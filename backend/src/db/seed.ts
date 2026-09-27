@@ -11,7 +11,6 @@ import {
   schedules,
   shifts,
   users,
-  workerMachines
 } from './schema'
 import { passwordColumns } from '../lib/auth'
 import { NEW_PARAMETERS } from './ensureNewParameters'
@@ -63,7 +62,8 @@ async function main() {
       .values([
         { name: 'Viscosity', code: 'VISCOSITY', type: 'NUMBER', unit: 'sec', minValue: 18, maxValue: 22, sortOrder: 0 },
         { name: 'Repeat Length', code: 'REPEAT-LENGTH', type: 'NUMBER', unit: 'mm', sortOrder: 1 },
-        { name: 'Corona Treatment', code: 'CORONA', type: 'DROPDOWN', options: ['38 Dyne', '40 Dyne', '42 Dyne'], sortOrder: 2 },
+        // The worker picks the material first, then the dyne; both are recorded on this one parameter.
+        { name: 'Corona Treatment', code: 'CORONA', type: 'DROPDOWN', materialOptions: ['BOPP 38', 'PET 56'], options: ['38 Dyne', '40 Dyne', '56 Dyne'], sortOrder: 2 },
         { name: 'TEAP Test', code: 'TEAP', type: 'PASS_FAIL', sortOrder: 3 },
         { name: 'Deep Punching', code: 'DEEP-PUNCHING', type: 'PASS_FAIL', sortOrder: 4 },
         { name: 'Registration', code: 'REGISTRATION', type: 'PASS_FAIL', sortOrder: 5 },
@@ -158,7 +158,6 @@ async function main() {
       })
       .returning()
 
-    await tx.insert(workerMachines).values(allMachines.map((m) => ({ userId: worker.id, machineId: m.id })))
 
     // Demo schedules on all three shifts so there is always something to test.
     await tx.insert(schedules).values(

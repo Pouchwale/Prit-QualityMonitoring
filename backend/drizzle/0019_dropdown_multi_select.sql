@@ -1,0 +1,1 @@
+ALTER TABLE "parameters" ADD COLUMN "multi_select" boolean DEFAULT false NOT NULL;

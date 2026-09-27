@@ -239,7 +239,14 @@ export const ActivitiesPage: React.FC = () => {
       form.parameters.filter((_, i) => i !== index)
     )
 
-  const availableParameters = (allParameters ?? []).filter((p) => !form.parameters.some((fp) => fp.parameterId === p.id))
+  /**
+   * A check type may only use the parameters of its own department. A parameter with no department
+   * is unassigned and fits every check type; a check type with no department can use anything.
+   */
+  const forThisDepartment = (p: Parameter) => !form.departmentId || p.departmentIds.length === 0 || p.departmentIds.includes(form.departmentId)
+  const unused = (allParameters ?? []).filter((p) => !form.parameters.some((fp) => fp.parameterId === p.id))
+  const availableParameters = unused.filter(forThisDepartment)
+  const hiddenByDepartment = unused.length - availableParameters.length
 
   const addParameter = () => {
     const parameter = availableParameters.find((p) => p.id === addParameterId)
@@ -401,7 +408,7 @@ export const ActivitiesPage: React.FC = () => {
                       {hasEvidence || a.monitoring === 'JOB' ? (
                         <div className="flex flex-wrap gap-1 max-w-[200px]">
                           {a.monitoring === 'JOB' && <EvidenceBadge icon={<Briefcase className="w-3 h-3" />} label="Job-based" />}
-                          {a.requireJobNo && <EvidenceBadge icon={<Hash className="w-3 h-3" />} label="Job No." />}
+                          {a.requireJobNo && <EvidenceBadge icon={<Hash className="w-3 h-3" />} label="PO No." />}
                           {a.requirePhoto && <EvidenceBadge icon={<Camera className="w-3 h-3" />} label="Photo" />}
                           {a.requireVideo && <EvidenceBadge icon={<Video className="w-3 h-3" />} label="Video" />}
                         </div>
@@ -496,7 +503,7 @@ export const ActivitiesPage: React.FC = () => {
               </Field>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Field label="Department">
+              <Field label="Department" hint="Only this department's workers do this check. No department: every worker.">
                 <Select value={form.departmentId} onChange={(e) => update('departmentId', e.target.value)}>
                   <option value="">No department</option>
                   {departmentOptions.map((d) => (
@@ -530,8 +537,8 @@ export const ActivitiesPage: React.FC = () => {
               <Toggle
                 checked={form.requireJobNo}
                 onChange={(v) => update('requireJobNo', v)}
-                label="Job No. required"
-                description="Worker enters the job number."
+                label="PO No. required"
+                description="Worker enters the PO number."
               />
               <Toggle
                 checked={form.requirePhoto}
@@ -708,7 +715,9 @@ export const ActivitiesPage: React.FC = () => {
                     ? 'Loading parameters…'
                     : availableParameters.length
                       ? 'Choose a parameter to add…'
-                      : 'All parameters are already on this form'}
+                      : hiddenByDepartment
+                        ? 'No parameter of this department is left to add'
+                        : 'All parameters are already on this form'}
                 </option>
                 {availableParameters.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -726,6 +735,12 @@ export const ActivitiesPage: React.FC = () => {
               Video are captured on that parameter's own card; Allow N/A lets the worker record a reason instead of a value, which never counts as a
               failure.
             </p>
+            {hiddenByDepartment > 0 && (
+              <p className="text-[11px] text-ink-muted">
+                {hiddenByDepartment} parameter{hiddenByDepartment === 1 ? ' is' : 's are'} not offered here because they belong to other departments.
+                Add this department to a parameter in Parameters to make it available.
+              </p>
+            )}
           </Section>
 
           <Section step={4} title="Machines" description="Which machines use this check type">

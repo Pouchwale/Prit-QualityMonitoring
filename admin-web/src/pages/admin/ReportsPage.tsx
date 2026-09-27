@@ -213,7 +213,7 @@ export const ReportsPage: React.FC = () => {
     jobNo: filters.jobNo,
     result: filters.status
   }
-  /** An Item Code, Job No. or worker report: adds the traceability sections. */
+  /** An Item Code, PO No. or worker report: adds the traceability sections. */
   const traced = !!(filters.itemCode || filters.jobNo || filters.workerId)
   const trace = useApi<TraceReport>(traced ? '/api/reports/trace' : null, reportQuery)
 
@@ -237,7 +237,7 @@ export const ReportsPage: React.FC = () => {
       checks.find((c) => c.submittedById === filters.workerId || c.workerId === filters.workerId)?.workerName ??
       'selected worker')
     : null
-  const traceScope = [filters.itemCode && `Item Code ${filters.itemCode}`, filters.jobNo && `Job No. ${filters.jobNo}`, workerName && `Worker ${workerName}`]
+  const traceScope = [filters.itemCode && `Item Code ${filters.itemCode}`, filters.jobNo && `PO No. ${filters.jobNo}`, workerName && `Worker ${workerName}`]
     .filter(Boolean)
     .join(' · ')
 
@@ -295,7 +295,7 @@ export const ReportsPage: React.FC = () => {
       'Result',
       'Submission type',
       'Item Code',
-      'Job No.',
+      'PO No.',
       'Submitted at',
       'Parameters outside limits',
       'N/A parameters',
@@ -475,7 +475,7 @@ export const ReportsPage: React.FC = () => {
         <p className="text-xs">
           Period: {period}
           {filters.itemCode ? ` · Item Code: ${filters.itemCode}` : ''}
-          {filters.jobNo ? ` · Job No.: ${filters.jobNo}` : ''}
+          {filters.jobNo ? ` · PO No.: ${filters.jobNo}` : ''}
           {filters.status ? ` · Result: ${RESULT_LABEL[filters.status as CheckResult] ?? filters.status}` : ''} · Generated {formatDateTime(new Date().toISOString())}
         </p>
       </div>
@@ -570,7 +570,7 @@ export const ReportsPage: React.FC = () => {
           <DetailedRecords checks={checks} />
         ) : (
           <p className="text-xs text-ink-muted no-print">
-            {checks.length} checks in this period. Choose an Item Code, Job No. or Worker to see every record here, or download the CSV / PDF for all of them.
+            {checks.length} checks in this period. Choose an Item Code, PO No. or Worker to see every record here, or download the CSV / PDF for all of them.
           </p>
         )}
       </DataState>

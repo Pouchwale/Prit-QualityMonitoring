@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { Modal, View, Text, Pressable, ScrollView } from 'react-native'
+import { Modal, View, Text, Pressable } from 'react-native'
+import { KeyboardAvoider, KeyboardAwareScrollView, dismissKeyboard } from '../utils/keyboard'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { NaReason } from '../types'
 import { Button } from './ui/Button'
@@ -48,7 +49,8 @@ export const NaReasonSheet: React.FC<Props> = ({ visible, parameterName, reasons
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel}>
       <View className="flex-1 justify-end bg-black/40">
         <Pressable className="flex-1" onPress={onCancel} accessible={false} />
-        <View className="max-h-[88%] rounded-t-[24px] bg-canvas px-5 pt-2" style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}>
+        <KeyboardAvoider>
+          <View className="max-h-[88%] rounded-t-[24px] bg-canvas px-5 pt-2" style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}>
           <View className="mb-2 h-1.5 w-10 self-center rounded-full bg-line-strong" />
           <View className="flex-row items-center">
             <Pressable
@@ -66,7 +68,7 @@ export const NaReasonSheet: React.FC<Props> = ({ visible, parameterName, reasons
             {parameterName}
           </Text>
 
-          <ScrollView keyboardShouldPersistTaps="handled">
+          <KeyboardAwareScrollView>
             <Text className="mb-2 px-4 text-[15px] font-semibold text-ink-muted">Reason</Text>
             <View className="overflow-hidden rounded-2xl bg-surface">
               {reasons.map((r, index) => {
@@ -110,10 +112,11 @@ export const NaReasonSheet: React.FC<Props> = ({ visible, parameterName, reasons
             </View>
 
             {error ? <Text className="mt-3 text-[15px] font-medium text-missed">{error}</Text> : null}
-          </ScrollView>
+          </KeyboardAwareScrollView>
 
-          <Button label="Mark not applicable" onPress={confirm} className="mt-5" />
-        </View>
+            <Button label="Mark not applicable" onPress={confirm} className="mt-5" />
+          </View>
+        </KeyboardAvoider>
       </View>
     </Modal>
   )

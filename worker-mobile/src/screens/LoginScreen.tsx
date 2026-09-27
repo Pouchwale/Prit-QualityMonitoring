@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react'
-import { View, Text, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput } from 'react-native'
+import { View, Text, Image, Pressable, TextInput } from 'react-native'
+import { KeyboardAwareScrollView } from '../utils/keyboard'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { canChangeServer, getApiUrl, ApiError, login } from '../services/api'
 import { Profile } from '../types'
@@ -43,12 +44,8 @@ export const LoginScreen: React.FC<Props> = ({ onSignedIn }) => {
   }
 
   return (
-    <KeyboardAvoidingView className="flex-1 bg-canvas" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView
-        className="flex-1"
-        contentContainerClassName="flex-grow justify-center px-6"
-        keyboardShouldPersistTaps="handled"
-      >
+    <View className="flex-1 bg-canvas">
+      <KeyboardAwareScrollView className="flex-1" contentContainerClassName="flex-grow justify-center px-6">
         <View className="w-full max-w-[440px] self-center" style={{ paddingTop: insets.top + 32, paddingBottom: insets.bottom + 24 }}>
           <Image
             source={require('../../assets/icon.png')}
@@ -152,7 +149,7 @@ export const LoginScreen: React.FC<Props> = ({ onSignedIn }) => {
             <Text className="mt-8 text-center text-[13px] text-ink-muted">Server: {server}</Text>
           )}
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAwareScrollView>
+    </View>
   )
 }

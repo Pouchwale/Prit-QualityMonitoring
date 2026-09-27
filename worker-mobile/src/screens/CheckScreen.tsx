@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { View, Text, ScrollView, Pressable, BackHandler, KeyboardAvoidingView, Platform, TextInput } from 'react-native'
+import { View, Text, ScrollView, Pressable, BackHandler, Platform, TextInput } from 'react-native'
+import { KeyboardAvoider, KeyboardAwareScrollView, useRevealInput, type KeyboardAwareScrollViewHandle } from '../utils/keyboard'
 import { ApiError, endJob, getCheckForm, getTodayChecks, submitCheck, submitException } from '../services/api'
 import { showDialog, showError, showMissingItems, showSuccess } from '../utils/dialog'
 import type { DialogItem } from '../components/ui/AppDialog'
@@ -12,12 +13,12 @@ import { SectionHeader } from '../components/ui/SectionHeader'
 import { ListGroup } from '../components/ui/ListGroup'
 import { ActionBar } from '../components/ui/ActionBar'
 import { Button } from '../components/ui/Button'
-import { PLACEHOLDER_COLOR, TextField } from '../components/ui/TextField'
+import { ACCENT, INK, PLACEHOLDER_COLOR, TextField } from '../components/ui/TextField'
 import { ProgressBar } from '../components/ui/ProgressBar'
 import { Icon } from '../components/ui/Icon'
 import { EmptyState, ErrorState, Loading } from '../components/ui/LoadState'
 import { RadioMark } from '../components/RadioMark'
-import { numberStatus } from '../components/ParameterField'
+import { hasMaterial, materialAnswer, numberStatus } from '../components/ParameterField'
 import { ParameterCard, needsPhoto, type NaChoice } from '../components/ParameterCard'
 import { EvidenceField } from '../components/EvidenceField'
 import { NaReasonSheet } from '../components/NaReasonSheet'
@@ -46,6 +47,12 @@ function whatIsMissing(p: FormParameter, value: string, na: NaChoice | null, med
   if (!p.applicable || na) return []
   const missing: string[] = []
   if (p.isRequired && p.type !== 'PHOTO' && !value.trim()) missing.push('Value')
+  // A dropdown that asks for a material needs both halves before it counts as answered.
+  else if (hasMaterial(p) && value.trim()) {
+    const answer = materialAnswer(p, value)
+    if (!answer.material) missing.push('Material')
+    else if (!answer.option) missing.push('Value')
+  }
   if (needsPhoto(p) && !media[photoField(p.id)]) missing.push('Photo')
   if (p.requireVideo && !media[videoField(p.id)]) missing.push('Video')
   return missing
@@ -91,7 +98,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
   const [remark, setRemark] = useState('')
   const [exceptionPhoto, setExceptionPhoto] = useState<Capture | null>(null)
 
-  const scroller = useRef<ScrollView | null>(null)
+  const scroller = useRef<KeyboardAwareScrollViewHandle | null>(null)
   const cardsTop = useRef(0)
   const cardY = useRef<Record<string, number>>({})
 
@@ -101,7 +108,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     try {
       const next = await getCheckForm(checkId)
       setForm(next)
-      // A running job fixes the Item Code and Job No.; otherwise keep whatever the worker typed.
+      // A running job fixes the Item Code and PO No.; otherwise keep whatever the worker typed.
       if (next.job) {
         setItemCode(next.job.itemCode ?? '')
         setJobNo(next.job.jobNo)
@@ -181,7 +188,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
       if (items.length) perParameter[p.id] = items
     }
     const overall: string[] = []
-    if (form.activity.requireJobNo && !jobNo.trim()) overall.push('Job No.')
+    if (form.activity.requireJobNo && !jobNo.trim()) overall.push('PO No.')
     if (form.activity.requirePhoto && !media.photo) overall.push('Check photo')
     if (form.activity.requireVideo && !media.video) overall.push('Check video')
 
@@ -244,7 +251,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
       if (needs.includes('Video')) addFile('video', videoField(p.id), p.name)
     }
     const readings: DialogItem[] = [
-      ...(overall.includes('Job No.') ? [{ label: 'Job No.', detail: 'Enter the job number', icon: 'create-outline' as const }] : []),
+      ...(overall.includes('PO No.') ? [{ label: 'PO No.', detail: 'Enter the job number', icon: 'create-outline' as const }] : []),
       ...parameters.filter((p) => (perParameter[p.id] ?? []).includes('Value')).map((p) => ({ label: p.name, detail: 'Reading required', icon: 'create-outline' as const }))
     ]
     const photos = files.filter((f) => f.target.mode === 'photo').length
@@ -275,7 +282,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
       const first = ended.endChecks[0]
       if (first && onOpenCheck) onOpenCheck(first.id)
       else {
-        showSuccess('Job completed', `Job No. ${job.jobNo} is completed.`)
+        showSuccess('Job completed', `PO No. ${job.jobNo} is completed.`)
         onClose(true)
       }
     } catch (err) {
@@ -399,7 +406,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     else if (p.requireVideo && !media[videoField(p.id)]) nextStep = { parameterId: p.id, kind: 'video' }
     if (nextStep) break
   }
-  const jobNoMissing = missingOverall.includes('Job No.')
+  const jobNoMissing = missingOverall.includes('PO No.')
 
   return (
     <View className="flex-1 bg-canvas">
@@ -412,13 +419,8 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
             onRightPress={() => setMode('exception')}
             rightTone="exception"
           />
-          <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <ScrollView
-              ref={scroller}
-              className="flex-1"
-              contentContainerClassName="px-5 pb-10"
-              keyboardShouldPersistTaps="handled"
-            >
+          <View className="flex-1">
+            <KeyboardAwareScrollView ref={scroller} className="flex-1" contentContainerClassName="px-5 pb-10">
               <View className="pb-6 pt-4">
                 <Text className="text-[15px] font-medium text-ink-muted">
                   {check.machineName}
@@ -445,7 +447,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
                       {job ? (
                         [
                           job.itemCode ? <LockedRow key="item" label="Item Code" value={job.itemCode} /> : null,
-                          <LockedRow key="job" label="Job No." value={job.jobNo} />
+                          <LockedRow key="job" label="PO No." value={job.jobNo} />
                         ]
                       ) : (
                         [
@@ -459,13 +461,13 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
                           />,
                           <InlineField
                             key="job"
-                            label="Job No."
-                            placeholder="Enter Job No."
+                            label="PO No."
+                            placeholder="Enter PO No."
                             value={jobNo}
                             invalid={jobNoMissing}
                             onChangeText={(text) => {
                               setJobNo(text)
-                              setMissingOverall((prev) => prev.filter((m) => m !== 'Job No.'))
+                              setMissingOverall((prev) => prev.filter((m) => m !== 'PO No.'))
                             }}
                           />
                         ]
@@ -477,8 +479,8 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
                           ? `From the job running since ${formatTime(job.startedAt)}.`
                           : 'From the job.'
                         : activity.requireJobNo
-                          ? 'Job No. is required for this check.'
-                          : 'Job No. is optional for this check.'}
+                          ? 'PO No. is required for this check.'
+                          : 'PO No. is optional for this check.'}
                     </Text>
                   </View>
 
@@ -557,25 +559,27 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
                   )}
                 </View>
               )}
-            </ScrollView>
+            </KeyboardAwareScrollView>
 
             {check.canSubmit && (
-              <ActionBar>
+              <KeyboardAvoider>
+                <ActionBar>
                 <Button label={sending ? sendingLabel : 'Submit'} onPress={sendCheck} loading={sending} />
                 {sending ? (
                   <View className="mt-3">
                     <ProgressBar done={Math.round(progress * 100)} total={100} />
                   </View>
                 ) : null}
-              </ActionBar>
+                </ActionBar>
+              </KeyboardAvoider>
             )}
-          </KeyboardAvoidingView>
+          </View>
         </>
       ) : (
         <>
           <NavBar leftLabel="Back" onLeftPress={goBack} title="Exception" />
-          <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <ScrollView className="flex-1" contentContainerClassName="px-5 pb-10" keyboardShouldPersistTaps="handled">
+          <View className="flex-1">
+            <KeyboardAwareScrollView className="flex-1" contentContainerClassName="px-5 pb-10">
               <View className="pb-6 pt-4">
                 <Text className="text-[15px] font-medium text-ink-muted">
                   {check.machineName} · {activity.name}
@@ -628,17 +632,19 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
                   />
                 </View>
               </View>
-            </ScrollView>
+            </KeyboardAwareScrollView>
 
-            <ActionBar>
+            <KeyboardAvoider>
+              <ActionBar>
               <Button label={sending ? sendingLabel : 'Submit Exception'} onPress={sendException} loading={sending} />
               {sending ? (
                 <View className="mt-3">
                   <ProgressBar done={Math.round(progress * 100)} total={100} />
                 </View>
               ) : null}
-            </ActionBar>
-          </KeyboardAvoidingView>
+              </ActionBar>
+            </KeyboardAvoider>
+          </View>
         </>
       )}
 
@@ -680,23 +686,38 @@ const InlineField: React.FC<{
   onChangeText: (text: string) => void
   maxLength?: number
   invalid?: boolean
-}> = ({ label, placeholder, value, onChangeText, maxLength, invalid = false }) => (
-  <View className="min-h-[56px] flex-row items-center px-4">
-    <Text className={`w-[96px] text-[17px] ${invalid ? 'font-semibold text-missed' : 'text-ink'}`}>{label}</Text>
-    <TextInput
-      placeholder={placeholder}
-      placeholderTextColor={PLACEHOLDER_COLOR}
-      value={value}
-      onChangeText={onChangeText}
-      maxLength={maxLength}
-      autoCapitalize="characters"
-      autoCorrect={false}
-      accessibilityLabel={label}
-      className="h-14 flex-1 py-0 text-right text-[17px] text-ink"
-      style={Platform.OS === 'web' ? ({ outlineStyle: 'none', minWidth: 0 } as object) : undefined}
-    />
-  </View>
-)
+}> = ({ label, placeholder, value, onChangeText, maxLength, invalid = false }) => {
+  const reveal = useRevealInput()
+  const [focused, setFocused] = useState(false)
+  return (
+    <View className={`min-h-[56px] flex-row items-center px-4 ${focused ? 'bg-accent-soft' : ''}`}>
+      <Text className={`w-[96px] text-[17px] ${invalid ? 'font-semibold text-missed' : 'text-ink'}`}>{label}</Text>
+      <TextInput
+        placeholder={placeholder}
+        placeholderTextColor={PLACEHOLDER_COLOR}
+        value={value}
+        onChangeText={onChangeText}
+        maxLength={maxLength}
+        autoCapitalize="characters"
+        autoCorrect={false}
+        accessibilityLabel={label}
+        onFocus={() => {
+          setFocused(true)
+          reveal?.()
+        }}
+        onBlur={() => setFocused(false)}
+        // Android centres a fixed-height single-line input only when it is told to; without this
+        // the text sits half out of the row and reads as "not visible" while typing.
+        textAlignVertical="center"
+        cursorColor={ACCENT}
+        selectionColor={ACCENT}
+        className="h-14 flex-1 py-0 text-right text-[17px] font-medium text-ink"
+        // The colour is set here too: a TextInput that misses its class keeps the platform default.
+        style={Platform.OS === 'web' ? ({ outlineStyle: 'none', minWidth: 0, color: INK } as object) : { color: INK }}
+      />
+    </View>
+  )
+}
 
 /** A value fixed by the running job. */
 const LockedRow: React.FC<{ label: string; value: string }> = ({ label, value }) => (

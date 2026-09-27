@@ -14,7 +14,6 @@ export const NAV_PATH: Record<NavTab, string> = {
   schedules: '/schedules',
   calendar: '/plant-calendar',
   workers: '/workers',
-  assignments: '/machine-assignment',
   departments: '/departments',
   shifts: '/shifts',
   'audit-logs': '/audit-logs',

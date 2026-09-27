@@ -8,7 +8,7 @@ import { departments, jobs, machines, qualityChecks, scoreSettingHistory, scoreS
  * Admin changes it in the admin panel without a new build.
  *
  *   missed = assigned - completed
- *   score  = missed x penaltyPerMissed        (default penalty -1, so 10 missed = -10)
+ *   score  = completion % - 100               (80 of 100 done = 80% complete, score -20)
  *
  * Nothing here changes how checks are created, assigned or submitted: it only reads them.
  *
@@ -128,9 +128,9 @@ export interface WorkerPerformance {
   missedChecks: number
   exceptions: number
   open: number
-  /** missed x penaltyPerMissed. */
+  /** Completion − 100: the percentage still pending, as a negative. 0 when everything is done. */
   score: number
-  /** For reference only; the score is not a percentage. */
+  /** completed / assigned as a percentage. */
   completionRate: number
 }
 
@@ -159,8 +159,19 @@ function conditions(f: PerformanceFilters): SQL {
 const rate = (completed: number, assigned: number) => (assigned ? Math.round((completed / assigned) * 100) : 100)
 
 /**
- * One row per worker who had checks in the period, worst score first. `penaltyPerMissed` is the
- * rule that was applied, so the caller can show it next to the numbers.
+ * The score is the share of the worker's checks still not done, as a negative percentage:
+ *
+ *   score = completion % − 100 = −(pending %)
+ *
+ * 80 of 100 done is 80% complete, 20% pending, score −20. Everything done is 0, nothing done is
+ * −100, and a worker who was given no checks at all is 0 rather than −100.
+ */
+const scoreOf = (completed: number, assigned: number) => rate(completed, assigned) - 100
+
+/**
+ * One row per worker who had checks in the period, worst score first. `penaltyPerMissed` is still
+ * returned for the screens that read it, but the score no longer uses it: it is the pending
+ * percentage (see `scoreOf`).
  */
 export async function workerPerformance(filters: PerformanceFilters) {
   const { penaltyPerMissed } = await activeScoreSetting()
@@ -196,7 +207,7 @@ export async function workerPerformance(filters: PerformanceFilters) {
         missedChecks: r.missedChecks,
         exceptions: r.exceptions,
         open: r.open,
-        score: missed * penaltyPerMissed,
+        score: scoreOf(r.completed, r.assigned),
         completionRate: rate(r.completed, r.assigned)
       }
     })
@@ -211,7 +222,7 @@ export async function workerPerformance(filters: PerformanceFilters) {
       assigned,
       completed,
       missed: assigned - completed,
-      score: (assigned - completed) * penaltyPerMissed,
+      score: scoreOf(completed, assigned),
       completionRate: rate(completed, assigned)
     },
     workers

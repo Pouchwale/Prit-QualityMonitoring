@@ -79,12 +79,12 @@ export const MyPerformanceCard: React.FC = () => {
           <View className="mt-3 flex-row items-end justify-between">
             <View>
               <Text className="text-[13px] text-ink-muted">My score</Text>
-              <Text className={`text-[34px] font-bold leading-[40px] ${data.score < 0 ? 'text-missed' : 'text-success'}`}>{data.score}</Text>
+              <Text className={`text-[34px] font-bold leading-[40px] ${data.score < 0 ? 'text-missed' : 'text-success'}`}>{data.score}%</Text>
             </View>
             <Text className="pb-1.5 text-right text-[13px] leading-[18px] text-ink-muted">
-              {data.missed} missed × {data.penaltyPerMissed}
-              {'\n'}
               {data.completionRate}% completed
+              {'\n'}
+              {100 - data.completionRate}% still to do
             </Text>
           </View>
           <View className="mt-3 flex-row rounded-xl bg-subtle">

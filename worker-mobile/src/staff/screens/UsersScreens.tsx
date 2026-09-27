@@ -82,7 +82,6 @@ interface FormState {
   password: string
   isActive: boolean
   appAccess: boolean
-  machineIds: string[]
 }
 
 const emptyForm: FormState = {
@@ -96,7 +95,6 @@ const emptyForm: FormState = {
   password: '',
   isActive: true,
   appAccess: true,
-  machineIds: []
 }
 
 /** The request body of PUT /api/users/:id for an unchanged user, with the given overrides. */
@@ -112,7 +110,6 @@ const userBody = (u: User, overrides: Partial<FormState> = {}) => {
     phone: u.phone,
     isActive: overrides.isActive ?? u.isActive,
     appAccess: overrides.appAccess ?? u.appAccess,
-    machineIds: role === 'WORKER' ? u.machineIds : []
   }
 }
 
@@ -174,14 +171,8 @@ export const UsersScreen: React.FC<{ params?: Record<string, never> }> = () => {
               name={u.name}
               title={`${u.name}${u.id === profile.id ? ' (you)' : ''}`}
               muted={!u.isActive}
-              subtitle={facts(u.employeeId, u.role === 'WORKER' ? machineCount(u.machineIds.length) : ROLE_LABEL[u.role], u.shiftName)}
-              right={
-                !u.isActive ? (
-                  <Badge label="Disabled" tone="missed" />
-                ) : u.role === 'WORKER' && u.machineIds.length === 0 ? (
-                  <Badge label="No machines" tone="exception" />
-                ) : undefined
-              }
+              subtitle={facts(u.employeeId, ROLE_LABEL[u.role], u.shiftName)}
+              right={!u.isActive ? <Badge label="Disabled" tone="missed" /> : undefined}
               onPress={() => push('userDetail', { id: u.id })}
             />
           ))}
@@ -205,7 +196,6 @@ export const UserDetailScreen: React.FC<{ params: { id: string } }> = ({ params 
   const canEditUser = !!user && canEdit && manageableRoles(profile.role).includes(user.role)
   // Only the Super Admin can view passwords.
   const canViewPasswords = canEdit && profile.role === 'SUPER_ADMIN'
-  const machineNames = user ? (machinesApi.data ?? []).filter((m) => user.machineIds.includes(m.id)).map((m) => m.name) : []
 
   const disable = async () => {
     if (!user) return
@@ -243,7 +233,6 @@ export const UserDetailScreen: React.FC<{ params: { id: string } }> = ({ params 
     }
   }
 
-  const showAssignment = !!user && user.role === 'WORKER' && can('assignments')
   const showViewPassword = !!user && canViewPasswords
   const showStatusAction = !!user && canEdit && !self && canEditUser
 
@@ -284,23 +273,8 @@ export const UserDetailScreen: React.FC<{ params: { id: string } }> = ({ params 
               </Card>
             </Section>
 
-            {user.role === 'WORKER' ? (
-              <Section title="Machines" detail={user.machineIds.length ? machineCount(user.machineIds.length) : undefined}>
-                {user.machineIds.length === 0 ? (
-                  <Notice tone="exception" title="None" message="This worker cannot see any checks" />
-                ) : machineNames.length ? (
-                  <Card>
-                    <KV label="Assigned" value={machineNames.join(', ')} stacked />
-                  </Card>
-                ) : null}
-              </Section>
-            ) : null}
-
-            {showAssignment || showViewPassword || (showStatusAction && !user.isActive) ? (
+            {showViewPassword || (showStatusAction && !user.isActive) ? (
               <ActionGroup>
-                {showAssignment ? (
-                  <ActionItem label="Open Machine Assignment" description="Change which machines this worker checks" onPress={() => push('assignments')} />
-                ) : null}
                 {showViewPassword ? (
                   <ActionItem label="View password" description="Super Admin only · recorded in the audit log" onPress={() => push('userPassword', { id: user.id })} />
                 ) : null}
@@ -364,7 +338,6 @@ const UserForm: React.FC<{ params: { id?: string; role?: Role } }> = ({ params }
       password: '',
       isActive: editing.isActive,
       appAccess: editing.appAccess,
-      machineIds: editing.machineIds
     })
   }, [editing])
 
@@ -392,7 +365,6 @@ const UserForm: React.FC<{ params: { id?: string; role?: Role } }> = ({ params }
         phone: form.phone.trim() || null,
         isActive: form.isActive,
         appAccess: form.appAccess,
-        machineIds: isWorker ? form.machineIds : [],
         ...(form.password ? { password: form.password } : {})
       }
       if (creating) {
@@ -414,7 +386,7 @@ const UserForm: React.FC<{ params: { id?: string; role?: Role } }> = ({ params }
   const departments = (departmentsApi.data ?? []).filter((d) => d.isActive || d.id === form.departmentId)
   const shifts = (shiftsApi.data ?? []).filter((s) => s.isActive || s.id === form.shiftId)
   const machineOptions = (machinesApi.data ?? [])
-    .filter((m) => m.isActive || form.machineIds.includes(m.id))
+    .filter((m) => m.isActive)
     .map((m) => ({
       value: m.id,
       label: m.isActive ? m.name : `${m.name} (disabled)`,
@@ -531,17 +503,10 @@ const UserForm: React.FC<{ params: { id?: string; role?: Role } }> = ({ params }
             </FormSection>
 
             {form.role === 'WORKER' ? (
-              <FormSection
-                title="Machines"
-                description="Schedules without an assigned worker show to every worker on the same shift who has access to that machine. Schedules assigned to a specific worker show only to that worker."
-              >
-                <MultiSelectField
-                  label="Machines this worker can check"
-                  hint={`${form.machineIds.length} selected`}
-                  values={form.machineIds}
-                  options={machineOptions}
-                  onChange={(ids) => set('machineIds', ids)}
-                  placeholder={machinesApi.loading ? 'Loading machines…' : machineOptions.length ? 'None selected' : 'No machines configured yet'}
+              <FormSection title="Machines">
+                <Notice
+                  title="Workers are not tied to machines"
+                  message="In the app a worker picks any running machine, starts a job on it, and that job's checks are theirs until it ends or they hand it over."
                 />
               </FormSection>
             ) : null}

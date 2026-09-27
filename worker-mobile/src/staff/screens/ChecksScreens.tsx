@@ -85,7 +85,7 @@ export const ChecksScreen: React.FC<{ params: ChecksParams }> = ({ params }) => 
 
   const exportCsv = async () => {
     const csv = toCsv(
-      ['Scheduled at', 'Check code', 'Machine', 'Machine code', 'Department', 'Check type', 'Worker', 'Employee ID', 'Shift', 'Status', 'Result', 'Item Code', 'Job No.', 'Submitted at', 'Parameters', 'Parameters outside limits', 'Exception reason'],
+      ['Scheduled at', 'Check code', 'Machine', 'Machine code', 'Department', 'Check type', 'Worker', 'Employee ID', 'Shift', 'Status', 'Result', 'Item Code', 'PO No.', 'Submitted at', 'Parameters', 'Parameters outside limits', 'Exception reason'],
       rows.map((c) => [
         formatDateTime(c.scheduledAt),
         c.code,
@@ -240,7 +240,7 @@ export const CheckDetailScreen: React.FC<{ params: { id: string } }> = ({ params
               <View className="flex-row flex-wrap gap-2">
                 <Badge label={submissionLabel(check)} tone={check.submissionType === 'MANUAL' ? 'due' : 'neutral'} />
                 {itemCode ? <Badge label={`Item Code ${itemCode}`} /> : null}
-                {jobNo ? <Badge label={`Job No. ${jobNo}`} /> : null}
+                {jobNo ? <Badge label={`PO No. ${jobNo}`} /> : null}
                 {check.nextDueAt ? <Badge label={`Next check due ${formatTime(check.nextDueAt)}`} tone="accent" /> : null}
                 {notApplicable ? <Badge label={`${notApplicable} not applicable`} tone="exception" /> : null}
               </View>
@@ -263,7 +263,7 @@ export const CheckDetailScreen: React.FC<{ params: { id: string } }> = ({ params
                 <KV label="Submitted by" value={check.submittedByName} detail={[check.submittedByEmployeeId, check.submittedAt ? formatDateTime(check.submittedAt) : null].filter(Boolean).join(' · ') || null} />
                 <KV label="Submission" value={submissionLabel(check)} detail={check.submissionType === 'MANUAL' ? 'Started by the worker' : 'Started by a notification'} />
                 <KV label="Item Code" value={itemCode} />
-                <KV label="Job No." value={jobNo} detail={check.job ? `Job started ${formatDateTime(check.job.startedAt)}` : null} />
+                <KV label="PO No." value={jobNo} detail={check.job ? `Job started ${formatDateTime(check.job.startedAt)}` : null} />
                 <KV label="Next check due" value={check.nextDueAt ? formatDateTime(check.nextDueAt) : null} />
                 <KV label="Device" value={check.deviceInfo} stacked />
               </List>
@@ -355,7 +355,7 @@ const TestCheckForm: React.FC = () => {
   const worker = activeWorkers.find((w) => w.id === workerId)
 
   useEffect(() => {
-    if (!machineId && activeMachines.length) setMachineId((activeMachines.find((m) => worker?.machineIds.includes(m.id)) ?? activeMachines[0]).id)
+    if (!machineId && activeMachines.length) setMachineId(activeMachines[0].id)
   }, [machineId, activeMachines, worker])
   useEffect(() => {
     if (machine && orderedActivities.length && !orderedActivities.some((a) => a.id === activityId)) setActivityId(orderedActivities[0].id)
@@ -419,9 +419,6 @@ const TestCheckForm: React.FC = () => {
           options={activeWorkers.map((w) => ({ value: w.id, label: w.name, detail: `${w.employeeId}${w.shiftName ? ` · ${w.shiftName}` : ''}` }))}
           onChange={setWorkerId}
         />
-        {worker && machine && !worker.machineIds.includes(machine.id) ? (
-          <Notice tone="exception" title={`${worker.name} is not assigned to ${machine.name}`} message="Assign the machine to the worker first, or the check is refused." />
-        ) : null}
       </FormSection>
       <FormSection title="Timing">
         <View>

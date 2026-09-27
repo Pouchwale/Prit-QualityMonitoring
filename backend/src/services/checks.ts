@@ -29,7 +29,7 @@ export interface CheckFilters {
   shiftId?: string
   activityId?: string
   departmentId?: string
-  /** Item Code / Job No. of the check or of the job it ran in; case-insensitive, whole value. */
+  /** Item Code / PO No. of the check or of the job it ran in; case-insensitive, whole value. */
   itemCode?: string
   jobNo?: string
   ids?: string[]
@@ -69,7 +69,7 @@ export interface ListOptions {
 }
 
 /**
- * The check's own Item Code / Job No., or, when it has none (e.g. a check missed during a job),
+ * The check's own Item Code / PO No., or, when it has none (e.g. a check missed during a job),
  * the one of the job it belongs to. Compared trimmed and case-insensitive, as a whole value.
  */
 function matchesJobValue(column: 'item_code' | 'job_no', value: string): SQL {
@@ -97,7 +97,9 @@ function buildWhere(filters: CheckFilters) {
   }
   if (filters.shiftId) where.push(eq(qualityChecks.shiftId, filters.shiftId))
   if (filters.activityId) where.push(eq(qualityChecks.activityId, filters.activityId))
-  if (filters.departmentId) where.push(eq(machines.departmentId, filters.departmentId))
+  // The department of the work, recorded on the check. Machines are shared between departments,
+  // so the machine's own department says nothing about who the check belongs to.
+  if (filters.departmentId) where.push(eq(qualityChecks.departmentId, filters.departmentId))
   if (filters.itemCode?.trim()) where.push(matchesJobValue('item_code', filters.itemCode))
   if (filters.jobNo?.trim()) where.push(matchesJobValue('job_no', filters.jobNo))
   if (filters.where) where.push(filters.where)
@@ -142,7 +144,7 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
     })
     .from(qualityChecks)
     .innerJoin(machines, eq(qualityChecks.machineId, machines.id))
-    .leftJoin(departments, eq(machines.departmentId, departments.id))
+    .leftJoin(departments, eq(qualityChecks.departmentId, departments.id))
     .innerJoin(activities, eq(qualityChecks.activityId, activities.id))
     .leftJoin(worker, eq(qualityChecks.workerId, worker.id))
     .leftJoin(shifts, eq(qualityChecks.shiftId, shifts.id))

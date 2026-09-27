@@ -45,10 +45,10 @@ export const TraceSummary: React.FC<{ trace: TraceReport; scope: string }> = ({ 
     { label: 'Changes', value: c.changes },
     { label: 'Corrections', value: c.corrections, tone: 'text-success' },
     { label: 'Item Codes', value: trace.items.filter((i) => i.key).length },
-    { label: 'Job Nos.', value: trace.jobs.filter((j) => j.key).length }
+    { label: 'PO Nos.', value: trace.jobs.filter((j) => j.key).length }
   ]
   return (
-    <Card title={`Traceability: ${scope}`} note="Every check, reading, change and exception for the selected Item Code, Job No. and worker in this period.">
+    <Card title={`Traceability: ${scope}`} note="Every check, reading, change and exception for the selected Item Code, PO No. and worker in this period.">
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-px bg-line">
         {tiles.map((t) => (
           <div key={t.label} className="bg-white px-3 py-2">
@@ -61,12 +61,12 @@ export const TraceSummary: React.FC<{ trace: TraceReport; scope: string }> = ({ 
   )
 }
 
-/** Per Item Code (with its Job Nos.) or per Job No. (with its Item Codes). */
+/** Per Item Code (with its PO Nos.) or per PO No. (with its Item Codes). */
 export const TraceGroupTable: React.FC<{ kind: 'item' | 'job'; rows: TraceGroup[]; onPick?: (value: string) => void }> = ({ kind, rows, onPick }) => {
   const isItem = kind === 'item'
   return (
     <Card
-      title={isItem ? 'Item Codes' : 'Job Nos.'}
+      title={isItem ? 'Item Codes' : 'PO Nos.'}
       note={isItem ? 'How many times each item was checked, on which jobs, by whom and on which machines.' : 'Each job with its item codes, checks, workers and machines.'}
       count={rows.length}
     >
@@ -77,8 +77,8 @@ export const TraceGroupTable: React.FC<{ kind: 'item' | 'job'; rows: TraceGroup[
           <table className="pin-first w-full text-left text-xs border-collapse">
             <thead className={thead}>
               <tr>
-                <th className={`${th} px-3`}>{isItem ? 'Item Code' : 'Job No.'}</th>
-                <th className={th}>{isItem ? 'Job Nos.' : 'Item Codes'}</th>
+                <th className={`${th} px-3`}>{isItem ? 'Item Code' : 'PO No.'}</th>
+                <th className={th}>{isItem ? 'PO Nos.' : 'Item Codes'}</th>
                 <th className={`${th} text-right`}>Checks</th>
                 <th className={`${th} text-right`}>Completed</th>
                 <th className={`${th} text-right`}>Missed</th>
@@ -130,7 +130,7 @@ export const TraceGroupTable: React.FC<{ kind: 'item' | 'job'; rows: TraceGroup[
   )
 }
 
-/** Each worker with every Item Code they checked, its Job Nos. and number of checks. */
+/** Each worker with every Item Code they checked, its PO Nos. and number of checks. */
 export const TraceWorkers: React.FC<{ workers: TraceWorker[]; onPickItem?: (value: string) => void }> = ({ workers, onPickItem }) => (
   <Card title="Worker activity by Item Code" note="Checks are counted for the worker who submitted them, or the worker they were assigned to." count={workers.length}>
     {workers.length === 0 ? (
@@ -152,7 +152,7 @@ export const TraceWorkers: React.FC<{ workers: TraceWorker[]; onPickItem?: (valu
                 <thead className={thead}>
                   <tr>
                     <th className={`${th} pl-0`}>Item Code</th>
-                    <th className={th}>Job Nos.</th>
+                    <th className={th}>PO Nos.</th>
                     <th className={`${th} text-right`}>Checks</th>
                     <th className={`${th} text-right`}>Completed</th>
                     <th className={`${th} text-right`}>Missed</th>
@@ -216,7 +216,7 @@ export const TraceChanges: React.FC<{ changes: TraceChange[] }> = ({ changes }) 
               <th className={`${th} px-3`}>Date / time</th>
               <th className={th}>Machine</th>
               <th className={th}>Item Code</th>
-              <th className={th}>Job No.</th>
+              <th className={th}>PO No.</th>
               <th className={th}>Parameter</th>
               <th className={th}>From → To</th>
               <th className={th}>Type</th>
@@ -273,7 +273,7 @@ export const DetailedRecords: React.FC<{ checks: QualityCheck[]; onViewCheck?: (
               <th className={`${th} px-3`}>Date / time</th>
               <th className={th}>Machine</th>
               <th className={th}>Item Code</th>
-              <th className={th}>Job No.</th>
+              <th className={th}>PO No.</th>
               <th className={th}>Check type</th>
               <th className={th}>Worker</th>
               <th className={th}>Result</th>

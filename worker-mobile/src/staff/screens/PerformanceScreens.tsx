@@ -80,8 +80,8 @@ export const PerformanceScreen: React.FC = () => {
                     subtitle={`${w.assigned} assigned · ${w.completed} completed · ${w.missed} missed`}
                     detail={`${w.completionRate}% completed`}
                     right={
-                      <Text className={`text-[20px] font-semibold ${w.score < 0 ? 'text-missed' : 'text-success'}`} accessibilityLabel={`Score ${w.score}`}>
-                        {w.score}
+                      <Text className={`text-[20px] font-semibold ${w.score < 0 ? 'text-missed' : 'text-success'}`} accessibilityLabel={`Score ${w.score} percent`}>
+                        {w.score}%
                       </Text>
                     }
                   />

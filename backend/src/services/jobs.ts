@@ -31,6 +31,8 @@ export interface JobDto {
   plannedFor: string | null
   note: string | null
   forceClosed: boolean
+  /** The department doing this job, fixed when a worker started it. */
+  departmentId: string | null
 }
 
 export function jobDto(job: Job, names: { startedByName?: string | null; assignedWorkerName?: string | null } = {}): JobDto {
@@ -51,7 +53,8 @@ export function jobDto(job: Job, names: { startedByName?: string | null; assigne
     assignedWorkerName: names.assignedWorkerName ?? null,
     plannedFor: job.plannedFor,
     note: job.note,
-    forceClosed: job.forceClosed
+    forceClosed: job.forceClosed,
+    departmentId: job.departmentId
   }
 }
 

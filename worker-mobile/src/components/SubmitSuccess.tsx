@@ -59,7 +59,7 @@ export const SubmitSuccess: React.FC<Props> = ({ result, activityName, outOfRang
             <View className="flex-row items-start rounded-2xl bg-success-bg px-4 py-3.5">
               <Icon name="play-circle-outline" size={20} color="success" />
               <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink-secondary">
-                Job No. {result.job?.jobNo} is running. The scheduled checks follow the admin's plan.
+                PO No. {result.job?.jobNo} is running. The scheduled checks follow the admin's plan.
               </Text>
             </View>
           ) : null}
@@ -67,7 +67,7 @@ export const SubmitSuccess: React.FC<Props> = ({ result, activityName, outOfRang
             <View className="flex-row items-start rounded-2xl bg-success-bg px-4 py-3.5">
               <Icon name="checkmark-done-outline" size={20} color="success" />
               <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink-secondary">
-                The Job End check is in and Job No. {result.job?.jobNo} is completed.
+                The Job End check is in and PO No. {result.job?.jobNo} is completed.
               </Text>
             </View>
           ) : null}
@@ -97,7 +97,7 @@ export const SubmitSuccess: React.FC<Props> = ({ result, activityName, outOfRang
               <Row label="Sent at" value={result.submittedAt ? formatTime(result.submittedAt) : formatTime(new Date().toISOString())} />
               <Row label="Started by" value={result.submissionType === 'MANUAL' ? 'Manual' : 'Notification'} />
               {result.itemCode ? <Row label="Item Code" value={result.itemCode} /> : null}
-              {result.jobNo ? <Row label="Job No." value={result.jobNo} /> : null}
+              {result.jobNo ? <Row label="PO No." value={result.jobNo} /> : null}
               {result.notApplicableCount > 0 ? (
                 <Row
                   label="Not applicable"

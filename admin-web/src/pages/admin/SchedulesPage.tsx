@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { AlertTriangle, CalendarClock, Edit2, Plus, Search, Trash2 } from 'lucide-react'
-import type { Activity, Machine, Schedule, ScheduleMode, Shift, User } from '../../types'
+import type { Activity, Machine, Schedule, ScheduleMode, Shift } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
@@ -13,7 +13,6 @@ import { Modal } from '../../components/common/Modal'
 import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
-import { WorkerCoverageAlert } from '../../components/common/WorkerCoverageAlert'
 import { TimeInput } from '../../components/common/DateTimeInputs'
 
 const PRESETS: { minutes: number; label: string }[] = [
@@ -95,7 +94,6 @@ export const SchedulesPage: React.FC = () => {
   const machinesApi = useApi<Machine[]>('/api/machines')
   const activitiesApi = useApi<Activity[]>('/api/activities')
   const shiftsApi = useApi<Shift[]>('/api/shifts')
-  const workersApi = useApi<User[]>('/api/users', { role: 'WORKER' })
 
   const [search, setSearch] = useState('')
   const [shiftFilter, setShiftFilter] = useState('ALL')
@@ -109,7 +107,6 @@ export const SchedulesPage: React.FC = () => {
   const machines = useMemo(() => machinesApi.data ?? [], [machinesApi.data])
   const activities = activitiesApi.data ?? []
   const shifts = shiftsApi.data ?? []
-  const workers = workersApi.data ?? []
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -231,7 +228,6 @@ export const SchedulesPage: React.FC = () => {
   const otherActivities = selectedMachine ? activityOptions.filter((a) => !selectedMachine.activityIds.includes(a.id)) : activityOptions
   const activityNotLinked = !!selectedMachine && !!form.activityId && !selectedMachine.activityIds.includes(form.activityId)
   const shiftOptions = shifts.filter((s) => s.isActive || s.id === form.shiftId)
-  const workerOptions = workers.filter((w) => w.isActive || w.id === form.workerId)
 
   // ---- Preview ----
   const preview = useMemo(() => {
@@ -243,14 +239,9 @@ export const SchedulesPage: React.FC = () => {
     return { times, text: `${times.length === 1 ? 'Check at' : 'Checks at'} ${shown} (${times.length} per shift)` }
   }, [selectedShift, intervalValid, windowValid, form.useWindow, form.startTime, form.endTime, interval])
 
-  // Same rule as the backend (services/workerAssignment.ts): workers on this shift first, else workers with no fixed shift.
-  const onMachine = form.machineId ? workers.filter((w) => w.isActive && w.appAccess && w.machineIds.includes(form.machineId)) : []
-  const onShift = onMachine.filter((w) => w.shiftId === form.shiftId)
-  const eligibleWorkers = !form.shiftId ? [] : onShift.length ? onShift : onMachine.filter((w) => !w.shiftId)
-  const assignedWorker = workers.find((w) => w.id === form.workerId)
   const machineBlocked = selectedMachine && (selectedMachine.status !== 'ACTIVE' || !selectedMachine.isActive)
 
-  const pickerError = machinesApi.error || activitiesApi.error || shiftsApi.error || workersApi.error
+  const pickerError = machinesApi.error || activitiesApi.error || shiftsApi.error
 
   return (
     <div className="space-y-4">
@@ -264,12 +255,6 @@ export const SchedulesPage: React.FC = () => {
             </Button>
           )
         }
-      />
-
-      <WorkerCoverageAlert
-        gaps={(schedulesApi.data ?? [])
-          .filter((s) => s.isActive && s.checkWorkers.length === 0)
-          .map((s) => ({ scheduleId: s.id, machineName: s.machineName, shiftName: s.shiftName, activityName: s.activityName }))}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 border border-line rounded-md shadow-2xs text-xs">
@@ -312,7 +297,6 @@ export const SchedulesPage: React.FC = () => {
                 <th className="py-2.5 px-3.5">Time window</th>
                 <th className="py-2.5 px-3.5">Frequency</th>
                 <th className="py-2.5 px-3.5">Next due</th>
-                <th className="py-2.5 px-3.5">Assigned to</th>
                 <th className="py-2.5 px-3.5">Status</th>
                 {canEdit && <th className="py-2.5 px-3.5 text-right">Action</th>}
               </tr>
@@ -362,19 +346,6 @@ export const SchedulesPage: React.FC = () => {
                         {s.nextDueAt ? <span className="font-mono text-ink">{formatDateTime(s.nextDueAt)}</span> : <span className="text-ink-faint">—</span>}
                         {s.lastSubmittedAt && (
                           <span className="block text-[11px] text-ink-muted">Last submitted {formatDateTime(s.lastSubmittedAt)}</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3.5 whitespace-nowrap">
-                        {s.checkWorkers.length === 0 ? (
-                          <span className="inline-flex items-center gap-1 text-failed font-medium">
-                            <AlertTriangle className="w-3.5 h-3.5" /> No worker on {s.shiftName}
-                          </span>
-                        ) : (
-                          <>
-                            <span className="text-ink">{s.checkWorkers.map((w) => w.name).join(', ')}</span>
-                            {s.checkWorkers.length === 1 && <span className="ml-1.5 font-mono text-[11px] text-ink-muted">{s.checkWorkers[0].employeeId}</span>}
-                            {!s.workerId && <span className="ml-1.5 text-[11px] text-ink-muted">(by shift)</span>}
-                          </>
                         )}
                       </td>
                       <td className="py-2.5 px-3.5 whitespace-nowrap">
@@ -547,17 +518,6 @@ export const SchedulesPage: React.FC = () => {
             )}
           </div>
 
-          <Field label="Assigned worker" hint="Optional. Leave on automatic to give the checks to the worker assigned to this machine on this shift.">
-            <Select value={form.workerId} onChange={(e) => set('workerId', e.target.value)}>
-              <option value="">Automatic: worker on this shift</option>
-              {workerOptions.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {`${w.name} (${w.employeeId})${w.shiftName ? ` · ${w.shiftName}` : ''}${w.isActive ? '' : ' (disabled)'}`}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
           <Toggle checked={form.isActive} onChange={(v) => set('isActive', v)} label="Active" description="Paused schedules generate no new checks." />
 
           {preview && (
@@ -585,26 +545,11 @@ export const SchedulesPage: React.FC = () => {
                 </div>
               )}
               {!form.isActive && <div className="text-ink-muted">Schedule is paused: nothing will be generated.</div>}
-              {form.machineId &&
-                (assignedWorker ? (
-                  <div className="text-ink-secondary">Checks are assigned to {assignedWorker.name}.</div>
-                ) : eligibleWorkers.length > 0 ? (
-                  <div className="text-ink-secondary">
-                    {eligibleWorkers.length === 1
-                      ? `Checks are assigned to ${eligibleWorkers[0].name}.`
-                      : `Checks are shared between ${eligibleWorkers.map((w) => w.name).join(', ')}.`}
-                  </div>
-                ) : (
-                  !workersApi.loading && (
-                    <div className="flex items-start gap-1.5 text-failed">
-                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
-                      <span>
-                        No worker on {selectedShift?.name ?? 'this shift'} is assigned to {selectedMachine?.name ?? 'this machine'}. No checks are created until you
-                        assign one in Machine Assignment.
-                      </span>
-                    </div>
-                  )
-                ))}
+              {form.machineId && (
+                <div className="text-ink-secondary">
+                  Checks belong to the worker running the job on the machine. Nothing is created while no job is running.
+                </div>
+              )}
             </div>
           )}
         </form>

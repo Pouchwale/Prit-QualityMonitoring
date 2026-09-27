@@ -67,7 +67,7 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                 {check.result && <ResultBadge result={check.result} />}
                 {check.submissionType && <Chip label="Started" value={SUBMISSION_LABEL[check.submissionType]} />}
                 {(check.itemCode || check.job?.itemCode) && <Chip label="Item Code" value={check.itemCode ?? check.job?.itemCode ?? ''} />}
-                {(check.jobNo || check.job?.jobNo) && <Chip label="Job No." value={check.jobNo ?? check.job?.jobNo ?? ''} />}
+                {(check.jobNo || check.job?.jobNo) && <Chip label="PO No." value={check.jobNo ?? check.job?.jobNo ?? ''} />}
                 {check.nextDueAt && <Chip label="Next due" value={formatDateTime(check.nextDueAt)} />}
               </div>
               <p className="text-xs text-ink-muted mt-0.5">
@@ -114,7 +114,7 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                   detail={[check.submittedByEmployeeId, check.submittedAt ? formatDateTime(check.submittedAt) : null].filter(Boolean).join(' · ') || null}
                 />
                 <Info label="Item Code" value={check.itemCode ?? check.job?.itemCode ?? null} mono />
-                <Info label="Job No." value={check.jobNo ?? check.job?.jobNo ?? null} mono />
+                <Info label="PO No." value={check.jobNo ?? check.job?.jobNo ?? null} mono />
                 <Info
                   label="Submission"
                   value={check.submissionType ? SUBMISSION_LABEL[check.submissionType] : null}

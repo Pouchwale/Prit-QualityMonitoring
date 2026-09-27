@@ -63,9 +63,9 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
         <FieldLabel label="Item Code" />
         <TextField placeholder="Enter Item Code" value={itemCode} onChangeText={setItemCode} autoCapitalize="characters" autoCorrect={false} maxLength={60} accessibilityLabel="Item Code" />
         <View className="h-4" />
-        <FieldLabel label="Job No." required />
+        <FieldLabel label="PO No." required />
         <TextField
-          placeholder="Enter Job No."
+          placeholder="Enter PO No."
           value={jobNo}
           invalid={!!jobError}
           onChangeText={(text) => {
@@ -75,7 +75,7 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
           autoCapitalize="characters"
           autoCorrect={false}
           maxLength={60}
-          accessibilityLabel="Job No."
+          accessibilityLabel="PO No."
         />
         {jobError ? <Text className="mt-2 text-[15px] font-medium text-missed">{jobError}</Text> : null}
         <Button
@@ -83,7 +83,7 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
           icon="play-outline"
           loading={busy === 'job'}
           onPress={() => {
-            if (!jobNo.trim()) return setJobError('Enter the Job No.')
+            if (!jobNo.trim()) return setJobError('Enter the PO No.')
             onStartNew(jobNo.trim(), itemCode.trim())
           }}
           className="mt-4"
@@ -102,7 +102,7 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
             <Text className="text-[15px] font-semibold text-ink-muted">Assigned jobs</Text>
             {planned.map((p) => (
               <View key={p.id} className="rounded-xl border border-line p-3">
-                <Text className="text-[17px] font-semibold text-ink">Job No. {p.jobNo}</Text>
+                <Text className="text-[17px] font-semibold text-ink">PO No. {p.jobNo}</Text>
                 <Text className="mt-0.5 text-[15px] text-ink-secondary">
                   {[p.itemCode ? `Item Code ${p.itemCode}` : null, p.plannedFor ? `Planned for ${formatDate(p.plannedFor)}` : null].filter(Boolean).join(' · ') || 'Planned job'}
                 </Text>
@@ -150,7 +150,7 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
         <Text className={`flex-1 text-[15px] font-semibold ${head.tone}`}>{head.text}</Text>
         {job.startedAt ? <Text className="text-[15px] text-ink-muted">Started {formatTime(job.startedAt)}</Text> : null}
       </View>
-      <Text className="mt-1.5 text-[20px] font-semibold text-ink">Job No. {job.jobNo}</Text>
+      <Text className="mt-1.5 text-[20px] font-semibold text-ink">PO No. {job.jobNo}</Text>
       {job.itemCode ? <Text className="mt-0.5 text-[15px] text-ink-secondary">Item Code {job.itemCode}</Text> : null}
       {!mine ? (
         <View className="mt-3 flex-row items-start border-t border-line pt-3">

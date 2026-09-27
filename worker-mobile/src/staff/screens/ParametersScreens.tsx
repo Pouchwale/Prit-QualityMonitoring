@@ -21,6 +21,7 @@ import {
   Row,
   Screen,
   SearchField,
+  MultiSelectField,
   SelectField,
   SmallButton,
   SwitchKnob,
@@ -41,11 +42,12 @@ interface ParameterBody {
   minValue: number | null
   maxValue: number | null
   options: string[]
+  multiSelect: boolean
   isRequired: boolean
   isActive: boolean
   sortOrder: number
   description: string | null
-  departmentId: string | null
+  departmentIds: string[]
 }
 
 interface ParameterForm {
@@ -56,10 +58,11 @@ interface ParameterForm {
   minValue: string
   maxValue: string
   options: string[]
+  multiSelect: boolean
   isRequired: boolean
   isActive: boolean
   description: string
-  departmentId: string
+  departmentIds: string[]
 }
 
 const emptyForm: ParameterForm = {
@@ -70,10 +73,11 @@ const emptyForm: ParameterForm = {
   minValue: '',
   maxValue: '',
   options: [''],
+  multiSelect: false,
   isRequired: true,
   isActive: true,
   description: '',
-  departmentId: ''
+  departmentIds: []
 }
 
 const formFromParameter = (p: Parameter): ParameterForm => ({
@@ -84,10 +88,11 @@ const formFromParameter = (p: Parameter): ParameterForm => ({
   minValue: p.minValue === null ? '' : String(p.minValue),
   maxValue: p.maxValue === null ? '' : String(p.maxValue),
   options: p.options.length ? [...p.options] : [''],
+  multiSelect: p.multiSelect,
   isRequired: p.isRequired,
   isActive: p.isActive,
   description: p.description ?? '',
-  departmentId: p.departmentId ?? ''
+  departmentIds: [...p.departmentIds]
 })
 
 /** Full body for an existing parameter, so partial updates (e.g. enable/disable) keep every other field. */
@@ -99,11 +104,12 @@ const bodyFromParameter = (p: Parameter): ParameterBody => ({
   minValue: p.minValue,
   maxValue: p.maxValue,
   options: p.options,
+  multiSelect: p.multiSelect,
   isRequired: p.isRequired,
   isActive: p.isActive,
   sortOrder: p.sortOrder,
   description: p.description,
-  departmentId: p.departmentId
+  departmentIds: p.departmentIds
 })
 
 const toNumberOrNull = (value: string) => (value.trim() === '' ? null : Number(value))
@@ -224,7 +230,7 @@ export const ParametersScreen: React.FC<{ params: Record<string, unknown> }> = (
               key={p.id}
               title={`${positionById.get(p.id)}. ${p.name}`}
               titleClassName={p.isActive ? '' : 'text-staff-muted'}
-              subtitle={facts(p.code, PARAMETER_TYPE_LABEL[p.type], p.isRequired ? 'Required' : 'Optional', p.departmentName)}
+              subtitle={facts(p.code, PARAMETER_TYPE_LABEL[p.type], p.isRequired ? 'Required' : 'Optional', p.departmentNames.join(', ') || 'Unassigned')}
               detail={facts(p.rule ? `Rule: ${p.rule}` : null, `Used in: ${usedInText(p)}`)}
               detailLines={1}
               right={
@@ -282,11 +288,12 @@ export const ParameterFormScreen: React.FC<{ params: { parameter?: Parameter; ne
       minValue,
       maxValue,
       options,
+      multiSelect: form.type === 'DROPDOWN' && form.multiSelect,
       isRequired: form.isRequired,
       isActive: form.isActive,
       sortOrder: editing ? editing.sortOrder : (params.nextSortOrder ?? 0),
       description: form.description.trim() || null,
-      departmentId: form.departmentId || null
+      departmentIds: form.departmentIds
     }
 
     setSaving(true)
@@ -351,7 +358,7 @@ export const ParameterFormScreen: React.FC<{ params: { parameter?: Parameter; ne
     )
   }
 
-  const departmentOptions = (departments ?? []).filter((d) => d.isActive || d.id === form.departmentId)
+  const departmentOptions = (departments ?? []).filter((d) => d.isActive || form.departmentIds.includes(d.id))
 
   return (
     <Screen
@@ -379,13 +386,17 @@ export const ParameterFormScreen: React.FC<{ params: { parameter?: Parameter; ne
           options={PARAMETER_TYPES.map((t) => ({ value: t, label: PARAMETER_TYPE_LABEL[t] }))}
           onChange={(v) => v && update('type', v)}
         />
-        <SelectField
-          label="Department"
-          hint="Optional. Helps group parameters."
-          value={form.departmentId}
-          emptyLabel="All departments"
+        <MultiSelectField
+          label="Departments"
+          hint={
+            form.departmentIds.length
+              ? `Only these departments' check types can use this parameter.`
+              : 'None selected: unassigned, so every check type can use it.'
+          }
+          values={form.departmentIds}
           options={departmentOptions.map((d) => ({ value: d.id, label: d.name }))}
-          onChange={(v) => update('departmentId', v)}
+          onChange={(ids) => update('departmentIds', ids)}
+          placeholder={departments === null ? 'Loading departments…' : 'Unassigned'}
         />
         <Input
           label="Description / SOP note"
@@ -450,6 +461,16 @@ export const ParameterFormScreen: React.FC<{ params: { parameter?: Parameter; ne
             </View>
           ))}
           <SmallButton label="Add option" icon="add" onPress={() => update('options', [...form.options, ''])} className="self-start" />
+          <ToggleField
+            label="Allow multiple selection"
+            description={
+              form.multiSelect
+                ? 'The worker can pick several options; they are recorded together, separated by commas.'
+                : 'The worker picks one option.'
+            }
+            value={form.multiSelect}
+            onChange={(v) => update('multiSelect', v)}
+          />
         </FormSection>
       ) : null}
 

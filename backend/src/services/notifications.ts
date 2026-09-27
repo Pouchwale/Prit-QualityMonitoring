@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { db } from '../db/client'
-import { activities, jobs, machines, parameters, pushTokens, qualityChecks, users, workerMachines } from '../db/schema'
+import { activities, jobs, machines, parameters, pushTokens, qualityChecks, users } from '../db/schema'
 import { sendWebPush, type WebSubscription } from './webPush'
 import { machineOffBetween } from './plantCalendar'
 import { dateKey } from '../lib/time'
@@ -11,9 +11,9 @@ import { dateKey } from '../lib/time'
  *  - Web app / PWA on iPhone, Android browsers and PCs: Web Push (services/webPush.ts)
  * Both go to the same recipients, chosen below.
  *
- * A check's notification goes to the worker the check is assigned to (every check has one,
- * services/workerAssignment.ts), and only while the machine is still assigned to them.
- * Open checks follow assignment changes, so the alert reaches the current worker.
+ * A check's notification goes to the worker the check belongs to: whoever is running the job on
+ * that machine (jobs.assigned_worker_id). A handover moves the open checks with it, so the alert
+ * always reaches the worker who has the job now.
  */
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send'
@@ -118,24 +118,14 @@ export async function checkPushReceipts() {
 
 /** Workers who should hear about this check right now. */
 async function recipients(check: { id: string; machineId: string; workerId: string | null; shiftId: string | null }) {
-  const conditions = [
-    eq(users.role, 'WORKER'),
-    eq(users.isActive, true),
-    eq(users.appAccess, true),
-    // The machine assignment is the hard rule.
-    eq(workerMachines.machineId, check.machineId)
-  ]
-
   // A check without a worker has nobody to notify (such checks are not created any more).
   if (!check.workerId) return []
-  conditions.push(eq(users.id, check.workerId))
 
   return db
     .selectDistinct({ userId: users.id, token: pushTokens.token, kind: pushTokens.kind, subscription: pushTokens.subscription })
     .from(users)
-    .innerJoin(workerMachines, eq(workerMachines.userId, users.id))
     .innerJoin(pushTokens, eq(pushTokens.userId, users.id))
-    .where(and(...conditions))
+    .where(and(eq(users.id, check.workerId), eq(users.role, 'WORKER'), eq(users.isActive, true), eq(users.appAccess, true)))
 }
 
 /** Sends notifications for checks that have just become due. Safe to call repeatedly. */

@@ -83,7 +83,7 @@ export const JobScreen: React.FC<Props> = ({ jobId, onBack, onOpenCheck }) => {
                 {data.machine ? `${data.machine.name} · ${data.machine.code}` : ''}
               </Text>
               <Text className="mt-0.5 text-[32px] font-bold leading-[38px] tracking-[-0.6px] text-ink" accessibilityRole="header">
-                Job No. {job.jobNo}
+                PO No. {job.jobNo}
               </Text>
               <View className="mt-3 gap-1 rounded-2xl bg-surface p-4">
                 <Text className="text-[16px] text-ink">

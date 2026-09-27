@@ -71,7 +71,7 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
 
   useEffect(() => {
     if (!isOpen || machineId || activeMachines.length === 0) return
-    const preferred = activeMachines.find((m) => selectedWorker?.machineIds.includes(m.id)) ?? activeMachines[0]
+    const preferred = activeMachines[0]
     setMachineId(preferred.id)
   }, [isOpen, machineId, activeMachines, selectedWorker])
 
@@ -84,7 +84,6 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
   const start = status === 'DUE' ? new Date() : new Date(startAt)
   const startValid = status === 'DUE' || (!Number.isNaN(start.getTime()) && start.getTime() > Date.now())
   const closesAt = new Date(start.getTime() + windowMinutes * 60_000)
-  const workerLacksAccess = selectedWorker && machine && !selectedWorker.machineIds.includes(machine.id)
 
   const submit = async () => {
     setError(null)
@@ -176,7 +175,7 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
       </fieldset>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <Field label="Worker" hint={workerLacksAccess ? 'This worker is not assigned to this machine, but the check is assigned to them directly.' : undefined}>
+        <Field label="Worker" hint="Leave on automatic to give the check to whoever is running the job on this machine.">
           <Select value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
             <option value="">Automatic: worker on the current shift</option>
             {activeWorkers.map((w) => (

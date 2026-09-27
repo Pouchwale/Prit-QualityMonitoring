@@ -2,12 +2,11 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { and, asc, eq } from 'drizzle-orm'
 import { db } from '../db/client'
-import { activities, machineActivities, machines, schedules, shifts, users, workerMachines } from '../db/schema'
+import { activities, machineActivities, machines, schedules, shifts, users } from '../db/schema'
 import { hhmm, idParam, optionalUuid } from '../lib/validate'
 import { badRequest, notFound } from '../lib/http'
 import { audit, snapshot } from '../lib/audit'
 import { invalidateCheckGeneration, removeUpcomingChecks } from '../services/checkGenerator'
-import { eligibleWorkers, loadWorkers } from '../services/workerAssignment'
 
 export const schedulesRouter = Router()
 
@@ -33,21 +32,6 @@ const input = z
   })
 
 async function validateRefs(data: z.infer<typeof input>) {
-  if (data.workerId) {
-    const [worker] = await db.select({ name: users.name, role: users.role }).from(users).where(eq(users.id, data.workerId))
-    if (!worker) throw badRequest('Worker not found')
-    if (worker.role !== 'WORKER') throw badRequest('Checks can only be assigned to workers')
-
-    // A worker only ever sees checks for machines assigned to them.
-    const [access] = await db
-      .select({ machineId: workerMachines.machineId })
-      .from(workerMachines)
-      .where(and(eq(workerMachines.userId, data.workerId), eq(workerMachines.machineId, data.machineId)))
-    if (!access) {
-      const [machine] = await db.select({ name: machines.name }).from(machines).where(eq(machines.id, data.machineId))
-      throw badRequest(`${worker.name} is not assigned to ${machine?.name ?? 'this machine'}. Assign the machine to the worker first.`)
-    }
-  }
   // Keep the machine ↔ quality check mapping in sync with schedules.
   await db.insert(machineActivities).values({ machineId: data.machineId, activityId: data.activityId }).onConflictDoNothing()
 }
@@ -71,19 +55,8 @@ schedulesRouter.get('/', async (_req, res) => {
     .leftJoin(users, eq(schedules.workerId, users.id))
     .orderBy(asc(machines.name), asc(shifts.startTime))
 
-  // The workers who actually get this schedule's checks (services/workerAssignment.ts).
-  const workers = await loadWorkers()
-  res.json(
-    rows.map(({ schedule, ...names }) => ({
-      ...schedule,
-      ...names,
-      checkWorkers: eligibleWorkers(workers, schedule.machineId, schedule.shiftId, schedule.workerId).map((w) => ({
-        id: w.id,
-        name: w.name,
-        employeeId: w.employeeId
-      }))
-    }))
-  )
+  // Checks belong to whoever is running the job on the machine, so a schedule names no worker.
+  res.json(rows.map(({ schedule, ...names }) => ({ ...schedule, ...names, checkWorkers: [] })))
 })
 
 schedulesRouter.post('/', async (req, res) => {

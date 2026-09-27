@@ -4,12 +4,17 @@ import { db } from '../db/client'
 import { activities, jobs, machines, qualityChecks, scheduleTimers, schedules, shifts } from '../db/schema'
 import { MINUTE, addDays, atTime, dateKey, startOfDay } from '../lib/time'
 import { machineOffBetween, purgeClosedDays } from './plantCalendar'
-import { eligibleWorkers, loadWorkers, pickWorker, reassignOpenChecks } from './workerAssignment'
 import { generateJobIntervalChecks } from './jobMonitoring'
+import { checkTypeInDepartment, userDepartments } from './checkTypeScope'
 
 /**
  * The rolling scheduler: every schedule (machine + check type + shift) has **one open check at a
  * time**, its "next check", and the timer restarts at every submission.
+ *
+ * Checks exist only while a **job is running on the machine**, and they belong to the worker who
+ * started it (jobs.assigned_worker_id). A machine with no running job is not being monitored:
+ * nothing is created for it, nothing is alerted and nothing can be missed. Workers are not tied
+ * to machines; they pick a machine and start a job on it.
  *
  *   next due = the time the shift window opens when nothing has happened in it yet,
  *              otherwise the last submission + the interval,
@@ -151,7 +156,7 @@ export async function planNextChecks(now = new Date()) {
 
 async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenerated?: boolean } = {}) {
   const rows = await db
-    .select({ schedule: schedules, shift: shifts })
+    .select({ schedule: schedules, shift: shifts, activityDepartmentId: activities.departmentId })
     .from(schedules)
     .innerJoin(shifts, eq(schedules.shiftId, shifts.id))
     .innerJoin(machines, eq(schedules.machineId, machines.id))
@@ -194,9 +199,11 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
           gte(qualityChecks.scheduledAt, since)
         )
       ),
-    // Legacy JOB-mode schedules run while a job is active (after its Job Start check).
+    // A machine is only monitored while a job runs on it; the job's worker owns the checks.
     db.select().from(jobs).where(eq(jobs.status, 'ACTIVE'))
   ])
+  // A worker only does the check types of their own department (services/checkTypeScope.ts).
+  const departmentByWorker = await userDepartments(runningJobs.map((j) => j.assignedWorkerId))
 
   const open = options.ignoreOpen ? new Set<string | null>() : new Set(openRows.map((r) => r.scheduleId))
   const timerBySchedule = new Map(timers.map((t) => [t.scheduleId, t]))
@@ -210,19 +217,16 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
   // Plant Calendar: no checks on closed dates (an overnight shift can run into the next day).
   // A machine day plan decides per machine on its date: listed machines run even on a closed day.
   const machineOff = await machineOffBetween(addDays(startOfDay(now), -1), addDays(startOfDay(now), 10))
-  // Every check is created for the worker responsible for it (services/workerAssignment.ts).
-  const workers = await loadWorkers()
-  const load = new Map<string, number>()
 
   const inserts: (typeof qualityChecks.$inferInsert)[] = []
-  for (const { schedule, shift } of rows) {
+  for (const { schedule, shift, activityDepartmentId } of rows) {
     if (open.has(schedule.id)) continue
-    const candidates = eligibleWorkers(workers, schedule.machineId, schedule.shiftId, schedule.workerId)
-    // No worker on this machine and shift: no checks until the admin assigns one.
-    if (candidates.length === 0) continue
 
+    // The job running on the machine owns everything scheduled for it. No job: nothing is due.
     const job = jobByMachine.get(schedule.machineId) ?? null
-    if (schedule.mode === 'JOB' && !job) continue
+    if (!job?.assignedWorkerId) continue
+    // Nothing is created for a check type of another department: that worker would never see it.
+    if (!checkTypeInDepartment(activityDepartmentId, departmentByWorker.get(job.assignedWorkerId) ?? null)) continue
 
     const interval = Math.max(schedule.intervalMinutes, 5) * MINUTE
     const grace = shift.graceMinutes * MINUTE
@@ -232,9 +236,9 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
     let created = false
     for (const occurrence of occurrences(schedule, shift, now)) {
       if (occurrence.end <= now) continue
-      // JOB schedules never look before the job started.
-      const jobFrom = job ? (job.activatedAt ?? job.startedAt ?? occurrence.start) : null
-      const from = schedule.mode === 'JOB' && jobFrom ? new Date(Math.max(occurrence.start.getTime(), jobFrom.getTime())) : occurrence.start
+      // Nothing is counted from before the job started.
+      const jobFrom = job.activatedAt ?? job.startedAt ?? occurrence.start
+      const from = new Date(Math.max(occurrence.start.getTime(), jobFrom.getTime()))
       if (from >= occurrence.end) continue
 
       const events: AnchorEvent[] = []
@@ -279,9 +283,11 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
           scheduleId: schedule.id,
           machineId: schedule.machineId,
           activityId: schedule.activityId,
-          workerId: pickWorker(candidates, load)!.id,
+          workerId: job.assignedWorkerId,
+          // The department of the work: the job's, the check type's, else the worker's own.
+          departmentId: job.departmentId ?? activityDepartmentId ?? departmentByWorker.get(job.assignedWorkerId) ?? null,
           shiftId: schedule.shiftId,
-          jobId: job?.id ?? null,
+          jobId: job.id,
           scheduledAt: nextDue,
           windowEndsAt,
           status: missed ? 'MISSED' : nextDue <= now ? 'DUE' : 'PENDING'
@@ -329,8 +335,6 @@ async function updateStatuses(): Promise<number> {
 export async function refreshStatuses() {
   // Checks on plant-closed dates are removed first, so they never become Due or Missed.
   await purgeClosedDays()
-  // Open checks follow the current Machine Assignment and shifts.
-  await reassignOpenChecks()
   // A check that has just been missed frees its schedule for the next one.
   if (await updateStatuses()) invalidateCheckGeneration()
 }

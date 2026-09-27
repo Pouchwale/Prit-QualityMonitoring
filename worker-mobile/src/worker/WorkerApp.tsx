@@ -11,6 +11,7 @@ import { ProfileScreen } from '../screens/ProfileScreen'
 import { CheckScreen } from '../screens/CheckScreen'
 import { HistoryDetailScreen } from '../screens/HistoryDetailScreen'
 import { JobScreen } from '../screens/JobScreen'
+import { dismissKeyboard } from '../utils/keyboard'
 
 type Tab = 'today' | 'history' | 'profile'
 
@@ -33,6 +34,11 @@ export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<voi
   const [openRecordId, setOpenRecordId] = useState<string | null>(null)
   const [openJobId, setOpenJobId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
+
+  // Opening another screen closes the keyboard: it must never be left over the new one.
+  useEffect(() => {
+    dismissKeyboard()
+  }, [tab, machine?.id, openCheck?.id, openRecordId, openJobId])
 
   // Register this device for alerts. Phones ask for permission here; browsers only allow asking
   // after a tap, so the web app asks from Profile → "Turn on alerts".

@@ -17,7 +17,7 @@ export interface MonitoringFilters {
   activityId: string
   departmentId: string
   status: string
-  /** Whole Item Code / Job No. (case-insensitive); only on pages that show these fields. */
+  /** Whole Item Code / PO No. (case-insensitive); only on pages that show these fields. */
   itemCode?: string
   jobNo?: string
 }
@@ -49,7 +49,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({ value, onChange, onReset, 
   const workers = useApi<User[]>(has('worker') ? '/api/users' : null, { role: 'WORKER' })
   const activities = useApi<Activity[]>(has('activity') ? '/api/activities' : null)
   const departments = useApi<Department[]>(has('department') ? '/api/departments' : null)
-  // Item Codes and Job Nos. recorded in the period, offered as suggestions (typing any value works too).
+  // Item Codes and PO Nos. recorded in the period, offered as suggestions (typing any value works too).
   const jobValues = useApi<{ itemCodes: string[]; jobNos: string[] }>(
     has('itemCode') || has('jobNo') ? '/api/reports/filter-values' : null,
     { from: value.from, to: value.to }
@@ -118,10 +118,10 @@ export const FilterBar: React.FC<FilterBarProps> = ({ value, onChange, onReset, 
         )}
         {has('jobNo') && (
           <FilterText
-            label="Job No."
+            label="PO No."
             value={value.jobNo ?? ''}
             suggestions={jobValues.data?.jobNos ?? []}
-            placeholder="All job numbers"
+            placeholder="All PO numbers"
             onCommit={(jobNo) => set({ jobNo })}
           />
         )}

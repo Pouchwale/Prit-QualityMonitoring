@@ -8,6 +8,7 @@ import type { ModuleKey } from './types'
 import { SCREENS } from './screens'
 import { StaffTabBar } from './StaffTabBar'
 import { Empty, Screen, ToastProvider } from './ui'
+import { dismissKeyboard } from '../utils/keyboard'
 
 const TAB_ROOT: Record<TabKey, string> = {
   home: 'home',
@@ -83,10 +84,21 @@ export const StaffApp: React.FC<{ profile: Profile; onProfileChange: (p: Profile
     isAdmin: isAdminRole(profile),
     isSuperAdmin: isSuperAdminRole(profile),
     canGoBack: stack.length > 1,
-    push: (name, params) => setStacks((s) => ({ ...s, [activeTab]: [...s[activeTab], route(name, params)] })),
-    pop: () => setStacks((s) => (s[activeTab].length > 1 ? { ...s, [activeTab]: s[activeTab].slice(0, -1) } : s)),
-    replace: (name, params) => setStacks((s) => ({ ...s, [activeTab]: [...s[activeTab].slice(0, -1), route(name, params)] })),
+    // Leaving a screen also closes the keyboard, so it never covers the next one.
+    push: (name, params) => {
+      dismissKeyboard()
+      setStacks((s) => ({ ...s, [activeTab]: [...s[activeTab], route(name, params)] }))
+    },
+    pop: () => {
+      dismissKeyboard()
+      setStacks((s) => (s[activeTab].length > 1 ? { ...s, [activeTab]: s[activeTab].slice(0, -1) } : s))
+    },
+    replace: (name, params) => {
+      dismissKeyboard()
+      setStacks((s) => ({ ...s, [activeTab]: [...s[activeTab].slice(0, -1), route(name, params)] }))
+    },
     switchTab: (next, target) => {
+      dismissKeyboard()
       setTab(next)
       // A link to the tab's own first screen (e.g. Checks with filters) replaces it instead of stacking a second copy.
       setStacks((s) => ({
