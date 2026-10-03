@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AppState, Text, TextInput, View } from 'react-native'
-import type { Department, Machine, Role, Shift, User } from '../types'
+import type { Department, Role, Shift, User } from '../types'
 import { api } from '../../services/api'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
@@ -30,6 +30,7 @@ import {
 } from '../ui'
 import { ActionGroup, ActionItem, Initials, PersonRow, SummaryHeader, facts } from './adminParts'
 import { formatClockRange } from '../../utils/datetime'
+import { DeleteSheet, SelectMark, SelectionFooter, deletedMessage, useDeletePermissions, useSelection } from '../deletion'
 
 type RoleTab = '' | Role
 
@@ -58,8 +59,6 @@ const ROLE_HINT: Record<Role, string> = {
   ADMIN: 'Full access, manages Managers, Workers and manager permissions',
   SUPER_ADMIN: 'Full access, including Admin accounts'
 }
-
-const machineCount = (n: number) => (n ? `${n} machine${n === 1 ? '' : 's'}` : 'No machines')
 
 /** Name, initials, role and ID at the top of a user's screen; a status only when disabled. */
 const UserSummary: React.FC<{ user: User; self: boolean }> = ({ user, self }) => (
@@ -113,6 +112,11 @@ const userBody = (u: User, overrides: Partial<FormState> = {}) => {
   }
 }
 
+/** Accounts the signed-in user may delete permanently (the server's rule): the Super Admin any account but their own, an Admin Managers and Workers. */
+const deletableRoles = (role: Role | undefined): Role[] => (role === 'SUPER_ADMIN' ? ['WORKER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'] : ['WORKER', 'MANAGER'])
+
+const USER_NOUN: [string, string] = ['user', 'users']
+
 /** Workers & Users: accounts for workers, managers and administrators. */
 export const UsersScreen: React.FC<{ params?: Record<string, never> }> = () => {
   const { profile, can, push } = useStaff()
@@ -144,16 +148,45 @@ export const UsersScreen: React.FC<{ params?: Record<string, never> }> = () => {
     count: t.value === '' ? users.length : counts[t.value]
   }))
 
+  // Permanent delete: needs Delete Users (the server checks it again, and refuses accounts with history).
+  const notify = useToast()
+  const canDeleteUsers = useDeletePermissions().DELETE_USERS
+  const canDeleteUser = (u: User) => canDeleteUsers && u.id !== profile.id && deletableRoles(profile.role).includes(u.role)
+  const selection = useSelection(useMemo(() => filtered.filter((u) => canDeleteUsers && u.id !== profile.id && deletableRoles(profile.role).includes(u.role)).map((u) => u.id), [filtered, canDeleteUsers, profile.id, profile.role]))
+  const [deleting, setDeleting] = useState(false)
+
   return (
     <Screen
       title="Workers & Users"
-      right={canEdit ? { label: 'Add', icon: 'add', onPress: () => push('userForm', { role: tab && allowedRoles.includes(tab) ? tab : 'WORKER' }) } : null}
+      right={canEdit && !selection.active ? { label: 'Add', icon: 'add', onPress: () => push('userForm', { role: tab && allowedRoles.includes(tab) ? tab : 'WORKER' }) } : null}
       onRefresh={reload}
       refreshing={loading && !!data}
+      footer={
+        selection.active ? (
+          <SelectionFooter
+            count={selection.selected.length}
+            noun={USER_NOUN}
+            allSelected={selection.allSelected}
+            onToggleAll={selection.toggleAll}
+            onCancel={selection.stop}
+            onDelete={() => setDeleting(true)}
+          />
+        ) : undefined
+      }
     >
       <View className="gap-2">
         <SearchField value={search} onChangeText={setSearch} placeholder="Search name, employee ID, department…" />
         <Chips options={tabs} value={tab} onChange={setTab} />
+        {!selection.active && (profile.role === 'SUPER_ADMIN' || canDeleteUsers) ? (
+          <View className="flex-row flex-wrap gap-2">
+            {profile.role === 'SUPER_ADMIN' ? (
+              <SmallButton label="Admin delete permissions" icon="shield-outline" onPress={() => push('adminDeletePermissions')} />
+            ) : null}
+            {canDeleteUsers && filtered.some(canDeleteUser) ? (
+              <SmallButton label="Select users to delete" icon="checkmark-circle-outline" onPress={selection.start} />
+            ) : null}
+          </View>
+        ) : null}
       </View>
       <DataState
         loading={loading}
@@ -165,32 +198,55 @@ export const UsersScreen: React.FC<{ params?: Record<string, never> }> = () => {
         emptyIcon={users.length === 0 ? 'people-outline' : 'search-outline'}
       >
         <List>
-          {filtered.map((u) => (
-            <PersonRow
-              key={u.id}
-              name={u.name}
-              title={`${u.name}${u.id === profile.id ? ' (you)' : ''}`}
-              muted={!u.isActive}
-              subtitle={facts(u.employeeId, ROLE_LABEL[u.role], u.shiftName)}
-              right={!u.isActive ? <Badge label="Disabled" tone="missed" /> : undefined}
-              onPress={() => push('userDetail', { id: u.id })}
-            />
-          ))}
+          {filtered.map((u) => {
+            const selectable = selection.active && canDeleteUser(u)
+            return (
+              <PersonRow
+                key={u.id}
+                name={u.name}
+                title={`${u.name}${u.id === profile.id ? ' (you)' : ''}`}
+                muted={!u.isActive}
+                subtitle={facts(u.employeeId, ROLE_LABEL[u.role], u.shiftName)}
+                right={
+                  selection.active ? <SelectMark selected={selection.isSelected(u.id)} disabled={!selectable} /> : !u.isActive ? <Badge label="Disabled" tone="missed" /> : undefined
+                }
+                accessibilityLabel={selection.active ? `${selectable ? (selection.isSelected(u.id) ? 'Unselect' : 'Select') : 'Cannot select'} ${u.name}` : undefined}
+                onPress={selection.active ? (selectable ? () => selection.toggle(u.id) : undefined) : () => push('userDetail', { id: u.id })}
+              />
+            )
+          })}
         </List>
       </DataState>
+      {deleting ? (
+        <DeleteSheet
+          type="users"
+          ids={selection.selected}
+          bulk
+          onClose={() => setDeleting(false)}
+          onDeleted={(r) => {
+            const m = deletedMessage(r, USER_NOUN)
+            notify('success', m.title, 'The deletion is recorded in the audit log.')
+            selection.stop()
+            reload()
+          }}
+        />
+      ) : null}
     </Screen>
   )
 }
 
 /** One account: details, and edit / view password / disable for those allowed. */
 export const UserDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
-  const { profile, can, push } = useStaff()
+  const { profile, can, push, pop } = useStaff()
   const notify = useToast()
   const canEdit = can('workers', 'manage')
   const { data, error, loading, reload } = useQuery<User[]>('/api/users')
-  const machinesApi = useQuery<Machine[]>(can('machines') || can('workers', 'manage') ? '/api/machines' : null)
   const user = (data ?? []).find((u) => u.id === params.id) ?? null
   const [busy, setBusy] = useState(false)
+  // Permanent delete: needs Delete Users (the server checks it again, and refuses accounts with history).
+  const canDeleteUsers = useDeletePermissions().DELETE_USERS
+  const canDelete = !!user && canDeleteUsers && user.id !== profile.id && deletableRoles(profile.role).includes(user.role)
+  const [deleting, setDeleting] = useState(false)
 
   const self = user?.id === profile.id
   const canEditUser = !!user && canEdit && manageableRoles(profile.role).includes(user.role)
@@ -201,7 +257,7 @@ export const UserDetailScreen: React.FC<{ params: { id: string } }> = ({ params 
     if (!user) return
     const ok = await confirm(
       'Disable user',
-      `Disable ${user.name} (${user.employeeId})? They are signed out and can no longer sign in. Users are never deleted, so their check history is kept; you can re-enable them later from Edit.`,
+      `Disable ${user.name} (${user.employeeId})? They are signed out and can no longer sign in. Their check history and name stay on every record; you can re-enable them later from Edit.`,
       'Disable',
       true
     )
@@ -296,6 +352,37 @@ export const UserDetailScreen: React.FC<{ params: { id: string } }> = ({ params 
                 />
               </ActionGroup>
             ) : null}
+
+            {canDelete ? (
+              <ActionGroup>
+                <ActionItem
+                  label="Delete permanently"
+                  description="Only for test accounts without production history"
+                  tone="danger"
+                  onPress={() => setDeleting(true)}
+                  accessibilityLabel="Delete permanently"
+                />
+              </ActionGroup>
+            ) : null}
+            {deleting ? (
+              <DeleteSheet
+                type="users"
+                ids={[user.id]}
+                onClose={() => setDeleting(false)}
+                onDeleted={() => {
+                  notify('success', 'User deleted', 'The deletion is recorded in the audit log.')
+                  pop()
+                }}
+                onDisableInstead={
+                  user.isActive && showStatusAction
+                    ? () => {
+                        setDeleting(false)
+                        void disable()
+                      }
+                    : undefined
+                }
+              />
+            ) : null}
           </>
         ) : null}
       </DataState>
@@ -310,7 +397,6 @@ const UserForm: React.FC<{ params: { id?: string; role?: Role } }> = ({ params }
   const creating = !params.id
   const allowedRoles = manageableRoles(profile.role)
   const usersApi = useQuery<User[]>(creating ? null : '/api/users')
-  const machinesApi = useQuery<Machine[]>('/api/machines')
   const departmentsApi = useQuery<Department[]>('/api/departments')
   const shiftsApi = useQuery<Shift[]>('/api/shifts')
   const editing = creating ? null : ((usersApi.data ?? []).find((u) => u.id === params.id) ?? null)
@@ -385,14 +471,7 @@ const UserForm: React.FC<{ params: { id?: string; role?: Role } }> = ({ params }
 
   const departments = (departmentsApi.data ?? []).filter((d) => d.isActive || d.id === form.departmentId)
   const shifts = (shiftsApi.data ?? []).filter((s) => s.isActive || s.id === form.shiftId)
-  const machineOptions = (machinesApi.data ?? [])
-    .filter((m) => m.isActive)
-    .map((m) => ({
-      value: m.id,
-      label: m.isActive ? m.name : `${m.name} (disabled)`,
-      detail: [m.departmentName, m.code].filter(Boolean).join(' · ')
-    }))
-  const pickerError = machinesApi.error || departmentsApi.error || shiftsApi.error
+  const pickerError = departmentsApi.error || shiftsApi.error
   const ready = creating || (!!editing && loaded.current)
 
   return (

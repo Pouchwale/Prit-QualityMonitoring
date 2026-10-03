@@ -27,6 +27,11 @@ import {
 /** A4 portrait, minus the left and right page margins. Every table must fit inside this. */
 const CONTENT_WIDTH = 523
 
+/** The evidence appendix: two photos to a row, each boxed to the same size so the grid lines up. */
+const PHOTO_GAP = 14
+const PHOTO_CELL = (CONTENT_WIDTH - PHOTO_GAP) / 2
+const PHOTO_HEIGHT = 190
+
 pdfmake.addFonts({
   Helvetica: {
     normal: 'Helvetica',
@@ -100,6 +105,19 @@ const tableLayout = {
   paddingBottom: () => 3
 }
 
+/** The cover's report-identity block: a light frame with comfortable padding. */
+const META_COLUMNS = 4
+const metaLayout = {
+  hLineWidth: (i: number, node: { table: { body: unknown[] } }) => (i === 0 || i === node.table.body.length ? 0.6 : 0),
+  vLineWidth: (i: number) => (i === 0 || i === META_COLUMNS ? 0.6 : 0),
+  hLineColor: () => HAIRLINE,
+  vLineColor: () => HAIRLINE,
+  paddingLeft: (i: number) => (i === 0 ? 8 : 0),
+  paddingRight: (i: number) => (i === META_COLUMNS - 1 ? 8 : 10),
+  paddingTop: () => 4,
+  paddingBottom: () => 4
+}
+
 /** Borderless layout for the meta and summary blocks. */
 const plainLayout = {
   hLineWidth: () => 0,
@@ -110,6 +128,7 @@ const plainLayout = {
   paddingBottom: () => 1.5
 }
 
+/** A numbered section rule. */
 const section = (number: number | string, title: string, note?: string): Content => ({
   stack: [
     {
@@ -447,14 +466,15 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
         { text: `Quality Report: ${longPeriod(meta.periodFrom, meta.periodTo)}`, style: 'periodLine' }
       ]
     },
+    // The identity of the record, framed so it reads as the header of a controlled document.
     {
       table: { widths: [72, '*', 62, '*'], body: metaRows },
-      layout: plainLayout,
+      layout: metaLayout,
       margin: [0, 10, 0, 0]
     },
     {
       canvas: [{ type: 'line', x1: 0, y1: 0, x2: CONTENT_WIDTH, y2: 0, lineWidth: 1, lineColor: INK }],
-      margin: [0, 8, 0, 0]
+      margin: [0, 10, 0, 0]
     },
 
     // 2. Executive summary
@@ -533,6 +553,8 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
     {
       table: {
         headerRows: 1,
+        keepWithHeaderRows: 1,
+        dontBreakRows: true,
         widths: gridWidths([120, 44, 44, 100, '*']),
         body: [
           header(['Result', 'Count', 'Share', 'Distribution', '']),
@@ -955,26 +977,31 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
       const groupImages = group.items.filter((e) => e.kind === 'PHOTO')
       const shown = groupImages.slice(0, Math.max(0, budget))
       budget -= shown.length
-      const cells: Content[] = []
+      /**
+       * Two to a row, each in a column of the same width with the photo centred in it, so a
+       * portrait and a landscape shot still line up and their captions start on the same line.
+       */
+      const cells: (Content & { width?: number })[] = []
       for (const item of shown) {
         const data = imageData(item.path)
         cells.push({
+          width: PHOTO_CELL,
           unbreakable: true,
           stack: [
             data
-              ? { image: data, fit: [235, 175] as [number, number] }
-              : { text: 'Image file not available on the server', style: 'note' },
-            { text: item.code, style: 'sub', bold: true, margin: [0, 3, 0, 0] as [number, number, number, number] },
-            { text: `${item.machineName} · ${item.activityName}`, style: 'sub' },
-            { text: `${formatDateTime(item.capturedAt)} · ${item.workerName}`, style: 'sub' }
+              ? { image: data, fit: [PHOTO_CELL, PHOTO_HEIGHT] as [number, number], alignment: 'center' as const }
+              : { text: 'Image file not available on the server', style: 'note', alignment: 'center' as const },
+            { text: item.code, style: 'sub', bold: true, alignment: 'center' as const, margin: [0, 4, 0, 0] as [number, number, number, number] },
+            { text: `${item.machineName} · ${item.activityName}`, style: 'sub', alignment: 'center' as const },
+            { text: `${formatDateTime(item.capturedAt)} · ${item.workerName}`, style: 'sub', alignment: 'center' as const }
           ]
         })
       }
       for (let i = 0; i < cells.length; i += 2) {
         content.push({
-          columns: [cells[i], cells[i + 1] ?? { text: '' }],
-          columnGap: 14,
-          margin: [0, 0, 0, 12]
+          columns: [cells[i], cells[i + 1] ?? { width: PHOTO_CELL, text: '' }],
+          columnGap: PHOTO_GAP,
+          margin: [0, 0, 0, 14]
         })
       }
       if (groupImages.length > shown.length) {
@@ -993,28 +1020,6 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
       }
     }
   }
-
-  // 17. Sign-off
-  const signature = (role: string): TableCell => ({
-    stack: [
-      { text: ' ', margin: [0, 16, 0, 0] as [number, number, number, number] },
-      { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 150, y2: 0, lineWidth: 0.6, lineColor: LINE }] },
-      { text: role, style: 'sub', margin: [0, 3, 0, 0] as [number, number, number, number] }
-    ]
-  })
-  content.push(section(17, 'Sign-off'))
-  content.push({
-    unbreakable: true,
-    table: {
-      widths: ['*', '*', '*'],
-      body: [
-        [signature('Prepared By'), signature('Checked By'), signature('Quality HOD')],
-        [signature('Date'), signature('Signature'), { text: '' }]
-      ]
-    },
-    layout: plainLayout,
-    margin: [0, 4, 0, 0]
-  })
 
   return {
     pageSize: 'A4',

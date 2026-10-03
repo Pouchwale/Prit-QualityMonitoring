@@ -1,5 +1,5 @@
-import React from 'react'
-import { AlertTriangle, ArrowLeft, Printer, RefreshCw } from 'lucide-react'
+import React, { useState } from 'react'
+import { AlertTriangle, ArrowLeft, Printer, RefreshCw, Trash2 } from 'lucide-react'
 import type { CheckResult, MediaFile, QualityCheck } from '../../types'
 import { useApi } from '../../lib/useApi'
 import { PARAMETER_TYPE_LABEL, formatDateTime, RESULT_LABEL } from '../../lib/format'
@@ -7,6 +7,9 @@ import { Button } from '../../components/common/Button'
 import { DataState } from '../../components/common/DataState'
 import { CheckStatusBadge, StatusBadge } from '../../components/common/StatusBadge'
 import { EvidenceViewer } from '../../components/common/EvidenceViewer'
+import { DeleteRecordsModal } from '../../components/common/DeleteRecordsModal'
+import { useToast } from '../../components/common/Toast'
+import { useDeletePermissions } from '../../lib/deletePermissions'
 
 interface QualityCheckDetailPageProps {
   checkId: string
@@ -51,6 +54,10 @@ const Chip: React.FC<{ label: string; value: string; tone?: string }> = ({ label
 
 export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ checkId, onBack }) => {
   const { data: check, error, loading, reload } = useApi<QualityCheck>(`/api/quality-checks/${checkId}`)
+  // Permanent delete: needs Delete Checks (checked again by the server).
+  const canDeleteChecks = useDeletePermissions().DELETE_CHECKS
+  const [deleting, setDeleting] = useState(false)
+  const notify = useToast()
 
   return (
     <div className="space-y-4 max-w-6xl">
@@ -83,8 +90,22 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
           <Button size="sm" variant="outline" onClick={() => window.print()} disabled={!check} icon={<Printer className="w-3.5 h-3.5" />}>
             Print
           </Button>
+          {canDeleteChecks && (
+            <Button size="sm" variant="outline" onClick={() => setDeleting(true)} disabled={!check} icon={<Trash2 className="w-3.5 h-3.5 text-failed" />}>
+              Delete
+            </Button>
+          )}
         </div>
       </div>
+      <DeleteRecordsModal
+        type={deleting ? 'checks' : null}
+        ids={[checkId]}
+        onClose={() => setDeleting(false)}
+        onDeleted={(r) => {
+          notify('success', 'Check deleted', `${r.filesRemoved} evidence file${r.filesRemoved === 1 ? '' : 's'} removed. Recorded in the audit log.`)
+          onBack()
+        }}
+      />
 
       <DataState loading={loading} error={error} onRetry={reload} empty={check === null ? undefined : false}>
         {check && (

@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react'
 import { Text, View } from 'react-native'
-import type { CheckKind, JobHandover, JobRow, JobStatus, Machine, QualityCheck, Shift, User } from '../types'
+import type { CheckKind, Department, JobHandover, JobRow, JobStatus, Machine, QualityCheck, Shift, User } from '../types'
 import { api } from '../../services/api'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
-import { dateKey, formatDateTime, formatKey, plural, type Tone } from '../format'
+import { addDaysKey, dateKey, formatDateTime, formatKey, plural, type Tone } from '../format'
+import { DeleteSheet, SelectMark, SelectionFooter, deletedMessage, useDeletePermissions, useSelection } from '../deletion'
 import {
   AccessDenied,
   Badge,
@@ -20,6 +21,7 @@ import {
   PrimaryButton,
   Row,
   Screen,
+  SearchField,
   Section,
   SelectField,
   SmallButton,
@@ -43,8 +45,12 @@ const FILTERS: { value: string; label: string; statuses: JobStatus[] }[] = [
   { value: 'running', label: 'Active', statuses: ['STARTING', 'ACTIVE', 'ENDING'] },
   { value: 'planned', label: 'Planned', statuses: ['PLANNED'] },
   { value: 'completed', label: 'Completed', statuses: ['COMPLETED'] },
+  { value: 'cancelled', label: 'Cancelled', statuses: ['CANCELLED'] },
   { value: 'all', label: 'All', statuses: [] }
 ]
+/** A running job is never deleted: it has to be force-closed first (the server refuses too). */
+const RUNNING: JobStatus[] = ['STARTING', 'ACTIVE', 'ENDING']
+const JOB_NOUN: [string, string] = ['job', 'jobs']
 const edgeText = (state: JobRow['startCheck']) => (state === 'NONE' ? 'None' : state === 'DONE' ? 'Done' : 'Pending')
 const readingText = (value: string | null) => (value && /^(PASS|FAIL|YES|NO)$/.test(value) ? value[0] + value.slice(1).toLowerCase() : value ?? '—')
 
@@ -62,13 +68,39 @@ const checksLine = (j: JobRow) =>
 /** Jobs: active, planned and finished jobs with their worker, start/end check and check counts. */
 const JobsScreen: React.FC = () => {
   const { can, push } = useStaff()
+  const notify = useToast()
   const [filter, setFilter] = useState('running')
+  const [machineId, setMachineId] = useState('')
+  const [departmentId, setDepartmentId] = useState('')
+  const [search, setSearch] = useState('')
+  const [from, setFrom] = useState(addDaysKey(dateKey(), -29))
+  const [to, setTo] = useState(dateKey())
   const statuses = FILTERS.find((f) => f.value === filter)!.statuses
+  // Same as the web panel: running and planned jobs whenever they started, finished ones by date.
+  const dated = filter !== 'running' && filter !== 'planned'
   const { data, error, loading, reload } = useQuery<JobRow[]>(can('checks') ? '/api/jobs' : null, {
     status: statuses.join(','),
-    // Finished jobs of the last 30 days; running and planned jobs whenever they started.
-    ...(filter === 'completed' || filter === 'all' ? { from: dateKey(new Date(Date.now() - 29 * 86_400_000)), to: dateKey() } : {})
+    machineId,
+    ...(dated ? { from, to } : {})
   })
+  const machines = useQuery<Machine[]>(can('checks') ? '/api/machines' : null)
+  const departments = useQuery<Department[]>(can('checks') ? '/api/departments' : null)
+
+  // The search and department narrow the loaded list as the user types, like the web panel.
+  const jobs = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return (data ?? []).filter(
+      (j) =>
+        (!departmentId || j.departmentId === departmentId) &&
+        (!q || j.jobNo.toLowerCase().includes(q) || (j.itemCode ?? '').toLowerCase().includes(q))
+    )
+  }, [data, search, departmentId])
+
+  // Permanent delete: needs Delete Jobs (the server checks it again).
+  const canDeleteJobs = useDeletePermissions().DELETE_JOBS
+  const selection = useSelection(useMemo(() => (canDeleteJobs ? jobs.filter((j) => !RUNNING.includes(j.status)).map((j) => j.id) : []), [jobs, canDeleteJobs]))
+  const [deleting, setDeleting] = useState(false)
+
   if (!can('checks')) {
     return (
       <Screen title="Jobs">
@@ -76,19 +108,68 @@ const JobsScreen: React.FC = () => {
       </Screen>
     )
   }
-  const jobs = data ?? []
   return (
     <Screen
       title="Jobs"
       subtitle="Start and end checks, scheduled checks and handovers"
-      right={can('checks', 'manage') ? { label: 'Plan', icon: 'add', onPress: () => push('jobPlan', {}) } : null}
+      right={can('checks', 'manage') && !selection.active ? { label: 'Plan', icon: 'add', onPress: () => push('jobPlan', {}) } : null}
       onRefresh={reload}
       refreshing={loading && !!data}
+      footer={
+        selection.active ? (
+          <SelectionFooter
+            count={selection.selected.length}
+            noun={JOB_NOUN}
+            allSelected={selection.allSelected}
+            onToggleAll={selection.toggleAll}
+            onCancel={selection.stop}
+            onDelete={() => setDeleting(true)}
+          />
+        ) : undefined
+      }
     >
+      <SearchField value={search} onChangeText={setSearch} placeholder="Search by PO No. / Item" />
       <Chips options={FILTERS.map((f) => ({ value: f.value, label: f.label }))} value={filter} onChange={setFilter} />
-      <DataState loading={loading} error={error} onRetry={reload} hasData={!!data} empty={!!data && jobs.length === 0} emptyText="No jobs here." emptyIcon="briefcase-outline">
+      <SelectField
+        label="Machine"
+        value={machineId}
+        emptyLabel="All machines"
+        options={(machines.data ?? []).map((m) => ({ value: m.id, label: m.name, detail: m.code }))}
+        onChange={setMachineId}
+      />
+      <SelectField
+        label="Department"
+        value={departmentId}
+        emptyLabel="All departments"
+        options={(departments.data ?? []).map((d) => ({ value: d.id, label: d.name }))}
+        onChange={setDepartmentId}
+      />
+      {dated ? (
+        <View className="flex-row gap-3">
+          <View className="flex-1">
+            <DateField label="From" value={from} onChange={(v) => v && setFrom(v)} />
+          </View>
+          <View className="flex-1">
+            <DateField label="To" value={to} onChange={(v) => v && setTo(v)} />
+          </View>
+        </View>
+      ) : null}
+      {canDeleteJobs && !selection.active && jobs.some((j) => !RUNNING.includes(j.status)) ? (
+        <SmallButton label="Select jobs to delete" icon="checkmark-circle-outline" onPress={selection.start} className="self-start" />
+      ) : null}
+      <DataState
+        loading={loading}
+        error={error}
+        onRetry={reload}
+        hasData={!!data}
+        empty={!!data && jobs.length === 0}
+        emptyText={search.trim() ? `No jobs match “${search.trim()}”.` : 'No jobs for these filters.'}
+        emptyIcon="briefcase-outline"
+      >
         <List>
-          {jobs.map((j) => (
+          {jobs.map((j) => {
+            const selectable = selection.active && !RUNNING.includes(j.status)
+            return (
             <Row
               key={j.id}
               title={`PO No. ${j.jobNo}${j.itemCode ? ` · ${j.itemCode}` : ''}`}
@@ -101,20 +182,46 @@ const JobsScreen: React.FC = () => {
                 .filter(Boolean)
                 .join('\n')}
               detailLines={3}
-              right={<Badge label={STATUS[j.status].label} tone={STATUS[j.status].tone} />}
-              onPress={() => push('jobDetail', { id: j.id })}
+              right={
+                selection.active ? (
+                  <SelectMark selected={selection.isSelected(j.id)} disabled={!selectable} />
+                ) : (
+                  <Badge label={STATUS[j.status].label} tone={STATUS[j.status].tone} />
+                )
+              }
+              accessibilityLabel={
+                selection.active ? `${selectable ? (selection.isSelected(j.id) ? 'Unselect' : 'Select') : 'Running, cannot select'} job ${j.jobNo}` : undefined
+              }
+              onPress={selection.active ? (selectable ? () => selection.toggle(j.id) : undefined) : () => push('jobDetail', { id: j.id })}
             />
-          ))}
+            )
+          })}
         </List>
       </DataState>
+      {deleting ? (
+        <DeleteSheet
+          type="jobs"
+          ids={selection.selected}
+          bulk
+          onClose={() => setDeleting(false)}
+          onDeleted={(r) => {
+            const m = deletedMessage(r, JOB_NOUN)
+            notify('success', m.title, m.message)
+            selection.stop()
+            reload()
+          }}
+        />
+      ) : null}
     </Screen>
   )
 }
 
 /** One job: details, handovers and every check with its readings; plan, handover and force close. */
 const JobDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
-  const { can, push } = useStaff()
+  const { can, push, pop } = useStaff()
   const notify = useToast()
+  const canDeleteJobs = useDeletePermissions().DELETE_JOBS
+  const [deleting, setDeleting] = useState(false)
   const { data, error, loading, reload } = useQuery<{ job: JobRow; checks: QualityCheck[]; handovers: JobHandover[] }>(`/api/jobs/${params.id}`)
   const [closing, setClosing] = useState(false)
   const job = data?.job
@@ -154,6 +261,7 @@ const JobDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
               <List>
                 <KV label="Status" value={<Badge label={`${STATUS[job.status].label}${job.forceClosed ? ' · force closed' : ''}`} tone={STATUS[job.status].tone} />} />
                 <KV label="Item Code" value={job.itemCode ?? '—'} />
+                <KV label="Department" value={job.departmentName ?? '—'} />
                 <KV label="Worker now" value={job.assignedWorkerName ?? 'Any worker on the machine'} />
                 <KV
                   label="Started"
@@ -174,6 +282,26 @@ const JobDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
                 {running ? <SmallButton label="Handover" icon="swap-horizontal-outline" onPress={() => push('jobHandover', { id: job.id })} /> : null}
                 <SmallButton label={job.status === 'PLANNED' ? 'Cancel job' : 'Force close'} tone="danger" icon="stop-circle-outline" loading={closing} onPress={close} />
               </View>
+            ) : null}
+
+            {canDeleteJobs ? (
+              running ? (
+                <Text className="text-[14px] leading-[19px] text-staff-muted">Force-close this job before deleting it.</Text>
+              ) : (
+                <SmallButton label="Delete job" tone="danger" icon="trash-outline" onPress={() => setDeleting(true)} className="self-start" />
+              )
+            ) : null}
+            {deleting ? (
+              <DeleteSheet
+                type="jobs"
+                ids={[job.id]}
+                onClose={() => setDeleting(false)}
+                onDeleted={(r) => {
+                  const m = deletedMessage(r, JOB_NOUN)
+                  notify('success', m.title, m.message)
+                  pop()
+                }}
+              />
             ) : null}
 
             <Section title="Handovers" detail={plural(data.handovers.length, 'handover')}>
@@ -238,8 +366,8 @@ const JobPlanScreen: React.FC<{ params: { id?: string } }> = ({ params }) => {
   const notify = useToast()
   const existing = useQuery<{ job: JobRow }>(params.id ? `/api/jobs/${params.id}` : null)
   const machines = useQuery<Machine[]>('/api/machines')
-  const workers = useQuery<User[]>('/api/users', { role: 'WORKER' })
-  const [form, setForm] = useState<{ machineId: string; jobNo: string; itemCode: string; plannedFor: string; note: string } | null>(null)
+  const departments = useQuery<Department[]>('/api/departments')
+  const [form, setForm] = useState<{ machineId: string; jobNo: string; itemCode: string; departmentId: string; plannedFor: string; note: string } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const job = existing.data?.job
@@ -247,9 +375,9 @@ const JobPlanScreen: React.FC<{ params: { id?: string } }> = ({ params }) => {
     form ??
     (params.id
       ? job
-        ? { machineId: job.machineId, jobNo: job.jobNo, itemCode: job.itemCode ?? '', plannedFor: job.plannedFor ?? '', note: job.note ?? '' }
+        ? { machineId: job.machineId, jobNo: job.jobNo, itemCode: job.itemCode ?? '', departmentId: job.departmentId ?? '', plannedFor: job.plannedFor ?? '', note: job.note ?? '' }
         : null
-      : { machineId: '', jobNo: '', itemCode: '', plannedFor: dateKey(), note: '' })
+      : { machineId: '', jobNo: '', itemCode: '', departmentId: '', plannedFor: dateKey(), note: '' })
   const set = (patch: Partial<NonNullable<typeof value>>) => value && setForm({ ...value, ...patch })
 
   if (!can('checks', 'manage')) {
@@ -270,13 +398,14 @@ const JobPlanScreen: React.FC<{ params: { id?: string } }> = ({ params }) => {
       machineId: value.machineId,
       jobNo: value.jobNo.trim(),
       itemCode: value.itemCode.trim() || null,
+      departmentId: value.departmentId || null,
       plannedFor: value.plannedFor || null,
       note: value.note.trim() || null
     }
     try {
       if (params.id) await api.put(`/api/jobs/${params.id}`, body)
       else await api.post('/api/jobs', body)
-      notify('success', params.id ? 'Job updated' : 'Job planned', `PO No. ${body.jobNo}`)
+      notify('success', params.id ? 'Job updated' : 'Job planned', `PO No. ${body.jobNo} — any worker can start it on the machine`)
       pop()
     } catch (err) {
       setError(errorText(err))
@@ -305,6 +434,16 @@ const JobPlanScreen: React.FC<{ params: { id?: string } }> = ({ params }) => {
           <Input label="PO No." required value={value.jobNo} onChangeText={(jobNo) => set({ jobNo })} autoCapitalize="characters" maxLength={60} />
           <Input label="Item Code" value={value.itemCode} onChangeText={(itemCode) => set({ itemCode })} autoCapitalize="characters" maxLength={60} />
           <DateField label="Planned for" value={value.plannedFor} clearable onChange={(plannedFor) => set({ plannedFor })} />
+          <SelectField
+            label="Department"
+            value={value.departmentId}
+            emptyLabel="Worker's department"
+            hint="Leave empty to use the department of the worker who starts it."
+            options={(departments.data ?? [])
+              .filter((d) => d.isActive || d.id === value.departmentId)
+              .map((d) => ({ value: d.id, label: d.isActive ? d.name : `${d.name} (inactive)` }))}
+            onChange={(departmentId) => set({ departmentId })}
+          />
           <Input label="Note" value={value.note} onChangeText={(note) => set({ note })} multiline maxLength={500} placeholder="Shown to the worker with the job" />
         </FormSection>
       ) : null}

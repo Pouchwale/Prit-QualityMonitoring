@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Edit2, Info, KeyRound, Plus, Search, UserX } from 'lucide-react'
+import { Edit2, Info, KeyRound, Plus, Search, Trash2, UserX } from 'lucide-react'
 import type { Department, Role, Shift, User } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
@@ -14,6 +14,10 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { RevealPasswordModal } from './RevealPasswordModal'
+import { DeleteRecordsModal } from '../../components/common/DeleteRecordsModal'
+import { BulkDeleteBar, RowCheckbox, useSelection } from '../../components/common/BulkSelection'
+import { useDeletePermissions } from '../../lib/deletePermissions'
+import { AdminDeletePermissions } from './AdminDeletePermissions'
 
 type RoleTab = 'ALL' | Role
 
@@ -99,6 +103,16 @@ export const WorkersPage: React.FC = () => {
   const [revealing, setRevealing] = useState<User | null>(null)
   // Only the Super Admin can view passwords.
   const canViewPasswords = me?.role === 'SUPER_ADMIN'
+  // Permanent delete: needs Delete Users (the server checks it again). Test accounts only:
+  // an account with production history is refused and can only be disabled.
+  const canDeleteUsers = useDeletePermissions().DELETE_USERS
+  const myId = me?.id
+  const canDeleteUser = useMemo(() => {
+    // The server's rule: the Super Admin any account but their own; an Admin Managers and Workers.
+    const roles: Role[] = me?.role === 'SUPER_ADMIN' ? ['WORKER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'] : ['WORKER', 'MANAGER']
+    return (u: User) => canDeleteUsers && u.id !== myId && roles.includes(u.role)
+  }, [canDeleteUsers, myId, me?.role])
+  const [deleting, setDeleting] = useState<{ ids: string[]; bulk: boolean; user?: User } | null>(null)
 
   const users = useMemo(() => usersApi.data ?? [], [usersApi.data])
   const departments = departmentsApi.data ?? []
@@ -120,6 +134,8 @@ export const WorkersPage: React.FC = () => {
       return [u.name, u.employeeId, u.designation, u.departmentName, u.shiftName, u.phone].some((v) => v?.toLowerCase().includes(q))
     })
   }, [users, tab, search])
+
+  const selection = useSelection(useMemo(() => filtered.filter(canDeleteUser).map((u) => u.id), [filtered, canDeleteUser]))
 
   const isSelf = editing !== null && editing !== 'new' && editing.id === me?.id
   // Only the Super Admin manages passwords: other users' here, their own in My Account.
@@ -246,6 +262,15 @@ export const WorkersPage: React.FC = () => {
         </div>
       </div>
 
+      {canDeleteUsers && (
+        <BulkDeleteBar
+          count={selection.selected.length}
+          noun={selection.selected.length === 1 ? 'user' : 'users'}
+          onClear={selection.clear}
+          onDelete={() => setDeleting({ ids: selection.selected, bulk: true })}
+        />
+      )}
+
       <DataState
         loading={usersApi.loading}
         error={usersApi.error}
@@ -257,6 +282,11 @@ export const WorkersPage: React.FC = () => {
           <table className="stack-sm w-full text-left text-xs border-collapse">
             <thead className="bg-slate-50 border-b border-line text-ink-secondary font-mono text-[11px] uppercase tracking-wider">
               <tr>
+                {canDeleteUsers && (
+                  <th className="py-2.5 pl-3.5 pr-0 w-8">
+                    <RowCheckbox checked={selection.allChecked} onChange={selection.toggleAll} label="Select all users shown" />
+                  </th>
+                )}
                 <th className="py-2.5 px-3.5">Name</th>
                 <th className="py-2.5 px-3.5">Employee ID</th>
                 <th className="py-2.5 px-3.5">Role</th>
@@ -265,7 +295,7 @@ export const WorkersPage: React.FC = () => {
                 <th className="py-2.5 px-3.5">Mobile app</th>
                 <th className="py-2.5 px-3.5">Status</th>
                 <th className="py-2.5 px-3.5">Last login</th>
-                {canEdit && <th className="py-2.5 px-3.5 text-right">Action</th>}
+                {(canEdit || canDeleteUsers) && <th className="py-2.5 px-3.5 text-right">Action</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-line">
@@ -273,6 +303,11 @@ export const WorkersPage: React.FC = () => {
                 const self = u.id === me?.id
                 return (
                   <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                    {canDeleteUsers && (
+                      <td className="py-2.5 pl-3.5 pr-0">
+                        {canDeleteUser(u) && <RowCheckbox checked={selection.isSelected(u.id)} onChange={() => selection.toggle(u.id)} label={`Select ${u.name}`} />}
+                      </td>
+                    )}
                     <td className="py-2.5 px-3.5 whitespace-nowrap">
                       <span className={`font-semibold ${u.isActive ? 'text-ink' : 'text-ink-muted'}`}>{u.name}</span>
                       {self && <span className="ml-1.5 text-[11px] lg:text-[10px] text-ink-muted">(you)</span>}
@@ -297,7 +332,7 @@ export const WorkersPage: React.FC = () => {
                     <td className="py-2.5 px-3.5 whitespace-nowrap text-ink-secondary">
                       {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : <span className="text-ink-faint">Never</span>}
                     </td>
-                    {canEdit && (
+                    {(canEdit || canDeleteUsers) && (
                       <td className="py-2 px-3.5 text-right whitespace-nowrap">
                         <div className="inline-flex gap-1.5">
                           {canEditUser(u) && (
@@ -311,6 +346,9 @@ export const WorkersPage: React.FC = () => {
                           {u.isActive && !self && canEditUser(u) && (
                             <Button size="sm" variant="ghost" onClick={() => setDisabling(u)} title="Disable" aria-label={`Disable ${u.name}`} icon={<UserX className="w-3.5 h-3.5 text-failed" />} />
                           )}
+                          {canDeleteUser(u) && (
+                            <Button size="sm" variant="ghost" onClick={() => setDeleting({ ids: [u.id], bulk: false, user: u })} title="Delete permanently" aria-label={`Delete ${u.name} permanently`} icon={<Trash2 className="w-3.5 h-3.5 text-failed" />} />
+                          )}
                         </div>
                       </td>
                     )}
@@ -321,6 +359,8 @@ export const WorkersPage: React.FC = () => {
           </table>
         </div>
       </DataState>
+
+      {me?.role === 'SUPER_ADMIN' && <AdminDeletePermissions key={usersApi.data?.filter((u) => u.role === 'ADMIN').map((u) => u.id).join()} />}
 
       <Modal
         isOpen={editing !== null}
@@ -437,13 +477,33 @@ export const WorkersPage: React.FC = () => {
         message={
           <>
             Disable <span className="font-semibold text-ink">{disabling?.name}</span> ({disabling?.employeeId})? They are signed out and can no
-            longer sign in. Users are never deleted, so their check history is kept; you can re-enable them later from Edit.
+            longer sign in. Their check history and name stay on every record; you can re-enable them later from Edit.
           </>
         }
         onConfirm={disable}
         onClose={() => setDisabling(null)}
       />
       <RevealPasswordModal user={revealing} onClose={() => setRevealing(null)} />
+      <DeleteRecordsModal
+        type={deleting ? 'users' : null}
+        ids={deleting?.ids ?? []}
+        bulk={deleting?.bulk}
+        onClose={() => setDeleting(null)}
+        onDeleted={(r) => {
+          notify('success', r.deleted === 1 ? 'User deleted' : `${r.deleted} users deleted`, 'The deletion is recorded in the audit log.')
+          selection.clear()
+          usersApi.reload()
+        }}
+        onDisableInstead={
+          deleting?.user?.isActive && canEditUser(deleting.user)
+            ? () => {
+                const u = deleting.user!
+                setDeleting(null)
+                setDisabling(u)
+              }
+            : undefined
+        }
+      />
     </div>
   )
 }

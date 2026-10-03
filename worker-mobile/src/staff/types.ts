@@ -118,6 +118,11 @@ export interface Parameter {
   minValue: number | null
   maxValue: number | null
   options: string[]
+  /**
+   * Dropdown only: an optional first choice asked before the options (e.g. the material for
+   * Corona Treatment). Both are recorded together, e.g. "BOPP 38, 40 Dyne". Empty for most.
+   */
+  materialOptions: string[]
   /** Dropdown only: the worker may choose several options instead of one. */
   multiSelect: boolean
   /** Default "required" value when the parameter is added to a quality check type. */
@@ -523,6 +528,9 @@ export type CheckKind = 'SCHEDULED' | 'JOB_START' | 'JOB_INTERVAL' | 'JOB_END'
 /** A job in the Jobs list (GET /api/jobs), the same as the web panel. */
 export interface JobRow extends Job {
   status: JobStatus
+  /** The department doing this job, fixed when a worker starts it (or chosen when planning). */
+  departmentId: string | null
+  departmentName: string | null
   activatedAt: string | null
   endRequestedAt: string | null
   assignedWorkerId: string | null

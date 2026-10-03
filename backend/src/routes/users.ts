@@ -11,6 +11,7 @@ import { decryptPassword } from '../lib/passwordVault'
 import { canManage, isAdminRole, requireAnyView, requireModule, type Role } from '../lib/permissions'
 import { invalidateCheckGeneration } from '../services/checkGenerator'
 import { sendTestNotification } from '../services/notifications'
+import { clearDeletePermissions } from '../lib/deletePermissions'
 
 export const usersRouter = Router()
 
@@ -150,6 +151,8 @@ usersRouter.put('/:id', accountManagers, async (req, res) => {
   if (before.role === 'MANAGER' && data.role !== 'MANAGER') {
     await db.delete(managerPermissions).where(eq(managerPermissions.userId, id))
   }
+  // A former Admin keeps no delete permissions (they would come back on a later promotion).
+  if (before.role === 'ADMIN' && data.role !== 'ADMIN') await clearDeletePermissions(id)
   await audit(req, password ? 'UPDATE_USER_AND_PASSWORD' : 'UPDATE_USER', 'User', id, {
     oldValue: snapshot(before),
     newValue: row

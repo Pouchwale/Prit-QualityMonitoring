@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Download, Eye, FlaskConical, RefreshCw } from 'lucide-react'
+import { Download, Eye, FlaskConical, RefreshCw, Trash2 } from 'lucide-react'
 import type { CheckResult, QualityCheck, QualityCheckStatus } from '../../types'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
@@ -12,6 +12,10 @@ import { DataState } from '../../components/common/DataState'
 import { CheckStatusBadge, StatusBadge } from '../../components/common/StatusBadge'
 import { EvidenceViewer } from '../../components/common/EvidenceViewer'
 import { FilterBar, type MonitoringFilters } from '../../components/common/FilterBar'
+import { DeleteRecordsModal } from '../../components/common/DeleteRecordsModal'
+import { BulkDeleteBar, RowCheckbox, useSelection } from '../../components/common/BulkSelection'
+import { useToast } from '../../components/common/Toast'
+import { useDeletePermissions } from '../../lib/deletePermissions'
 
 const CHIP_STYLE: Record<CheckResult, { idle: string; active: string }> = {
   COMPLETED: { idle: 'bg-success-bg text-success border-success-line', active: 'bg-success text-white border-success' },
@@ -76,6 +80,12 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
   }, [all])
   const rows = useMemo(() => (filters.status ? all.filter((c) => c.status === filters.status) : all), [all, filters.status])
   const multiDay = filters.from !== filters.to
+
+  // Permanent delete: needs Delete Checks (checked again by the server).
+  const notify = useToast()
+  const canDeleteChecks = useDeletePermissions().DELETE_CHECKS
+  const selection = useSelection(useMemo(() => (canDeleteChecks ? rows.map((c) => c.id) : []), [rows, canDeleteChecks]))
+  const [deleting, setDeleting] = useState<{ ids: string[]; bulk: boolean } | null>(null)
 
   const exportCsv = () => {
     downloadCsv(
@@ -178,12 +188,26 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
         </span>
       </div>
 
+      {canDeleteChecks && (
+        <BulkDeleteBar
+          count={selection.selected.length}
+          noun={selection.selected.length === 1 ? 'check' : 'checks'}
+          onClear={selection.clear}
+          onDelete={() => setDeleting({ ids: selection.selected, bulk: true })}
+        />
+      )}
+
       <DataState loading={loading} error={error} onRetry={reload} empty={data === null ? undefined : rows.length === 0} emptyText="No quality checks match these filters.">
         <div className="bg-white border border-line rounded-md shadow-2xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="stack-sm w-full text-left text-xs border-collapse">
               <thead className="bg-slate-50 border-b border-line text-ink-secondary text-[11px] uppercase tracking-wider">
                 <tr>
+                  {canDeleteChecks && (
+                    <th className="py-2.5 pl-3 pr-0 w-8">
+                      <RowCheckbox checked={selection.allChecked} onChange={selection.toggleAll} label="Select all checks shown" />
+                    </th>
+                  )}
                   <th className="py-2.5 px-3 font-semibold">Scheduled</th>
                   <th className="py-2.5 px-3 font-semibold">Code</th>
                   <th className="py-2.5 px-3 font-semibold">Machine</th>
@@ -202,6 +226,11 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
               <tbody className="divide-y divide-line">
                 {rows.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                    {canDeleteChecks && (
+                      <td className="py-2 pl-3 pr-0">
+                        <RowCheckbox checked={selection.isSelected(c.id)} onChange={() => selection.toggle(c.id)} label={`Select check ${c.code}`} />
+                      </td>
+                    )}
                     <td className="py-2 px-3 font-mono text-ink whitespace-nowrap">
                       {multiDay ? formatDateTime(c.scheduledAt) : formatTime(c.scheduledAt)}
                     </td>
@@ -233,9 +262,14 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
                       {c.submittedAt ? (multiDay ? formatDateTime(c.submittedAt) : formatTime(c.submittedAt)) : '—'}
                     </td>
                     <td className="py-2 px-3 text-right whitespace-nowrap">
-                      <Button size="sm" variant="outline" onClick={() => onViewCheck(c.id)} icon={<Eye className="w-3 h-3" />}>
-                        View
-                      </Button>
+                      <div className="inline-flex gap-1.5">
+                        <Button size="sm" variant="outline" onClick={() => onViewCheck(c.id)} icon={<Eye className="w-3 h-3" />}>
+                          View
+                        </Button>
+                        {canDeleteChecks && (
+                          <Button size="sm" variant="ghost" onClick={() => setDeleting({ ids: [c.id], bulk: false })} title="Delete permanently" aria-label={`Delete check ${c.code} permanently`} icon={<Trash2 className="w-3.5 h-3.5 text-failed" />} />
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -244,6 +278,19 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
           </div>
         </div>
       </DataState>
+
+      <DeleteRecordsModal
+        type={deleting ? 'checks' : null}
+        ids={deleting?.ids ?? []}
+        bulk={deleting?.bulk}
+        onClose={() => setDeleting(null)}
+        onDeleted={(r) => {
+          notify('success', r.deleted === 1 ? 'Check deleted' : `${r.deleted} checks deleted`, `${r.filesRemoved} evidence file${r.filesRemoved === 1 ? '' : 's'} removed. Recorded in the audit log.`)
+          if (r.filesNotRemoved.length) notify('error', 'Some files could not be removed', `${r.filesNotRemoved.length} evidence file(s) are still on the server.`)
+          selection.clear()
+          reload()
+        }}
+      />
     </div>
   )
 }

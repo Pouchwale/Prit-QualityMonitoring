@@ -42,6 +42,7 @@ interface ParameterBody {
   minValue: number | null
   maxValue: number | null
   options: string[]
+  materialOptions: string[]
   multiSelect: boolean
   isRequired: boolean
   isActive: boolean
@@ -58,6 +59,7 @@ interface ParameterForm {
   minValue: string
   maxValue: string
   options: string[]
+  materialOptions: string[]
   multiSelect: boolean
   isRequired: boolean
   isActive: boolean
@@ -73,6 +75,7 @@ const emptyForm: ParameterForm = {
   minValue: '',
   maxValue: '',
   options: [''],
+  materialOptions: [],
   multiSelect: false,
   isRequired: true,
   isActive: true,
@@ -88,6 +91,7 @@ const formFromParameter = (p: Parameter): ParameterForm => ({
   minValue: p.minValue === null ? '' : String(p.minValue),
   maxValue: p.maxValue === null ? '' : String(p.maxValue),
   options: p.options.length ? [...p.options] : [''],
+  materialOptions: [...(p.materialOptions ?? [])],
   multiSelect: p.multiSelect,
   isRequired: p.isRequired,
   isActive: p.isActive,
@@ -104,6 +108,7 @@ const bodyFromParameter = (p: Parameter): ParameterBody => ({
   minValue: p.minValue,
   maxValue: p.maxValue,
   options: p.options,
+  materialOptions: p.materialOptions ?? [],
   multiSelect: p.multiSelect,
   isRequired: p.isRequired,
   isActive: p.isActive,
@@ -272,6 +277,7 @@ export const ParameterFormScreen: React.FC<{ params: { parameter?: Parameter; ne
   const submit = async () => {
     const isNumber = form.type === 'NUMBER'
     const options = form.type === 'DROPDOWN' ? form.options.map((o) => o.trim()).filter(Boolean) : []
+    const materialOptions = form.type === 'DROPDOWN' ? form.materialOptions.map((o) => o.trim()).filter(Boolean) : []
     const minValue = isNumber ? toNumberOrNull(form.minValue) : null
     const maxValue = isNumber ? toNumberOrNull(form.maxValue) : null
 
@@ -288,6 +294,7 @@ export const ParameterFormScreen: React.FC<{ params: { parameter?: Parameter; ne
       minValue,
       maxValue,
       options,
+      materialOptions,
       multiSelect: form.type === 'DROPDOWN' && form.multiSelect,
       isRequired: form.isRequired,
       isActive: form.isActive,
@@ -435,6 +442,39 @@ export const ParameterFormScreen: React.FC<{ params: { parameter?: Parameter; ne
       {form.type === 'DROPDOWN' ? (
         <FormSection title="Rule">
           <View className="-mb-2">
+            <FieldLabel
+              label="First choice (optional)"
+              hint={
+                form.materialOptions.some((o) => o.trim())
+                  ? 'The worker picks one of these first, then one of the options below. Both are recorded together, e.g. "BOPP 38, 40 Dyne".'
+                  : 'Leave empty for an ordinary dropdown. Fill it in to ask the worker something first, such as the material.'
+              }
+            />
+          </View>
+          {form.materialOptions.map((option, index) => (
+            <View key={`m${index}`} className="flex-row items-end gap-2">
+              <View className="flex-1">
+                <Input
+                  label={`First choice ${index + 1}`}
+                  value={option}
+                  onChangeText={(v) => update('materialOptions', form.materialOptions.map((o, i) => (i === index ? v : o)))}
+                  placeholder="e.g. BOPP 38"
+                  maxLength={100}
+                />
+              </View>
+              <View className="mb-1">
+                <IconButton
+                  icon="trash-outline"
+                  variant="plain"
+                  tone="danger"
+                  accessibilityLabel={`Remove first choice ${index + 1}`}
+                  onPress={() => update('materialOptions', form.materialOptions.filter((_, i) => i !== index))}
+                />
+              </View>
+            </View>
+          ))}
+          <SmallButton label="Add first choice" icon="add" onPress={() => update('materialOptions', [...form.materialOptions, ''])} className="self-start" />
+          <View className="-mb-2 border-t border-staff-line pt-3">
             <FieldLabel label="Dropdown options" required hint="Shown to the worker in this order" />
           </View>
           {form.options.map((option, index) => (

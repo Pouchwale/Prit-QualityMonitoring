@@ -23,6 +23,7 @@ import { performanceRouter } from './routes/performance'
 import { jobsRouter } from './routes/jobs'
 import { workerRouter } from './routes/worker'
 import { accessRouter } from './routes/access'
+import { deletionsRouter } from './routes/deletions'
 import { HttpError } from './lib/http'
 import { serveSignedMedia } from './lib/mediaLinks'
 
@@ -74,6 +75,7 @@ export function createApp() {
   admin.use('/weekly-rules', weeklyRulesRouter)
   admin.use('/users', usersRouter)
   admin.use('/access', accessRouter)
+  admin.use('/deletions', deletionsRouter)
   admin.use('/jobs', jobsRouter)
   admin.use('/performance', performanceRouter)
   admin.use('/', monitoringRouter)

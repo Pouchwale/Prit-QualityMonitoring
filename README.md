@@ -73,6 +73,27 @@ How it works: sign-in still uses the one-way bcrypt hash. Next to it the passwor
 - **Back up `backend/secrets/password-view.key` together with the database.** Without it the stored copies cannot be shown; signing in still works, and setting a new password makes it viewable again.
 - Passwords set **before** this feature were only stored as a hash and cannot be recovered. They show "Not available" until the password is next set: a Super Admin reset, or the Super Admin changing their own password in My Account.
 
+### Permanent delete (users, jobs, quality checks)
+
+Permanent delete is for removing test data. It needs one of three permissions, checked by the backend on every request (403 without it):
+
+| Permission | Super Admin | Admin | Manager / Worker |
+|---|---|---|---|
+| **Delete Users** | always | only if granted | never |
+| **Delete Jobs** | always | only if granted | never |
+| **Delete Checks** | always | only if granted | never |
+
+The Super Admin grants and revokes them per Admin in **Workers & Users → Admin delete permissions** (ON/OFF, Save, Revoke all). Admins cannot grant them to anyone or change their own; Managers and Workers can never have them. They are stored in `manager_permissions` under the keys `delete:users`, `delete:jobs`, `delete:checks` (`backend/src/lib/deletePermissions.ts`), and an Admin who is given another role loses them.
+
+Every delete shows the server's **delete impact** first: the record, what goes with it (checks, values, exceptions, handovers), evidence files and their size, and anything blocking it. A **reason** is required and saved in the audit log. The delete runs in one transaction that re-checks the permission and the impact and refuses if anything changed since the preview; evidence files are removed from disk only after the commit (`backend/src/services/deletion.ts`).
+
+- **Jobs:** a running job (Starting, Active, Ending) cannot be deleted. Force-close it first. A job's checks are deleted with it, never left detached.
+- **Checks:** an open check of a running job, and a check a worker is filling in, cannot be deleted.
+- **Users:** only accounts **without production history** (no checks, jobs, handovers, exceptions, evidence, schedules or calendar edits). Everyone else can only be disabled, so their name stays on every record. You cannot delete yourself or the last active Super Admin; an Admin cannot delete Admin accounts.
+- **Bulk:** tick rows on screen (at most 200), type `DELETE <count>`, and give a reason. Above 20 records or 100 evidence files a second confirmation is asked. There is no "delete all".
+- Audit actions: `DELETE_USER`, `DELETE_JOB`, `DELETE_CHECK`, `BULK_DELETE_USERS`, `BULK_DELETE_JOBS`, `BULK_DELETE_CHECKS`, `GRANT_DELETE_PERMISSION`, `REVOKE_DELETE_PERMISSION`. Audit entries are never deleted.
+- **Take a database and uploads backup before deleting.** A permanent delete cannot be undone.
+
 ## One mobile app for every role
 
 Workers, Managers, Admins and the Super Admin sign in to the **same mobile app** with their usual employee ID and password. The app reads the account's role and permissions from the backend (`GET /api/auth/me`) and opens:

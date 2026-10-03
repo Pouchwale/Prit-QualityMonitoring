@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { ArrowLeftRight, Briefcase, ExternalLink, Pencil, Plus, RefreshCw, StopCircle } from 'lucide-react'
+import { ArrowLeftRight, Briefcase, ExternalLink, Pencil, Plus, RefreshCw, Search, StopCircle, Trash2 } from 'lucide-react'
 import type { CheckKind, Department, JobHandover, JobRow, JobStatus, Machine, QualityCheck, Shift, User } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
@@ -15,6 +15,12 @@ import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { Field, FormError, Select, TextArea, TextInput, inputClass } from '../../components/common/Form'
 import { DateInput } from '../../components/common/DateTimeInputs'
+import { DeleteRecordsModal } from '../../components/common/DeleteRecordsModal'
+import { BulkDeleteBar, RowCheckbox, useSelection } from '../../components/common/BulkSelection'
+import { useDeletePermissions } from '../../lib/deletePermissions'
+
+/** A running job is never deleted: it has to be force-closed first (the server refuses too). */
+const RUNNING: JobStatus[] = ['STARTING', 'ACTIVE', 'ENDING']
 
 const STATUS: Record<JobStatus, { label: string; cls: string }> = {
   PLANNED: { label: 'Planned', cls: 'bg-slate-50 text-ink-secondary border-line' },
@@ -79,6 +85,8 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
   const notify = useToast()
   const [filter, setFilter] = useState('running')
   const [machineId, setMachineId] = useState('')
+  const [search, setSearch] = useState('')
+  const [departmentFilter, setDepartmentFilter] = useState('')
   const [from, setFrom] = useState(addDaysKey(dateKey(), -29))
   const [to, setTo] = useState(dateKey())
   const statuses = FILTERS.find((f) => f.key === filter)!.statuses
@@ -105,11 +113,25 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
   const [handover, setHandover] = useState<{ job: JobRow; toUserId: string; shiftId: string; note: string; error: string | null } | null>(null)
   const [closing, setClosing] = useState<JobRow | null>(null)
 
-  const rows = useMemo(() => data ?? [], [data])
+  // The list is loaded whole for the chosen status, machine and dates, so the search narrows it
+  // as the user types without another request: PO No. or Item Code, any part, any case.
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return (data ?? []).filter(
+      (j) =>
+        (!departmentFilter || j.departmentId === departmentFilter) &&
+        (!q || j.jobNo.toLowerCase().includes(q) || (j.itemCode ?? '').toLowerCase().includes(q))
+    )
+  }, [data, search, departmentFilter])
   const refreshAll = () => {
     reload()
     if (openId) detail.reload()
   }
+
+  // Permanent delete: needs Delete Jobs (checked again by the server).
+  const canDeleteJobs = useDeletePermissions().DELETE_JOBS
+  const selection = useSelection(useMemo(() => (canDeleteJobs ? rows.filter((j) => !RUNNING.includes(j.status)).map((j) => j.id) : []), [rows, canDeleteJobs]))
+  const [deleting, setDeleting] = useState<{ ids: string[]; bulk: boolean } | null>(null)
 
   const openPlan = (job: JobRow | null) => {
     setEditing(job)
@@ -185,6 +207,18 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
       />
 
       <section className="bg-white border border-line rounded-md p-3 shadow-2xs flex flex-wrap items-end gap-3 text-xs">
+        <label className="relative min-w-[220px] flex-1 max-w-sm">
+          <span className="block text-[11px] font-semibold text-ink-secondary mb-1">Search</span>
+          <Search className="w-3.5 h-3.5 absolute left-2.5 bottom-3 lg:bottom-2.5 text-ink-faint pointer-events-none" />
+          <input
+            type="search"
+            placeholder="Search by PO No. / Item"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search by PO No. / Item"
+            className={`${inputClass} pl-8`}
+          />
+        </label>
         <div className="flex rounded border border-line-strong overflow-hidden" role="tablist" aria-label="Job status">
           {FILTERS.map((f) => (
             <button
@@ -210,6 +244,17 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
             ))}
           </select>
         </label>
+        <label className="min-w-0">
+          <span className="block text-[11px] font-semibold text-ink-secondary mb-1">Department</span>
+          <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} aria-label="Department" className={`${inputClass} px-2 sm:w-auto sm:min-w-[150px]`}>
+            <option value="">All departments</option>
+            {(departments ?? []).map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </label>
         {dated && (
           <>
             <label className="min-w-0">
@@ -224,11 +269,25 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
         )}
       </section>
 
-      <DataState loading={loading} error={error} onRetry={reload} empty={data === null ? undefined : rows.length === 0} emptyText="No jobs for these filters.">
+      {canDeleteJobs && (
+        <BulkDeleteBar
+          count={selection.selected.length}
+          noun={selection.selected.length === 1 ? 'job' : 'jobs'}
+          onClear={selection.clear}
+          onDelete={() => setDeleting({ ids: selection.selected, bulk: true })}
+        />
+      )}
+
+      <DataState loading={loading} error={error} onRetry={reload} empty={data === null ? undefined : rows.length === 0} emptyText={search.trim() ? `No jobs match “${search.trim()}”.` : 'No jobs for these filters.'}>
         <div className="bg-white border border-line rounded-md shadow-2xs overflow-x-auto">
           <table className="stack-sm w-full text-left text-xs border-collapse">
             <thead className="bg-slate-50 border-b border-line text-ink-secondary text-[11px] uppercase tracking-wider">
               <tr>
+                {canDeleteJobs && (
+                  <th className="py-2 pl-3 pr-0 w-8">
+                    <RowCheckbox checked={selection.allChecked} onChange={selection.toggleAll} label="Select all jobs shown that are not running" />
+                  </th>
+                )}
                 <th className="py-2 px-3 font-semibold">PO No. / Item</th>
                 <th className="py-2 px-3 font-semibold">Machine</th>
                 <th className="py-2 px-3 font-semibold">Status</th>
@@ -244,6 +303,15 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
             <tbody className="divide-y divide-line">
               {rows.map((j) => (
                 <tr key={j.id} className="hover:bg-slate-50">
+                  {canDeleteJobs && (
+                    <td className="py-2 pl-3 pr-0">
+                      {RUNNING.includes(j.status) ? (
+                        <span title="Running jobs must be force-closed before they can be deleted" className="sr-only">Running</span>
+                      ) : (
+                        <RowCheckbox checked={selection.isSelected(j.id)} onChange={() => selection.toggle(j.id)} label={`Select job ${j.jobNo}`} />
+                      )}
+                    </td>
+                  )}
                   <td className="py-2 px-3">
                     <div className="font-mono font-semibold text-ink">{j.jobNo}</div>
                     <div className="font-mono text-[11px] text-ink-muted">{j.itemCode ?? '—'}</div>
@@ -289,14 +357,22 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
       {/* One job with all its records */}
       <Drawer isOpen={!!openId} onClose={() => setOpenId(null)} title={job ? `PO No. ${job.jobNo}` : 'Job'} subtitle={job ? `${job.machineName} · ${job.machineCode}` : undefined} width="xl"
         footer={
-          job && canManage ? (
+          job && (canManage || canDeleteJobs) ? (
             <div className="flex flex-wrap gap-2 justify-end">
-              {job.status === 'PLANNED' && (
+              {canDeleteJobs && !RUNNING.includes(job.status) && (
+                <Button size="sm" variant="outline" className="mr-auto" icon={<Trash2 className="w-3.5 h-3.5 text-failed" />} onClick={() => setDeleting({ ids: [job.id], bulk: false })}>
+                  Delete job
+                </Button>
+              )}
+              {canDeleteJobs && RUNNING.includes(job.status) && (
+                <span className="mr-auto self-center text-[11px] text-ink-muted">Force-close this job before deleting it.</span>
+              )}
+              {canManage && job.status === 'PLANNED' && (
                 <Button size="sm" variant="outline" icon={<Pencil className="w-3.5 h-3.5" />} onClick={() => openPlan(job)}>
                   Edit
                 </Button>
               )}
-              {['STARTING', 'ACTIVE', 'ENDING'].includes(job.status) && (
+              {canManage && ['STARTING', 'ACTIVE', 'ENDING'].includes(job.status) && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -306,7 +382,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
                   Handover
                 </Button>
               )}
-              {!['COMPLETED', 'CANCELLED'].includes(job.status) && (
+              {canManage && !['COMPLETED', 'CANCELLED'].includes(job.status) && (
                 <Button size="sm" variant="danger" icon={<StopCircle className="w-3.5 h-3.5" />} onClick={() => setClosing(job)}>
                   {job.status === 'PLANNED' ? 'Cancel job' : 'Force close'}
                 </Button>
@@ -554,6 +630,20 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
           }
         }}
         onClose={() => setClosing(null)}
+      />
+
+      <DeleteRecordsModal
+        type={deleting ? 'jobs' : null}
+        ids={deleting?.ids ?? []}
+        bulk={deleting?.bulk}
+        onClose={() => setDeleting(null)}
+        onDeleted={(r) => {
+          notify('success', r.deleted === 1 ? 'Job deleted' : `${r.deleted} jobs deleted`, `${r.filesRemoved} evidence file${r.filesRemoved === 1 ? '' : 's'} removed. Recorded in the audit log.`)
+          if (r.filesNotRemoved.length) notify('error', 'Some files could not be removed', `${r.filesNotRemoved.length} evidence file(s) are still on the server.`)
+          selection.clear()
+          if (deleting && openId && deleting.ids.includes(openId)) setOpenId(null)
+          reload()
+        }}
       />
     </div>
   )

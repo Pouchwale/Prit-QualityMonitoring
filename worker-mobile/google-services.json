@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "19821788829",
-    "project_id": "quality-monitoring-cf264",
-    "storage_bucket": "quality-monitoring-cf264.firebasestorage.app"
+    "project_number": "356982991959",
+    "project_id": "pouchwale-quality",
+    "storage_bucket": "pouchwale-quality.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:19821788829:android:8ac7ad802f046bcc5d1e74",
+        "mobilesdk_app_id": "1:356982991959:android:df211ad2eb0a172720c712",
         "android_client_info": {
           "package_name": "com.pouchwale.qualityworker"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyC2Y0ig0AISm0zzipu66IoaC_20FxdBWYw"
+          "current_key": "AIzaSyChF5tCLhnzXEzl0kVoEh1Lkftu6VDwpz8"
         }
       ],
       "services": {

@@ -20,6 +20,7 @@ import {
   Row,
   Screen,
   Section,
+  StatusBadge,
   SkeletonRows
 } from '../ui'
 import { formatLongDate } from '../../utils/datetime'
@@ -332,6 +333,30 @@ export const HomeScreen: React.FC = () => {
                   />
                 )
               })
+            )}
+          </List>
+        </Section>
+      ) : null}
+
+      {/* Recent submissions, like the web dashboard: the latest checks workers submitted on this day. */}
+      {monitoring && data ? (
+        <Section
+          title="Recent submissions"
+          seeAll={checksTab && data.recent.length ? { label: 'See all', onPress: () => openChecks({ result: 'COMPLETED' }) } : null}
+        >
+          <List>
+            {data.recent.length === 0 ? (
+              <Row title="Nothing submitted yet" subtitle={`No checks were submitted ${isToday ? 'today' : `on ${formatKey(date)}`}.`} />
+            ) : (
+              data.recent.slice(0, TOP_ROWS).map((c) => (
+                <Row
+                  key={c.id}
+                  title={`${c.machineName} · ${c.activityName}`}
+                  subtitle={[c.submittedAt ? formatTime(c.submittedAt) : null, workerOf(c), c.jobNo ? `PO ${c.jobNo}` : null, c.code].filter(Boolean).join(' · ')}
+                  right={<StatusBadge status={c.result ?? c.status} />}
+                  onPress={checksTab ? () => push('checkDetail', { id: c.id }) : undefined}
+                />
+              ))
             )}
           </List>
         </Section>

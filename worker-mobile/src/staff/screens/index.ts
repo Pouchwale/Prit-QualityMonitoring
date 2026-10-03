@@ -20,6 +20,7 @@ import { DEPARTMENTS_SCREENS } from './DepartmentsScreens'
 import { SHIFTS_SCREENS } from './ShiftsScreens'
 import { AUDIT_LOGS_SCREENS } from './AuditLogsScreens'
 import { PERFORMANCE_SCREENS } from './PerformanceScreens'
+import { DELETE_PERMISSIONS_SCREENS } from './DeletePermissionsScreens'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyScreen = React.FC<{ params: any }>
@@ -50,7 +51,8 @@ const GROUPS: Record<string, AnyScreen>[] = [
   JOBS_SCREENS,
   DEPARTMENTS_SCREENS,
   SHIFTS_SCREENS,
-  AUDIT_LOGS_SCREENS
+  AUDIT_LOGS_SCREENS,
+  DELETE_PERMISSIONS_SCREENS
 ]
 
 /** Every staff screen by route name. Each one calls the same API as its web panel page. */
