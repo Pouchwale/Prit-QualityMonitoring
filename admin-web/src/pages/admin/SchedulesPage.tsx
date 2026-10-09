@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react'
-import { AlertTriangle, CalendarClock, Edit2, Plus, Search, Trash2 } from 'lucide-react'
-import type { Activity, Machine, Schedule, ScheduleMode, Shift } from '../../types'
+import React, { useEffect, useMemo, useState } from 'react'
+import { Briefcase, CalendarClock, CalendarRange, Clock3, Cpu, Pencil, Plus, Repeat, Search, Trash2 } from 'lucide-react'
+import type { Activity, Department, Machine, QualityModule, Schedule, ScheduleMode, Shift, User, WorkerQualityRole } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
@@ -14,12 +14,15 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { TimeInput } from '../../components/common/DateTimeInputs'
+import { Card, EmptyState } from '../../components/ui/Card'
+import { IconButton, ResultCount, SearchInput, Segmented, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
+import { Pagination, usePagination } from '../../components/ui/Pagination'
 
 const PRESETS: { minutes: number; label: string }[] = [
   { minutes: 15, label: 'Every 15 min' },
   { minutes: 30, label: 'Every 30 min' },
   { minutes: 45, label: 'Every 45 min' },
-  { minutes: 60, label: 'Every hour' },
+  { minutes: 60, label: 'Every 1 hour' },
   { minutes: 120, label: 'Every 2 hours' },
   { minutes: 240, label: 'Every 4 hours' },
   { minutes: 480, label: 'Once per shift (every 8 hours)' },
@@ -38,7 +41,6 @@ const fromMinutes = (minutes: number) => {
   return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 }
 
-/** Mirrors the server's check generator: slots from start while before end; end at/before start runs past midnight. */
 function slotTimes(start: string, end: string, interval: number) {
   const s = toMinutes(start)
   let e = toMinutes(end)
@@ -48,55 +50,69 @@ function slotTimes(start: string, end: string, interval: number) {
   return times
 }
 
-const machineLabel = (m: Machine) =>
-  m.name + (!m.isActive ? ' (disabled)' : m.status === 'MAINTENANCE' ? ' (maintenance)' : m.status === 'IDLE' ? ' (idle)' : '')
+/** Role / module pills: the label names the role; the tint only groups them (same look as Check Types). */
+const QUALITY_ROLE_BADGE: Record<WorkerQualityRole, string> = {
+  IPQC: 'bg-accent-soft text-accent-strong ring-accent-line',
+  QC: 'bg-white text-ink ring-line-strong',
+  BOTH: 'bg-subtle text-ink-secondary ring-line'
+}
 
-const activityLabel = (a: Activity) => a.name + (a.isActive ? '' : ' (inactive)')
+const pill = 'inline-flex items-center gap-1 h-5 px-2 rounded-full ring-1 ring-inset text-[11px] font-semibold whitespace-nowrap'
+
+const QUALITY_ROLE_LABEL: Record<WorkerQualityRole, string> = {
+  IPQC: 'IPQC',
+  QC: 'QC',
+  BOTH: 'IPQC + QC'
+}
+
+type TabType = 'ALL' | 'IPQC' | 'QC'
 
 interface FormState {
-  machineId: string
-  activityId: string
-  shiftId: string
+  targetType: 'WORKER' | 'MACHINE'
   workerId: string
+  module: QualityModule
+  departmentId: string
+  activityId: string
+  machineId: string
+  shiftId: string
   mode: ScheduleMode
   preset: string
   intervalMinutes: string
-  useWindow: boolean
   startTime: string
   endTime: string
   isActive: boolean
 }
 
 const emptyForm: FormState = {
-  machineId: '',
-  activityId: '',
-  shiftId: '',
+  targetType: 'WORKER',
   workerId: '',
+  module: 'IPQC',
+  departmentId: '',
+  activityId: '',
+  machineId: '',
+  shiftId: '',
   mode: 'INTERVAL',
-  preset: '60',
-  intervalMinutes: '60',
-  useWindow: false,
+  preset: '30',
+  intervalMinutes: '30',
   startTime: '',
   endTime: '',
   isActive: true
-}
-
-/** Monitoring mode wording, shared by the list and the form. */
-const MODE_LABEL: Record<ScheduleMode, string> = {
-  INTERVAL: 'Every interval',
-  JOB: 'Job-based'
 }
 
 export const SchedulesPage: React.FC = () => {
   const canEdit = useCanManage('schedules')
   const notify = useToast()
   const schedulesApi = useApi<Schedule[]>('/api/schedules')
-  const machinesApi = useApi<Machine[]>('/api/machines')
+  const usersApi = useApi<User[]>('/api/users')
+  const departmentsApi = useApi<Department[]>('/api/departments')
   const activitiesApi = useApi<Activity[]>('/api/activities')
+  const machinesApi = useApi<Machine[]>('/api/machines')
   const shiftsApi = useApi<Shift[]>('/api/shifts')
 
+  const [tab, setTab] = useState<TabType>('ALL')
   const [search, setSearch] = useState('')
-  const [shiftFilter, setShiftFilter] = useState('ALL')
+  const [workerFilter, setWorkerFilter] = useState('ALL')
+  const [departmentFilter, setDepartmentFilter] = useState('ALL')
   const [editing, setEditing] = useState<Schedule | 'new' | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
   const [formError, setFormError] = useState<string | null>(null)
@@ -104,46 +120,108 @@ export const SchedulesPage: React.FC = () => {
   const [deleting, setDeleting] = useState<Schedule | null>(null)
 
   const schedules = useMemo(() => schedulesApi.data ?? [], [schedulesApi.data])
+  const users = useMemo(() => usersApi.data ?? [], [usersApi.data])
+  const workers = useMemo(() => users.filter((u) => u.role === 'WORKER' && u.isActive), [users])
+  const departments = useMemo(() => departmentsApi.data ?? [], [departmentsApi.data])
+  const activities = useMemo(() => activitiesApi.data ?? [], [activitiesApi.data])
   const machines = useMemo(() => machinesApi.data ?? [], [machinesApi.data])
-  const activities = activitiesApi.data ?? []
-  const shifts = shiftsApi.data ?? []
+  const shifts = useMemo(() => shiftsApi.data ?? [], [shiftsApi.data])
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
-  const groups = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const map = new Map<string, { machineId: string; machineName: string; rows: Schedule[] }>()
-    for (const s of schedules) {
-      if (shiftFilter !== 'ALL' && s.shiftId !== shiftFilter) continue
-      if (q && ![s.machineName, s.activityName, s.shiftName, s.workerName, s.workerEmployeeId].some((v) => v?.toLowerCase().includes(q))) continue
-      const g = map.get(s.machineId) ?? { machineId: s.machineId, machineName: s.machineName, rows: [] }
-      g.rows.push(s)
-      map.set(s.machineId, g)
+  const resolveShift = (shiftId?: string | null, workerId?: string | null): Shift | undefined => {
+    if (workerId) {
+      const w = workers.find((u) => u.id === workerId)
+      if (w?.shiftId) {
+        const match = shifts.find((s) => s.id === w.shiftId)
+        if (match) return match
+      }
     }
-    return [...map.values()].sort((a, b) => a.machineName.localeCompare(b.machineName))
-  }, [schedules, search, shiftFilter])
+    if (shiftId) {
+      const match = shifts.find((s) => s.id === shiftId)
+      if (match) return match
+    }
+    return shifts.find((s) => s.isActive) ?? shifts[0]
+  }
 
-  const machineById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines])
+  const selectedShift = useMemo(() => shifts.find((s) => s.id === form.shiftId), [shifts, form.shiftId])
+
+  const counts = useMemo(() => {
+    let all = 0
+    let ipqc = 0
+    let qc = 0
+    for (const s of schedules) {
+      all++
+      const m = s.module ?? s.activityModule ?? 'IPQC'
+      if (m === 'IPQC') ipqc++
+      else if (m === 'QC') qc++
+    }
+    return { ALL: all, IPQC: ipqc, QC: qc }
+  }, [schedules])
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return schedules.filter((s) => {
+      const mod = s.module ?? s.activityModule ?? 'IPQC'
+      if (tab !== 'ALL' && mod !== tab) return false
+      if (workerFilter !== 'ALL' && s.workerId !== workerFilter) return false
+      if (departmentFilter !== 'ALL' && s.departmentId !== departmentFilter) return false
+      if (!q) return true
+      return [
+        s.workerName,
+        s.workerEmployeeId,
+        s.activityName,
+        s.departmentName,
+        s.machineName,
+        s.shiftName,
+        mod
+      ].some((v) => v?.toLowerCase().includes(q))
+    })
+  }, [schedules, tab, workerFilter, departmentFilter, search])
+  const page = usePagination(filtered, 25, `${tab}|${workerFilter}|${departmentFilter}|${search}`)
+  const activeCount = schedules.filter((s) => s.isActive).length
 
   const openNew = () => {
-    setForm({ ...emptyForm, shiftId: shifts.find((s) => s.isActive)?.id ?? '' })
+    const firstWorker = workers[0]
+    const initialRole: QualityModule = firstWorker?.workerQualityRole === 'QC' ? 'QC' : 'IPQC'
+    const matchedShift = resolveShift(firstWorker?.shiftId, firstWorker?.id)
+    setForm({
+      ...emptyForm,
+      targetType: 'WORKER',
+      workerId: firstWorker?.id ?? '',
+      module: initialRole,
+      departmentId: firstWorker?.departmentId ?? '',
+      activityId: '',
+      shiftId: matchedShift?.id ?? '',
+      startTime: matchedShift?.startTime ?? '',
+      endTime: matchedShift?.endTime ?? ''
+    })
     setFormError(null)
     setEditing('new')
   }
 
   const openEdit = (s: Schedule) => {
     const preset = PRESETS.some((p) => p.minutes === s.intervalMinutes) ? String(s.intervalMinutes) : 'custom'
+    const isWorkerSched = Boolean(s.workerId) || !s.machineId
+    const mod = s.module ?? s.activityModule ?? 'IPQC'
+    const matchedShift = isWorkerSched ? resolveShift(null, s.workerId) : resolveShift(s.shiftId, null)
+
+    const startTime = matchedShift?.startTime ?? s.startTime ?? ''
+    const endTime = matchedShift?.endTime ?? s.endTime ?? ''
+
     setForm({
-      machineId: s.machineId,
-      activityId: s.activityId,
-      shiftId: s.shiftId,
+      targetType: isWorkerSched ? 'WORKER' : 'MACHINE',
       workerId: s.workerId ?? '',
+      module: mod,
+      departmentId: s.departmentId ?? '',
+      activityId: s.activityId,
+      machineId: s.machineId ?? '',
+      shiftId: matchedShift?.id ?? s.shiftId ?? '',
       mode: s.mode ?? 'INTERVAL',
       preset,
       intervalMinutes: String(s.intervalMinutes),
-      useWindow: s.startTime !== null && s.endTime !== null,
-      startTime: s.startTime ?? '',
-      endTime: s.endTime ?? '',
+      startTime,
+      endTime,
       isActive: s.isActive
     })
     setFormError(null)
@@ -155,52 +233,151 @@ export const SchedulesPage: React.FC = () => {
   const changePreset = (value: string) =>
     setForm((f) => ({ ...f, preset: value, intervalMinutes: value === 'custom' ? f.intervalMinutes : value }))
 
-  const toggleWindow = (on: boolean) => {
-    const shift = shifts.find((s) => s.id === form.shiftId)
+  const onWorkerChange = (wId: string) => {
+    const w = workers.find((u) => u.id === wId)
+    const allowed = w?.workerQualityRole ?? 'IPQC'
+    let newMod: QualityModule = form.module
+    if (allowed === 'QC') newMod = 'QC'
+    else if (allowed === 'IPQC') newMod = 'IPQC'
+
+    // Automatically use Worker's assigned Shift and populate Schedule Window from that Shift
+    const targetShift = resolveShift(w?.shiftId, wId)
+
     setForm((f) => ({
       ...f,
-      useWindow: on,
-      startTime: on && !f.startTime ? (shift?.startTime ?? '') : f.startTime,
-      endTime: on && !f.endTime ? (shift?.endTime ?? '') : f.endTime
+      workerId: wId,
+      module: newMod,
+      departmentId: w?.departmentId ?? f.departmentId,
+      activityId: '', // reset activity selection when worker changes
+      shiftId: targetShift?.id ?? '',
+      startTime: targetShift?.startTime ?? '',
+      endTime: targetShift?.endTime ?? ''
+    }))
+  }
+
+  const onShiftChange = (shiftId: string) => {
+    const s = shifts.find((sh) => sh.id === shiftId)
+    setForm((f) => ({
+      ...f,
+      shiftId,
+      startTime: s?.startTime ?? '',
+      endTime: s?.endTime ?? ''
+    }))
+  }
+
+  const onTargetTypeChange = (targetType: 'WORKER' | 'MACHINE') => {
+    if (targetType === 'WORKER') {
+      const w = workers.find((u) => u.id === form.workerId) ?? workers[0]
+      const targetShift = resolveShift(w?.shiftId, w?.id)
+      setForm((f) => ({
+        ...f,
+        targetType,
+        workerId: w?.id ?? '',
+        shiftId: targetShift?.id ?? '',
+        startTime: targetShift?.startTime ?? '',
+        endTime: targetShift?.endTime ?? ''
+      }))
+    } else {
+      const targetShift = resolveShift(form.shiftId, null)
+      setForm((f) => ({
+        ...f,
+        targetType,
+        shiftId: targetShift?.id ?? f.shiftId,
+        startTime: targetShift?.startTime ?? f.startTime,
+        endTime: targetShift?.endTime ?? f.endTime
+      }))
+    }
+  }
+
+  // Automatically keep Shift and Schedule Window in sync with the selected worker's assigned shift
+  useEffect(() => {
+    if (!editing) return
+    if (form.targetType === 'WORKER' && form.workerId) {
+      const w = workers.find((u) => u.id === form.workerId)
+      if (w?.shiftId) {
+        const targetShift = shifts.find((sh) => sh.id === w.shiftId)
+        if (targetShift) {
+          if (form.shiftId !== targetShift.id || form.startTime !== targetShift.startTime || form.endTime !== targetShift.endTime) {
+            setForm((f) => ({
+              ...f,
+              shiftId: targetShift.id,
+              startTime: targetShift.startTime,
+              endTime: targetShift.endTime
+            }))
+          }
+        }
+      }
+    }
+  }, [editing, form.targetType, form.workerId, workers, shifts, form.shiftId, form.startTime, form.endTime])
+
+  const onModuleChange = (newMod: QualityModule) => {
+    setForm((f) => ({
+      ...f,
+      module: newMod,
+      activityId: '' // reset activity when switching module
     }))
   }
 
   const interval = Number(form.intervalMinutes)
   const intervalValid = Number.isInteger(interval) && interval >= 5 && interval <= 1440
-  const windowValid = !form.useWindow || (HHMM.test(form.startTime) && HHMM.test(form.endTime) && form.startTime !== form.endTime)
+  const windowValid = HHMM.test(form.startTime) && HHMM.test(form.endTime) && form.startTime !== form.endTime
 
   const submit = async (e: React.SyntheticEvent) => {
     e.preventDefault()
-    if (!form.machineId) return setFormError('Choose a machine')
-    if (!form.activityId) return setFormError('Choose a check type')
-    if (!form.shiftId) return setFormError('Choose a shift')
-    if (!intervalValid) return setFormError('Frequency must be a whole number of minutes between 5 and 1440')
-    if (form.useWindow && !windowValid) return setFormError('Set both a start and an end time (different from each other), or turn off the custom time window')
+    if (!form.shiftId) return setFormError('Choose a shift for this schedule')
+    if (form.targetType === 'WORKER') {
+      if (!form.workerId) return setFormError('Choose a worker')
+      if (!form.activityId) return setFormError('Choose a check name')
+      if (!windowValid) return setFormError('Valid start and end times are required from the selected shift')
+      if (!intervalValid) return setFormError('Frequency must be a whole number of minutes between 5 and 1440')
+    } else {
+      if (!form.machineId) return setFormError('Choose a machine')
+      if (!form.activityId) return setFormError('Choose a check type')
+      if (!windowValid) return setFormError('Valid start and end times are required from the selected shift')
+      if (!intervalValid) return setFormError('Frequency must be between 5 and 1440 minutes')
+    }
 
     setSaving(true)
     setFormError(null)
     try {
+      let finalShiftId = form.shiftId
+      let finalStartTime = form.startTime
+      let finalEndTime = form.endTime
+
+      if (form.targetType === 'WORKER') {
+        const w = workers.find((u) => u.id === form.workerId)
+        if (w?.shiftId) {
+          const targetShift = shifts.find((s) => s.id === w.shiftId)
+          if (targetShift) {
+            finalShiftId = targetShift.id
+            finalStartTime = targetShift.startTime
+            finalEndTime = targetShift.endTime
+          }
+        }
+      }
+
       const body = {
-        machineId: form.machineId,
+        workerId: form.targetType === 'WORKER' ? form.workerId : null,
+        module: form.module,
+        departmentId: form.departmentId || null,
         activityId: form.activityId,
-        shiftId: form.shiftId,
-        workerId: form.workerId || null,
+        machineId: form.targetType === 'MACHINE' ? form.machineId : null,
+        shiftId: finalShiftId,
         mode: form.mode,
         intervalMinutes: interval,
-        startTime: form.useWindow ? form.startTime : null,
-        endTime: form.useWindow ? form.endTime : null,
+        startTime: finalStartTime,
+        endTime: finalEndTime,
         isActive: form.isActive
       }
       if (editing === 'new') {
         await api.post('/api/schedules', body)
-        notify('success', 'Schedule created', 'Checks will be generated for the selected shift.')
+        notify('success', 'Schedule created', 'Check reminders will be generated based on the configured schedule.')
       } else if (editing) {
         await api.put(`/api/schedules/${editing.id}`, body)
-        notify('success', 'Schedule updated', 'Upcoming checks were replaced; completed history is kept.')
+        notify('success', 'Schedule updated', 'Upcoming checks were updated; completed history is kept.')
       }
       setEditing(null)
       schedulesApi.reload()
-      machinesApi.reload()
     } catch (err) {
       setFormError(errorText(err))
     } finally {
@@ -212,42 +389,46 @@ export const SchedulesPage: React.FC = () => {
     if (!deleting) return
     try {
       await api.del(`/api/schedules/${deleting.id}`)
-      notify('success', 'Schedule deleted', `${deleting.activityName} on ${deleting.machineName}. Upcoming checks were removed.`)
+      notify('success', 'Schedule deleted', `${deleting.activityName}. Upcoming checks were removed.`)
       schedulesApi.reload()
     } catch (err) {
       notify('error', 'Could not delete schedule', errorText(err))
     }
   }
 
-  // ---- Form option lists ----
-  const selectedMachine = machineById.get(form.machineId)
-  const selectedShift = shifts.find((s) => s.id === form.shiftId)
-  const machineOptions = machines.filter((m) => m.isActive || m.id === form.machineId)
-  const activityOptions = activities.filter((a) => a.isActive || a.id === form.activityId)
-  const linkedActivities = selectedMachine ? activityOptions.filter((a) => selectedMachine.activityIds.includes(a.id)) : []
-  const otherActivities = selectedMachine ? activityOptions.filter((a) => !selectedMachine.activityIds.includes(a.id)) : activityOptions
-  const activityNotLinked = !!selectedMachine && !!form.activityId && !selectedMachine.activityIds.includes(form.activityId)
-  const shiftOptions = shifts.filter((s) => s.isActive || s.id === form.shiftId)
+  // Filtered check activities for the selected module
+  const currentWorker = workers.find((w) => w.id === form.workerId)
+  const workerAllowedModules: QualityModule[] = currentWorker?.workerQualityRole === 'BOTH'
+    ? ['IPQC', 'QC']
+    : currentWorker?.workerQualityRole === 'QC'
+      ? ['QC']
+      : ['IPQC']
 
-  // ---- Preview ----
+  const eligibleActivities = useMemo(() => {
+    return activities.filter((a) => {
+      if (a.module !== form.module) return false
+      if (!a.isActive && a.id !== form.activityId) return false
+      return true
+    })
+  }, [activities, form.module, form.activityId])
+
+  // Preview
   const preview = useMemo(() => {
-    if (!selectedShift || !intervalValid || !windowValid) return null
-    const start = form.useWindow ? form.startTime : selectedShift.startTime
-    const end = form.useWindow ? form.endTime : selectedShift.endTime
-    const times = slotTimes(start, end, interval)
+    if (!intervalValid || !windowValid) return null
+    const times = slotTimes(form.startTime, form.endTime, interval)
     const shown = times.length <= 4 ? times.join(', ') : `${times.slice(0, 3).join(', ')} … ${times[times.length - 1]}`
-    return { times, text: `${times.length === 1 ? 'Check at' : 'Checks at'} ${shown} (${times.length} per shift)` }
-  }, [selectedShift, intervalValid, windowValid, form.useWindow, form.startTime, form.endTime, interval])
+    return { times, text: `${times.length === 1 ? 'Check at' : 'Checks at'} ${shown} (${times.length} checks/day)` }
+  }, [intervalValid, windowValid, form.startTime, form.endTime, interval])
 
-  const machineBlocked = selectedMachine && (selectedMachine.status !== 'ACTIVE' || !selectedMachine.isActive)
-
-  const pickerError = machinesApi.error || activitiesApi.error || shiftsApi.error
+  const pickerError = schedulesApi.error || usersApi.error || activitiesApi.error
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
-        title="Schedules"
-        description="How often each quality check runs on each machine, per shift"
+        icon={<CalendarClock className="w-4.5 h-4.5" />}
+        title="Check Schedules"
+        description={schedulesApi.data ? `${schedules.length} schedules · ${activeCount} active` : 'Routine IPQC and QC check reminders'}
+        info="Schedule-based quality checks and routine reminders for IPQC and QC workers."
         actions={
           canEdit && (
             <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
@@ -257,124 +438,164 @@ export const SchedulesPage: React.FC = () => {
         }
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 border border-line rounded-md shadow-2xs text-xs">
-        <div className="relative min-w-[220px] flex-1 max-w-sm">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 lg:top-2.5 lg:translate-y-0 text-ink-faint pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search machine, check type, worker…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-[40px] lg:h-8 pl-8 pr-3 border border-line-strong rounded text-[16px] lg:text-xs bg-white placeholder:text-ink-faint focus:outline-none focus:ring-1 focus:ring-accent"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-ink-muted">Shift:</span>
-          <Select value={shiftFilter} onChange={(e) => setShiftFilter(e.target.value)} className="w-auto min-w-[140px]">
-            <option value="ALL">All shifts</option>
-            {shifts.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-      </div>
-
       <DataState
         loading={schedulesApi.loading}
         error={schedulesApi.error}
         onRetry={schedulesApi.reload}
-        empty={!schedulesApi.loading && groups.length === 0}
-        emptyText={schedules.length === 0 ? 'No schedules yet. Add one to start generating quality checks.' : 'No schedules match the filters'}
+        empty={!schedulesApi.loading && schedules.length === 0}
+        emptyText="No schedules configured yet. Click Add Schedule to create one."
       >
-        <div className="bg-white border border-line rounded-md shadow-2xs overflow-x-auto">
-          <table className="stack-sm w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50 border-b border-line text-ink-secondary font-mono text-[11px] uppercase tracking-wider">
-              <tr>
-                <th className="py-2.5 px-3.5">Check type</th>
-                <th className="py-2.5 px-3.5">Shift</th>
-                <th className="py-2.5 px-3.5">Time window</th>
-                <th className="py-2.5 px-3.5">Frequency</th>
-                <th className="py-2.5 px-3.5">Next due</th>
-                <th className="py-2.5 px-3.5">Status</th>
-                {canEdit && <th className="py-2.5 px-3.5 text-right">Action</th>}
-              </tr>
-            </thead>
-            {groups.map((g) => {
-              const machine = machineById.get(g.machineId)
-              const blocked = machine && (machine.status !== 'ACTIVE' || !machine.isActive)
-              return (
-                <tbody key={g.machineId} className="divide-y divide-line border-b border-line last:border-b-0">
-                  <tr className="bg-subtle">
-                    <td colSpan={canEdit ? 8 : 7} className="py-1.5 px-3.5">
-                      <span className="font-semibold text-ink">{g.machineName}</span>
-                      {machine && <span className="ml-2 font-mono text-[11px] text-ink-muted">{machine.code}</span>}
-                      <span className="ml-2 text-[11px] text-ink-muted">
-                        {g.rows.length} {g.rows.length === 1 ? 'schedule' : 'schedules'}
-                      </span>
-                      {blocked && machine && (
-                        <span className="ml-2 inline-flex items-center gap-1 text-[11px] text-exception">
-                          <AlertTriangle className="w-3 h-3" />
-                          {machine.isActive ? `Machine is ${machine.status === 'MAINTENANCE' ? 'in maintenance' : 'idle'}` : 'Machine is disabled'} — no
-                          checks generated
-                        </span>
-                      )}
-                    </td>
+        <Card className="overflow-hidden">
+          <Toolbar>
+            <Segmented
+              label="Filter by quality role"
+              value={tab}
+              onChange={setTab}
+              options={(['ALL', 'IPQC', 'QC'] as TabType[]).map((t) => ({ value: t, label: t === 'ALL' ? 'All Roles' : t, count: counts[t] }))}
+            />
+            <SearchInput value={search} onChange={setSearch} label="Search schedules" placeholder="Search schedules…" />
+            <Select value={workerFilter} onChange={(e) => setWorkerFilter(e.target.value)} className="sm:w-auto sm:min-w-[150px] sm:max-w-[220px]" aria-label="Worker">
+              <option value="ALL">All workers</option>
+              {workers.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name} ({w.workerQualityRole ?? 'IPQC'})
+                </option>
+              ))}
+            </Select>
+            <Select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} className="sm:w-auto sm:min-w-[150px]" aria-label="Department">
+              <option value="ALL">All departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </Select>
+            <ToolbarSpacer />
+            <ResultCount shown={filtered.length} total={schedules.length} noun="schedules" />
+          </Toolbar>
+
+          {filtered.length === 0 ? (
+            <EmptyState icon={<Search className="w-5 h-5" />} title="No schedules match the filters" compact />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="data-table stack-sm">
+                <thead>
+                  <tr>
+                    <th>Worker</th>
+                    <th>Role</th>
+                    <th>Check type</th>
+                    <th>Shift window</th>
+                    <th>Interval</th>
+                    <th>Next due</th>
+                    <th>Status</th>
+                    {canEdit && <th className="text-right">Actions</th>}
                   </tr>
-                  {g.rows.map((s) => (
-                    <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-2.5 px-3.5 pl-6 font-medium text-ink whitespace-nowrap">
-                        {s.activityName}
-                        <span className="block text-[11px] font-normal text-ink-muted">{MODE_LABEL[s.mode ?? 'INTERVAL']}</span>
-                      </td>
-                      <td className="py-2.5 px-3.5 whitespace-nowrap">
-                        <span className="text-slate-700">{s.shiftName}</span>
-                        <span className="ml-1.5 font-mono text-[11px] text-ink-muted">
-                          {formatClockRange(s.shiftStartTime, s.shiftEndTime)}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3.5 whitespace-nowrap">
-                        {s.startTime && s.endTime ? (
-                          <span className="font-mono text-ink">{formatClockRange(s.startTime, s.endTime)}</span>
-                        ) : (
-                          <span className="text-ink-muted">Whole shift</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3.5 whitespace-nowrap text-ink">{frequencyLabel(s.intervalMinutes)}</td>
-                      <td className="py-2.5 px-3.5 whitespace-nowrap">
-                        {s.nextDueAt ? <span className="font-mono text-ink">{formatDateTime(s.nextDueAt)}</span> : <span className="text-ink-faint">—</span>}
-                        {s.lastSubmittedAt && (
-                          <span className="block text-[11px] text-ink-muted">Last submitted {formatDateTime(s.lastSubmittedAt)}</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3.5 whitespace-nowrap">
-                        <StatusBadge status={s.isActive ? 'ACTIVE' : 'Paused'} size="sm" />
-                      </td>
-                      {canEdit && (
-                        <td className="py-2 px-3.5 text-right whitespace-nowrap">
-                          <div className="inline-flex gap-1.5">
-                            <Button size="sm" variant="outline" onClick={() => openEdit(s)} icon={<Edit2 className="w-3 h-3 text-ink-muted" />}>
-                              Edit
-                            </Button>
-                            <Button size="sm" variant="ghost" onClick={() => setDeleting(s)} title="Delete" aria-label="Delete schedule" icon={<Trash2 className="w-3.5 h-3.5 text-failed" />} />
+                </thead>
+                <tbody>
+                  {page.visible.map((s) => {
+                    const mod = s.module ?? s.activityModule ?? 'IPQC'
+                    return (
+                      <tr key={s.id}>
+                        <td className="whitespace-nowrap">
+                          {s.workerName ? (
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-ink">{s.workerName}</span>
+                                {s.workerQualityRole && (
+                                  <span className={`${pill} font-medium ${QUALITY_ROLE_BADGE[s.workerQualityRole]}`} title="Worker quality role">
+                                    {QUALITY_ROLE_LABEL[s.workerQualityRole]}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="block font-mono text-[11.5px] text-ink-muted">{s.workerEmployeeId}</span>
+                            </div>
+                          ) : (
+                            <div>
+                              <span className="inline-flex items-center gap-1.5 font-semibold text-ink">
+                                <Cpu className="w-3.5 h-3.5 text-ink-muted" aria-hidden />
+                                {s.machineName ?? 'Machine schedule'}
+                              </span>
+                              <span className="block text-[11.5px] text-ink-muted">Legacy machine target</span>
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <span className={`${pill} tracking-wide ${QUALITY_ROLE_BADGE[mod]}`}>{mod}</span>
+                        </td>
+                        <td>
+                          <span className="font-medium text-ink whitespace-nowrap">{s.activityName}</span>
+                          {s.departmentName && <span className="block text-[11.5px] text-ink-muted whitespace-nowrap">{s.departmentName}</span>}
+                        </td>
+                        <td className="whitespace-nowrap">
+                          {s.shiftName ? (
+                            <div>
+                              <span className="font-medium text-ink">{s.shiftName}</span>
+                              <span className="block font-mono text-[11.5px] text-ink-muted tabular-nums">
+                                {formatClockRange(s.startTime || s.shiftStartTime, s.endTime || s.shiftEndTime)}
+                              </span>
+                            </div>
+                          ) : s.startTime && s.endTime ? (
+                            <span className="font-mono text-ink tabular-nums">{formatClockRange(s.startTime, s.endTime)}</span>
+                          ) : (
+                            <span className="text-ink-muted">Whole day</span>
+                          )}
+                        </td>
+                        <td>
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className={`${pill} font-medium bg-subtle text-ink ring-line`}>
+                              <Repeat className="w-3 h-3 text-ink-muted" aria-hidden />
+                              {frequencyLabel(s.intervalMinutes)}
+                            </span>
+                            {s.mode === 'JOB' && (
+                              <span className={`${pill} font-medium bg-white text-ink-secondary ring-line-strong`} title="Job-based schedule">
+                                <Briefcase className="w-3 h-3" aria-hidden />
+                                Job
+                              </span>
+                            )}
                           </div>
                         </td>
-                      )}
-                    </tr>
-                  ))}
+                        <td className="whitespace-nowrap">
+                          {s.nextDueAt ? (
+                            <span className="inline-flex items-center gap-1 text-ink tabular-nums">
+                              <Clock3 className="w-3 h-3 text-ink-muted" aria-hidden />
+                              {formatDateTime(s.nextDueAt)}
+                            </span>
+                          ) : (
+                            <span className="text-ink-faint">—</span>
+                          )}
+                          {s.lastSubmittedAt && <span className="block text-[11.5px] text-ink-muted">Last submitted {formatDateTime(s.lastSubmittedAt)}</span>}
+                        </td>
+                        <td>
+                          <StatusBadge status={s.isActive ? 'ACTIVE' : 'Paused'} size="sm" />
+                        </td>
+                        {canEdit && (
+                          <td className="text-right whitespace-nowrap" data-label="">
+                            <div className="inline-flex gap-0.5">
+                              <IconButton label={`Edit ${s.activityName} schedule`} onClick={() => openEdit(s)}>
+                                <Pencil className="w-3.5 h-3.5" />
+                              </IconButton>
+                              <IconButton label={`Delete ${s.activityName} schedule`} tone="danger" onClick={() => setDeleting(s)}>
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </IconButton>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
                 </tbody>
-              )
-            })}
-          </table>
-        </div>
+              </table>
+            </div>
+          )}
+          <Pagination page={page.page} pages={page.pages} total={page.total} pageSize={page.pageSize} onPage={page.setPage} noun="schedules" />
+        </Card>
       </DataState>
 
       <Modal
         isOpen={editing !== null}
         onClose={close}
-        title={editing === 'new' ? 'Add Schedule' : 'Edit Schedule'}
-        subtitle="Changing a schedule replaces its upcoming checks; completed history is kept."
+        title={editing === 'new' ? 'Add Check Schedule' : 'Edit Check Schedule'}
+        subtitle="Configure schedule-based IPQC or QC checks for a worker without job dependency"
         maxWidth="lg"
         footer={
           <>
@@ -389,167 +610,223 @@ export const SchedulesPage: React.FC = () => {
       >
         <form id="schedule-form" onSubmit={submit} className="space-y-3">
           <FormError message={formError} />
-          {pickerError && <FormError message={`Could not load lists: ${pickerError}`} />}
+          {pickerError && <FormError message={`Could not load master data: ${pickerError}`} />}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Machine" required>
-              <Select value={form.machineId} onChange={(e) => set('machineId', e.target.value)} autoFocus>
-                <option value="">Choose a machine…</option>
-                {machineOptions.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {machineLabel(m)}
-                  </option>
-                ))}
+            <Field label="Schedule Target" required>
+              <Select
+                value={form.targetType}
+                onChange={(e) => onTargetTypeChange(e.target.value as 'WORKER' | 'MACHINE')}
+              >
+                <option value="WORKER">Worker Schedule (Schedule-Based IPQC/QC)</option>
+                <option value="MACHINE">Machine Schedule (Legacy)</option>
               </Select>
             </Field>
-            <Field
-              label="Check type"
-              required
-              hint={activityNotLinked ? 'Not yet on this machine — it will be linked automatically' : undefined}
-            >
-              <Select value={form.activityId} onChange={(e) => set('activityId', e.target.value)}>
-                <option value="">Choose a check type…</option>
-                {selectedMachine ? (
-                  <>
-                    {linkedActivities.length > 0 && (
-                      <optgroup label="On this machine">
-                        {linkedActivities.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {activityLabel(a)}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {otherActivities.length > 0 && (
-                      <optgroup label="Other check types (linked on save)">
-                        {otherActivities.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {activityLabel(a)}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </>
-                ) : (
-                  otherActivities.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {activityLabel(a)}
-                    </option>
-                  ))
-                )}
-              </Select>
-            </Field>
-            <Field label="Shift" required>
-              <Select value={form.shiftId} onChange={(e) => set('shiftId', e.target.value)}>
-                <option value="">Choose a shift…</option>
-                {shiftOptions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {`${s.name} (${formatClockRange(s.startTime, s.endTime)})${s.isActive ? '' : ' (inactive)'}`}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field
-              label="Monitoring mode"
-              required
-              hint={
-                form.mode === 'JOB'
-                  ? 'Job-based: checks are only due while a job is running on the machine.'
-                  : 'Every interval: checks are due right through the shift.'
-              }
-            >
-              <Select value={form.mode} onChange={(e) => set('mode', e.target.value as ScheduleMode)}>
-                {(Object.keys(MODE_LABEL) as ScheduleMode[]).map((m) => (
-                  <option key={m} value={m}>
-                    {MODE_LABEL[m]}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Frequency" required hint="The timer restarts when the worker submits, so the next check is due one interval after that submission.">
-              <div className="flex gap-2">
-                <Select value={form.preset} onChange={(e) => changePreset(e.target.value)} className="flex-1">
-                  {PRESETS.map((p) => (
-                    <option key={p.minutes} value={String(p.minutes)}>
-                      {p.label}
+
+            {form.targetType === 'WORKER' ? (
+              <Field
+                label="Worker"
+                required
+                hint={
+                  currentWorker
+                    ? `Quality Role: ${QUALITY_ROLE_LABEL[currentWorker.workerQualityRole ?? 'IPQC']}${
+                        currentWorker.shiftName ? ` · Shift: ${currentWorker.shiftName}` : ''
+                      }`
+                    : undefined
+                }
+              >
+                <Select value={form.workerId} onChange={(e) => onWorkerChange(e.target.value)} autoFocus>
+                  <option value="">Choose worker…</option>
+                  {workers.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name} ({w.employeeId}) — {QUALITY_ROLE_LABEL[w.workerQualityRole ?? 'IPQC']}{w.shiftName ? ` [${w.shiftName}]` : ''}
                     </option>
                   ))}
-                  <option value="custom">Custom…</option>
                 </Select>
-                {form.preset === 'custom' && (
-                  <div className="relative w-24 shrink-0">
-                    <input
-                      type="number"
-                      min={5}
-                      max={1440}
-                      step={1}
-                      value={form.intervalMinutes}
-                      onChange={(e) => set('intervalMinutes', e.target.value)}
-                      className={`${inputClass} pr-9`}
-                      aria-label="Interval in minutes"
-                    />
-                    <span className="absolute right-2 top-2 text-[11px] text-ink-muted pointer-events-none">min</span>
+              </Field>
+            ) : (
+              <Field label="Machine" required>
+                <Select value={form.machineId} onChange={(e) => set('machineId', e.target.value)} autoFocus>
+                  <option value="">Choose machine…</option>
+                  {machines.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} ({m.code})
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+
+            <Field
+              label="Shift (Working Hours Source)"
+              required
+              hint={
+                form.targetType === 'WORKER' && currentWorker?.shiftId
+                  ? `Automatically selected from ${currentWorker.name}'s assigned shift (${currentWorker.shiftName || selectedShift?.name || 'Shift'})`
+                  : form.targetType === 'WORKER'
+                    ? 'Worker has no assigned shift in Workers master. Please select a shift.'
+                    : 'Start and End times are taken directly from this shift'
+              }
+            >
+              <Select
+                value={form.shiftId}
+                onChange={(e) => onShiftChange(e.target.value)}
+                disabled={form.targetType === 'WORKER' && Boolean(currentWorker?.shiftId)}
+              >
+                <option value="">Choose shift…</option>
+                {shifts.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({formatClockRange(s.startTime, s.endTime)}){s.isActive ? '' : ' (inactive)'}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field label="Role / Module" required hint="Separate IPQC and QC configurations">
+              <Select
+                value={form.module}
+                onChange={(e) => onModuleChange(e.target.value as QualityModule)}
+                disabled={form.targetType === 'WORKER' && currentWorker?.workerQualityRole !== 'BOTH' && workerAllowedModules.length === 1}
+              >
+                {workerAllowedModules.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <div className="col-span-1 sm:col-span-2">
+              <Field label="Department">
+                <Select value={form.departmentId} onChange={(e) => set('departmentId', e.target.value)}>
+                  <option value="">Choose department (or inherit from check)…</option>
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+
+            <div className="col-span-1 sm:col-span-2">
+              <Field label="Check Name / Parameters" required hint={`Configured ${form.module} check parameters`}>
+                <Select value={form.activityId} onChange={(e) => set('activityId', e.target.value)}>
+                  <option value="">Choose a check configuration…</option>
+                  {eligibleActivities.map((a) => {
+                    const paramsList = a.parameters
+                      .filter((p) => p.isEnabled)
+                      .map((p) => p.name)
+                      .join(', ')
+                    return (
+                      <option key={a.id} value={a.id}>
+                        {a.name} ({a.module}) — {paramsList || 'No parameters'}
+                      </option>
+                    )
+                  })}
+                </Select>
+                {activities.find((a) => a.id === form.activityId) && (
+                  <div className="mt-2 p-2.5 rounded-md bg-subtle/60 border border-line text-[12px]">
+                    <span className="font-semibold text-ink block mb-1">
+                      Parameters for this check ({activities.find((a) => a.id === form.activityId)!.parameters.filter((p) => p.isEnabled).length}):
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {activities.find((a) => a.id === form.activityId)!.parameters
+                        .filter((p) => p.isEnabled)
+                        .map((p, idx) => (
+                          <span
+                            key={p.parameterId}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white ring-1 ring-inset ring-line text-ink text-[11px] font-medium"
+                          >
+                            <span className="text-[11px] text-accent font-semibold tabular-nums">{idx + 1}.</span>
+                            {p.name}
+                            {p.type === 'NUMBER' && p.unit && (
+                              <span className="text-[11px] text-ink-muted">({p.unit})</span>
+                            )}
+                          </span>
+                        ))}
+                    </div>
                   </div>
                 )}
-              </div>
-            </Field>
-          </div>
+              </Field>
+            </div>
 
-          <div className="rounded border border-line p-3 space-y-2">
-            <Toggle
-              checked={form.useWindow}
-              onChange={toggleWindow}
-              label="Only part of the shift"
-              description={
-                selectedShift
-                  ? `Off: checks run across the whole shift (${formatClockRange(selectedShift.startTime, selectedShift.endTime)}).`
-                  : 'Off: checks run across the whole shift.'
-              }
-            />
-            {form.useWindow && (
+            <div className="col-span-1 sm:col-span-2">
+              <Field label="Interval (Frequency)" required hint="How often reminders trigger (e.g. Every 30 minutes, Every 1 hour)">
+                <div className="flex gap-2">
+                  <Select value={form.preset} onChange={(e) => changePreset(e.target.value)} className="flex-1">
+                    {PRESETS.map((p) => (
+                      <option key={p.minutes} value={String(p.minutes)}>
+                        {p.label}
+                      </option>
+                    ))}
+                    <option value="custom">Custom…</option>
+                  </Select>
+                  {form.preset === 'custom' && (
+                    <div className="relative w-28 shrink-0">
+                      <input
+                        type="number"
+                        min={5}
+                        max={1440}
+                        step={1}
+                        value={form.intervalMinutes}
+                        onChange={(e) => set('intervalMinutes', e.target.value)}
+                        className={`${inputClass} pr-9`}
+                        aria-label="Interval in minutes"
+                      />
+                      <span className="absolute right-2 top-2 text-[11px] text-ink-muted pointer-events-none">min</span>
+                    </div>
+                  )}
+                </div>
+              </Field>
+            </div>
+
+            <div className="col-span-1 sm:col-span-2 rounded-md border border-line p-3 space-y-2.5 bg-subtle/60">
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <div>
+                  <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-ink">
+                    <CalendarRange className="w-3.5 h-3.5 text-ink-muted" aria-hidden />
+                    Schedule Window (Start Time & End Time)
+                  </span>
+                  <span className="text-[11px] text-ink-secondary">
+                    {selectedShift ? (
+                      <>Directly synchronized from <strong>{selectedShift.name}</strong> ({formatClockRange(selectedShift.startTime, selectedShift.endTime)})</>
+                    ) : (
+                      'Please select a shift to populate the schedule window'
+                    )}
+                  </span>
+                </div>
+                {selectedShift && (
+                  <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full text-[11px] font-semibold bg-success-bg text-success ring-1 ring-inset ring-success-line">
+                    Source: Shift Timings
+                  </span>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Window start" required>
-                  <TimeInput label="Window start" value={form.startTime} onChange={(v) => set('startTime', v)} />
+                <Field label="Start Time" required hint={selectedShift ? `Shift start: ${selectedShift.startTime}` : undefined}>
+                  <TimeInput label="Start time" value={form.startTime} disabled={true} onChange={(v) => set('startTime', v)} />
                 </Field>
-                <Field label="Window end" required>
-                  <TimeInput label="Window end" value={form.endTime} onChange={(v) => set('endTime', v)} />
+                <Field label="End Time" required hint={selectedShift ? `Shift end: ${selectedShift.endTime}` : undefined}>
+                  <TimeInput label="End time" value={form.endTime} disabled={true} onChange={(v) => set('endTime', v)} />
                 </Field>
               </div>
-            )}
+            </div>
           </div>
 
-          <Toggle checked={form.isActive} onChange={(v) => set('isActive', v)} label="Active" description="Paused schedules generate no new checks." />
+          <Toggle checked={form.isActive} onChange={(v) => set('isActive', v)} label="Active" description="Inactive schedules do not generate notifications or checks." />
 
           {preview && (
-            <div className="rounded border border-line bg-subtle px-3 py-2 space-y-1 text-[11px]">
+            <div className="rounded-md border border-accent-line bg-accent-soft px-3 py-2 space-y-1 text-[12px]" role="status">
               <div className="flex items-start gap-1.5 text-ink">
-                <CalendarClock className="w-3.5 h-3.5 shrink-0 mt-px text-accent" />
+                <CalendarClock className="w-3.5 h-3.5 shrink-0 mt-px text-accent" aria-hidden />
                 <span>
-                  <span className="font-mono">{preview.text}</span>
+                  <span className="font-mono font-medium">{preview.text}</span>
                 </span>
               </div>
               <div className="text-ink-secondary">
-                {form.mode === 'JOB'
-                  ? `Job-based: nothing is due until a job is running on the machine. The next check is then due ${interval} minutes after each submission.`
-                  : `The timer restarts on submission: the next check is due ${interval} minutes after the worker submits.`}
+                Notifications will be sent to the assigned worker's phone when each check becomes due.
               </div>
-              {machineBlocked && selectedMachine && (
-                <div className="flex items-start gap-1.5 text-exception">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
-                  <span>
-                    {selectedMachine.isActive
-                      ? `${selectedMachine.name} is ${selectedMachine.status === 'MAINTENANCE' ? 'in maintenance' : 'idle'}`
-                      : `${selectedMachine.name} is disabled`}
-                    , so no checks are generated until it is Active again.
-                  </span>
-                </div>
-              )}
-              {!form.isActive && <div className="text-ink-muted">Schedule is paused: nothing will be generated.</div>}
-              {form.machineId && (
-                <div className="text-ink-secondary">
-                  Checks belong to the worker running the job on the machine. Nothing is created while no job is running.
-                </div>
-              )}
+              {!form.isActive && <div className="text-ink-muted">Schedule is paused: no notifications or checks will be generated.</div>}
             </div>
           )}
         </form>
@@ -557,14 +834,12 @@ export const SchedulesPage: React.FC = () => {
 
       <ConfirmModal
         isOpen={deleting !== null}
-        title="Delete schedule"
+        title="Delete check schedule"
         danger
         confirmLabel="Delete"
         message={
           <>
-            Delete the <span className="font-semibold text-ink">{deleting?.activityName}</span> schedule on{' '}
-            <span className="font-semibold text-ink">{deleting?.machineName}</span> ({deleting?.shiftName})? Upcoming checks are removed; completed
-            history is kept. To stop it temporarily, edit it and turn off Active instead.
+            Delete the <span className="font-semibold text-ink">{deleting?.activityName}</span> schedule? Upcoming checks are removed; completed history is kept.
           </>
         }
         onConfirm={remove}

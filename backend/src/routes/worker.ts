@@ -1,12 +1,13 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { and, asc, desc, eq, gte, inArray, isNotNull, lt, max, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, max, ne, or, sql, type SQL } from 'drizzle-orm'
 import { config } from '../config'
 import { db } from '../db/client'
 import {
   activities,
   activityParameters,
   departments,
+  jobHandovers,
   machineActivities,
   machines,
   checkExceptions,
@@ -20,7 +21,7 @@ import {
   shifts,
   users,
 } from '../db/schema'
-import { idParam } from '../lib/validate'
+import { exceptionDetailsError, idParam, isMachineReason } from '../lib/validate'
 import { badRequest, conflict, forbidden, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
 import { MINUTE, addDays, dateKey, parseDateKey, startOfDay } from '../lib/time'
@@ -31,25 +32,31 @@ import {
   makeCheckCode,
   openCheckOfSchedule,
   prepareChecks,
+  prepareChecksForRead,
   refreshStatuses,
   removePendingJobChecks
 } from '../services/checkGenerator'
 import { emptyValue, isEmpty, notApplicableValue, PHOTO_VALUE, readingValue, ruleText } from '../services/evaluate'
 import { jobById, jobDtoById, plannedJobs, runningJob, runningJobs, type JobDto } from '../services/jobs'
 import {
+  PRE_START_INCOMPLETE,
   RUNNING_STATUSES,
   activateIfStarted,
   completeIfEnded,
   handover,
+  intervalDueTimes,
+  jobCheckPlan,
   jobCheckTypes,
   jobCheckTypesFor,
+  jobDepartmentFor,
   jobHandoverList,
   requestEnd,
   startIntervalCheckNow,
   startJob
 } from '../services/jobMonitoring'
-import { checkTypeInDepartment, userDepartmentId } from '../services/checkTypeScope'
-import { sendToUser } from '../services/notifications'
+import { normalizeItemCode } from '../services/itemCodeDepartment'
+import { checkTypeInDepartment, jobDepartmentOptions, userDepartmentId } from '../services/checkTypeScope'
+import { VOICE_LANGUAGES, sendToUser } from '../services/notifications'
 import { resetScheduleTimer, settleNextDue } from '../services/monitoringTimer'
 import { activeExceptionReasons } from '../services/monitoringConfig'
 import {
@@ -79,12 +86,25 @@ export const workerRouter = Router()
 const EARLY_START_MINUTES = 30
 
 /**
- * Checks a worker may see and submit: their own checks — the ones of the job they are running
- * (jobs.assigned_worker_id) or that were handed over to them. Machines are not tied to workers:
- * anyone may pick any running machine, and the job decides who is responsible.
+ * Checks a worker may see and submit: the checks assigned to them. The quality role (IPQC, QC or
+ * BOTH) decides which checks a worker is given, when a schedule is set up for them
+ * (routes/schedules.ts) and when they start one by hand (below); a check assigned to them is always
+ * theirs to do, so it can never be left open where nobody can reach it. The checks of a job go to the
+ * worker holding the job, whatever its module.
  */
 async function workerScope(userId: string): Promise<SQL> {
   return eq(qualityChecks.workerId, userId)
+}
+
+const QUALITY_ROLE_MODULES: Record<string, readonly string[]> = { IPQC: ['IPQC'], QC: ['QC'], BOTH: ['IPQC', 'QC'] }
+
+/** Refuses a check of a module (IPQC / QC) the worker's quality role does not cover. */
+async function assertQualityRole(userId: string, module: 'IPQC' | 'QC', checkTypeName: string) {
+  const [user] = await db.select({ role: users.workerQualityRole }).from(users).where(eq(users.id, userId))
+  const allowed = QUALITY_ROLE_MODULES[user?.role ?? 'IPQC'] ?? ['IPQC']
+  if (!allowed.includes(module)) {
+    throw forbidden(`${checkTypeName} is a ${module} check. Your account does ${allowed.join(' and ')} checks.`)
+  }
 }
 
 /** Every machine a worker may pick from: the ones that are running today. */
@@ -126,6 +146,7 @@ function summary(check: CheckDto) {
     machineCode: check.machineCode,
     departmentName: check.departmentName,
     activityName: check.activityName,
+    module: check.module ?? 'IPQC',
     scheduledAt: check.scheduledAt,
     windowEndsAt: check.windowEndsAt,
     status: check.status,
@@ -184,7 +205,19 @@ async function formParameters(activityId: string, only: string[] | null = null) 
 }
 
 workerRouter.get('/profile', async (req, res) => {
-  res.json(await loadProfile(req.user!.id))
+  // sessionEndsAt: the end of the worker's shift, when this sign-in ends (null: not limited by a shift).
+  res.json({ ...(await loadProfile(req.user!.id)), sessionEndsAt: req.user!.sessionEndsAt ?? null })
+})
+
+/**
+ * The worker's voice alert language (Profile → Voice Notification Language): English, Hindi or
+ * Gujarati. Only what the phone speaks changes; notifications stay in English. Takes effect with the
+ * next alert, with no app update.
+ */
+workerRouter.put('/voice-language', async (req, res) => {
+  const { language } = z.object({ language: z.enum(VOICE_LANGUAGES) }).parse(req.body)
+  await db.update(users).set({ voiceNotificationLanguage: language, updatedAt: new Date() }).where(eq(users.id, req.user!.id))
+  res.json({ voiceNotificationLanguage: language })
 })
 
 /** The device reports whether it could turn on alerts, and if not, why. */
@@ -224,36 +257,52 @@ const webSubscription = z.object({
 
 /**
  * Registers this device for "check is due" notifications.
- * The app sends its Expo push token; the web app sends its browser push subscription.
+ * The app sends its Expo push token (Android app 1.2.0+ also its Firebase token, for alerts its voice
+ * service can speak with the app closed); the web app sends its browser push subscription.
  */
 workerRouter.put('/push-token', async (req, res) => {
   const body = z
     .union([
       z.object({ kind: z.literal('web'), subscription: webSubscription, platform: z.string().trim().max(40).optional() }),
-      z.object({ kind: z.literal('expo').optional(), token: z.string().trim().min(1).max(255), platform: z.string().trim().max(40).optional() })
+      z.object({
+        kind: z.literal('expo').optional(),
+        token: z.string().trim().min(1).max(255),
+        platform: z.string().trim().max(40).optional(),
+        fcmToken: z.string().trim().min(1).max(4096).optional()
+      })
     ])
     .parse(req.body)
 
   const row =
     body.kind === 'web'
-      ? { token: body.subscription.endpoint, kind: 'web' as const, subscription: body.subscription, platform: body.platform ?? 'web' }
-      : { token: body.token, kind: 'expo' as const, subscription: null, platform: body.platform }
+      ? { token: body.subscription.endpoint, kind: 'web' as const, subscription: body.subscription, platform: body.platform ?? 'web', fcmToken: null }
+      : { token: body.token, kind: 'expo' as const, subscription: null, platform: body.platform, fcmToken: body.fcmToken ?? null }
+
+  // A Firebase token belongs to one installed app: an older row of the same phone gives it up.
+  if (row.fcmToken) await db.update(pushTokens).set({ fcmToken: null }).where(and(eq(pushTokens.fcmToken, row.fcmToken), ne(pushTokens.token, row.token)))
 
   await db
     .insert(pushTokens)
     .values({ userId: req.user!.id, ...row })
     .onConflictDoUpdate({
       target: pushTokens.token,
-      set: { userId: req.user!.id, kind: row.kind, subscription: row.subscription, platform: row.platform, lastSeenAt: new Date() }
+      set: { userId: req.user!.id, kind: row.kind, subscription: row.subscription, platform: row.platform, fcmToken: row.fcmToken, lastSeenAt: new Date(), signedOutAt: null }
     })
   res.status(204).end()
 })
 
-/** Stops notifications for this phone, used when the worker signs out. */
+/**
+ * The worker signed out on this phone: it stops getting due-check and other alerts, but stays
+ * registered so the shift-start login reminder can reach it (services/workerShifts.ts). Signing in
+ * again (PUT /push-token) turns the alerts back on.
+ */
 workerRouter.delete('/push-token', async (req, res) => {
   // `token` is the Expo push token, or the subscription endpoint for the web app.
   const body = z.object({ token: z.string().trim().min(1) }).parse(req.body)
-  await db.delete(pushTokens).where(and(eq(pushTokens.token, body.token), eq(pushTokens.userId, req.user!.id)))
+  await db
+    .update(pushTokens)
+    .set({ signedOutAt: new Date() })
+    .where(and(eq(pushTokens.token, body.token), eq(pushTokens.userId, req.user!.id)))
   res.status(204).end()
 })
 
@@ -288,9 +337,9 @@ async function assertMachineRuns(machineId: string, at: Date) {
 workerRouter.get('/machines', async (req, res) => {
   const ids = await workableMachineIds()
   if (ids.length === 0) return res.json([])
-  await prepareChecks([new Date()])
+  await prepareChecksForRead()
 
-  const [myDepartment, rows, links, scheduleRows, openChecks, lastDone, jobs, closures, planned, jobTypes] = await Promise.all([
+  const [myDepartment, rows, links, scheduleRows, openChecks, lastDone, jobs, closures, planned, jobTypes, departmentOptions] = await Promise.all([
     userDepartmentId(req.user!.id),
     db
       .select({ id: machines.id, name: machines.name, code: machines.code, status: machines.status, isActive: machines.isActive })
@@ -349,7 +398,8 @@ workerRouter.get('/machines', async (req, res) => {
     runningJobs(ids),
     machineClosuresOn(ids, new Date()),
     plannedJobs(ids),
-    jobCheckTypes(ids)
+    jobCheckTypes(ids),
+    jobDepartmentOptions(ids)
   ])
   const me = req.user!.id
   /** Parameter names of a job check, e.g. ["Viscosity", "Printing quality"]. */
@@ -365,28 +415,51 @@ workerRouter.get('/machines', async (req, res) => {
     status: c.status,
     scheduledAt: c.scheduledAt,
     windowEndsAt: c.windowEndsAt,
-    parameterNames: parameterNames(c.machineId, c.parameterIds),
+    parameterNames: c.machineId ? parameterNames(c.machineId, c.parameterIds) : [],
     ...openState(c)
   })
+
+  // The running jobs' check plans: the configuration of the job's department, and when each interval
+  // group is next due (worked out like the scheduler; nothing is created here).
+  const runningPlans = new Map<string, unknown>()
+  await Promise.all(
+    rows.map(async (machine) => {
+      const job = jobs.get(machine.id)
+      if (!job) return
+      const types = jobCheckTypesFor(jobTypes.get(machine.id) ?? [], job.departmentId)
+      const plan = jobCheckPlan(types)
+      const due =
+        job.status === 'ACTIVE'
+          ? await intervalDueTimes({ id: job.id, activatedAt: job.activatedAt, startedAt: job.startedAt }, types)
+          : new Map<string, Date>()
+      runningPlans.set(machine.id, {
+        ...plan,
+        intervals: plan.intervals.map((g) => {
+          const times = g.items.map((i) => due.get(i.parameterId)?.getTime()).filter((t): t is number => t !== undefined)
+          return { ...g, nextDueAt: times.length ? new Date(Math.min(...times)) : null }
+        })
+      })
+    })
+  )
 
   res.json(
     rows.map((machine) => {
       const job = jobs.get(machine.id) ?? null
       // The plant calendar, or a machine day plan, decides whether this machine runs today.
       const closure = closures.get(machine.id)
-      const checkTypes = links
-        .filter((l) => l.machineId === machine.id)
-        // Only this worker's department does this check type. A check open in their name is always
-        // shown, so a job handed over from another department never leaves a check unreachable.
-        .filter(
-          (l) =>
-            checkTypeInDepartment(l.departmentId, myDepartment) ||
-            openChecks.some((c) => c.machineId === machine.id && c.activityId === l.activityId)
-        )
+      const machineLinks = links.filter((l) => l.machineId === machine.id)
+      // The department of the work decides the check types: the running job's, from its Item Code.
+      // With no job, a job-based check type waits for Start Job (the Item Code decides the department
+      // then), and a shift check type still follows the worker's own account.
+      const inDepartment = (l: (typeof links)[number]) =>
+        job ? checkTypeInDepartment(l.departmentId, job.departmentId) : l.monitoring !== 'JOB' && checkTypeInDepartment(l.departmentId, myDepartment)
+      const checkTypes = machineLinks
+        // A check open in their name is always shown, so a check is never left unreachable.
+        .filter((l) => inDepartment(l) || openChecks.some((c) => c.machineId === machine.id && c.activityId === l.activityId))
         .map((link) => {
           // Shown only because a check of it is open in their name: they finish that one, but they
-          // do not start another of a check type their department does not do.
-          const mine = checkTypeInDepartment(link.departmentId, myDepartment)
+          // do not start another of a check type outside the work's department.
+          const mine = inDepartment(link)
           const forType = scheduleRows.filter((s) => s.schedule.machineId === machine.id && s.schedule.activityId === link.activityId)
           const jobBased = link.monitoring === 'JOB'
           // A job-based check type's card shows its next interval check; start / end checks are on the job card.
@@ -448,7 +521,7 @@ workerRouter.get('/machines', async (req, res) => {
                       ? job.assignedWorkerId !== me
                         ? `The job is with ${job.assignedWorkerName ?? 'another worker'}.`
                         : job.status === 'STARTING'
-                          ? 'Submit the Job Start check first.'
+                          ? PRE_START_INCOMPLETE
                           : 'The job is ending.'
                       : 'Start a job to check this.'
                     : 'This machine is not running.'
@@ -465,7 +538,17 @@ workerRouter.get('/machines', async (req, res) => {
         /** Why the machine does not run today (null when it runs). */
         notRunning: closure ? { label: closure.label, reason: closure.reason, planned: closure.planned, message: notRunningMessage(closure) } : null,
         /** True when at least one check type on this machine only runs during a job. */
-        jobBased: checkTypes.some((c) => c.mode === 'JOB'),
+        jobBased: machineLinks.some(
+          (l) =>
+            l.monitoring === 'JOB' ||
+            scheduleRows.some((s) => s.schedule.machineId === machine.id && s.schedule.activityId === l.activityId && s.schedule.mode === 'JOB')
+        ),
+        /**
+         * Kept only for older app builds, which still ask "Which department is this job for?" at
+         * Start Job: the departments a job on this machine can be for. What they pick is not read
+         * (the Item Code decides the department); newer app builds ignore this list.
+         */
+        jobDepartments: departmentOptions.get(machine.id) ?? [],
         /** The running job's checks for this worker: Job Start, Job End and the next interval check. */
         jobChecks: job
           ? openChecks.filter((c) => c.machineId === machine.id && c.jobId === job.id && c.kind !== 'SCHEDULED').map(jobCheckSummary)
@@ -473,23 +556,58 @@ workerRouter.get('/machines', async (req, res) => {
         /** Jobs planned for this machine that this worker may start (assigned to them, or to nobody). */
         plannedJobs: planned.filter((j) => j.machineId === machine.id && (!j.assignedWorkerId || j.assignedWorkerId === me)),
         /**
-         * What the job-based check types ask at job start, at intervals and at job end. Only this
-         * worker's department: the plan is what they will be asked for, so another department's
-         * check types have no place on it.
+         * What the job-based check types ask at job start, at intervals and at job end. While a job
+         * runs, only its department's. Before Start Job, every department's with its departmentId:
+         * kept only for older app builds, whose department popup shows the plan of the department
+         * picked there; newer app builds ignore it.
          */
-        jobPlan: jobCheckTypesFor(jobTypes.get(machine.id) ?? [], myDepartment).map((t) => ({
+        jobPlan: (job ? jobCheckTypesFor(jobTypes.get(machine.id) ?? [], job.departmentId) : (jobTypes.get(machine.id) ?? [])).map((t) => ({
           activityId: t.activityId,
           name: t.name,
+          departmentId: t.departmentId,
           start: t.parameters.filter((p) => p.frequency === 'JOB_START').map((p) => p.name),
           intervals: [...new Set(t.parameters.filter((p) => p.frequency === 'INTERVAL').map((p) => p.intervalMinutes))]
             .sort((a, b) => a - b)
             .map((minutes) => ({ minutes, parameters: t.parameters.filter((p) => p.frequency === 'INTERVAL' && p.intervalMinutes === minutes).map((p) => p.name) })),
           end: t.parameters.filter((p) => p.frequency === 'JOB_END').map((p) => p.name)
         })),
+        /**
+         * The running job's check plan: its department's checks before start, every N minutes (with
+         * when each group is next due while the job is active) and at job end. Null with no job.
+         */
+        checkPlan: runningPlans.get(machine.id) ?? null,
         checkTypes
       }
     })
   )
+})
+
+/**
+ * The check plan of a job before it starts: the department the Item Code (or the planned job's
+ * Item Code) names, and every check its job checks ask, grouped by when they are done, straight
+ * from the check type configuration. Read only: no job, check or notification is created. Refused
+ * like Start Job: an Item Code with no active mapping, a department without checks on this machine.
+ */
+workerRouter.get('/machines/:machineId/job-plan', async (req, res) => {
+  const machineId = idParam(req, 'machineId')
+  const q = z.object({ itemCode: z.string().trim().max(60).optional(), plannedJobId: z.uuid().optional() }).parse(req.query)
+  await assertMachineUsable(machineId)
+  await assertMachineRuns(machineId, new Date())
+  if (await runningJob(machineId)) throw conflict('A job is already running on this machine. End it before starting a new one.')
+  let itemCode = q.itemCode ?? ''
+  if (q.plannedJobId) {
+    const planned = await jobById(q.plannedJobId)
+    if (!planned || planned.machineId !== machineId) throw notFound('Job')
+    if (planned.status !== 'PLANNED') throw conflict('This job has already been started')
+    if (planned.assignedWorkerId && planned.assignedWorkerId !== req.user!.id) throw forbidden('This job is assigned to another worker')
+    if (!planned.itemCode?.trim()) throw badRequest('This planned job has no Item Code. Ask your supervisor to add it.')
+    itemCode = planned.itemCode
+  }
+  itemCode = normalizeItemCode(itemCode)
+  if (!itemCode) throw badRequest('Enter the Item Code.')
+  const department = await jobDepartmentFor(machineId, itemCode)
+  const types = jobCheckTypesFor((await jobCheckTypes([machineId])).get(machineId) ?? [], department.id)
+  res.json({ itemCode, department: { id: department.id, code: department.code, name: department.name }, plan: jobCheckPlan(types) })
 })
 
 /** Open job checks of a job for this worker, in the order they should be done. */
@@ -512,16 +630,23 @@ async function assertJobWorker(userId: string, jobId: string) {
 }
 
 /**
- * Start Job: a planned job ({ plannedJobId }) or a new one ({ jobNo, itemCode }). The job
- * waits for its Job Start check(s) before interval checks begin; the response lists them.
+ * Start Job: a planned job ({ plannedJobId }) or a new one ({ jobNo, itemCode }). The backend works
+ * out the job's department (Pouch, Sleeve, Label) from its Item Code prefix
+ * (services/itemCodeDepartment.ts); the worker never picks it. Only that department's check types
+ * are done on the job. The job waits for its Job Start check(s) before interval checks begin; the
+ * response lists them, with the department. The worker is the signed-in account, never one named in
+ * the request.
  */
 workerRouter.post('/machines/:machineId/jobs', async (req, res) => {
   const machineId = idParam(req, 'machineId')
   const body = z
     .object({
       plannedJobId: z.uuid().optional(),
-      itemCode: z.string().trim().max(60).optional(),
+      // Required for a new job; startJob (services/jobMonitoring.ts) asks for it in a plain sentence.
+      itemCode: z.string().trim().max(60).nullish(),
       jobNo: z.string().trim().max(60).optional()
+      // Older app builds also send the department the worker picked ("departmentId"). It is not read:
+      // the Item Code decides the department.
     })
     .refine((b) => b.plannedJobId || b.jobNo, { message: 'Enter the PO No.' })
     .parse(req.body)
@@ -530,7 +655,7 @@ workerRouter.post('/machines/:machineId/jobs', async (req, res) => {
   if (!machine.isActive || machine.status !== 'ACTIVE') throw badRequest('This machine is not running.')
   await assertMachineRuns(machineId, new Date())
 
-  const { job, startCheckIds } = await startJob({
+  const { job, startCheckIds, department } = await startJob({
     machineId,
     userId: req.user!.id,
     plannedJobId: body.plannedJobId ?? null,
@@ -542,6 +667,7 @@ workerRouter.post('/machines/:machineId/jobs', async (req, res) => {
       machine: machine.name,
       itemCode: job.itemCode,
       jobNo: job.jobNo,
+      department: department.name,
       planned: !!body.plannedJobId,
       startedAt: job.startedAt,
       startChecks: startCheckIds.length
@@ -551,7 +677,8 @@ workerRouter.post('/machines/:machineId/jobs', async (req, res) => {
   const started = await jobDtoById(job.id)
   // The job's own fields stay at the top level for app versions that read the job directly.
   const startChecks = (await openJobCheckSummaries(req.user!.id, job.id)).filter((c) => c.kind === 'JOB_START')
-  res.status(201).json({ ...started, job: started, startChecks })
+  // The department the Item Code gave the job, for the app to show.
+  res.status(201).json({ ...started, job: started, startChecks, department: { id: department.id, code: department.code, name: department.name } })
 })
 
 /**
@@ -621,11 +748,28 @@ workerRouter.post('/jobs/:id/handover', async (req, res) => {
   res.json({ job: await jobDtoById(jobId), movedChecks: result.movedChecks })
 })
 
-/** A job on one of the worker's machines: details, handovers, open checks and history. */
+/**
+ * True when the worker has to do with this job: they hold it, started it, did or were given one of
+ * its checks, or it was handed over to or from them. Only those workers may open the job.
+ */
+async function involvedInJob(userId: string, job: JobDto) {
+  if (job.assignedWorkerId === userId || job.startedById === userId) return true
+  const result = await db.execute(sql`
+    select 1 from ${qualityChecks}
+    where ${qualityChecks.jobId} = ${job.id} and (${qualityChecks.workerId} = ${userId} or ${qualityChecks.submittedById} = ${userId})
+    union all
+    select 1 from ${jobHandovers}
+    where ${jobHandovers.jobId} = ${job.id} and (${jobHandovers.fromUserId} = ${userId} or ${jobHandovers.toUserId} = ${userId})
+    limit 1`)
+  return result.rows.length > 0
+}
+
+/** A job the worker has to do with: details, handovers, open checks and history. */
 workerRouter.get('/jobs/:id', async (req, res) => {
   const jobId = idParam(req)
   const job = await jobDtoById(jobId)
   if (!job) throw notFound('Job')
+  if (!(await involvedInJob(req.user!.id, job))) throw forbidden('This job is not yours.')
   const [checks, handovers, machineRow] = await Promise.all([
     listChecks({ where: eq(qualityChecks.jobId, jobId) }, { order: 'desc' }),
     jobHandoverList(jobId),
@@ -671,9 +815,22 @@ workerRouter.post('/machines/:machineId/checks', async (req, res) => {
 
   const [activity] = await db.select().from(activities).where(eq(activities.id, body.activityId))
   if (!activity || !activity.isActive) throw notFound('Quality check type')
-  // The check types a worker does are the ones of their department (services/checkTypeScope.ts).
-  if (!checkTypeInDepartment(activity.departmentId, await userDepartmentId(req.user!.id)))
+  // The department of the work decides the check types (services/checkTypeScope.ts): the one the
+  // Item Code gave the job running on this machine. Only a shift check type started with no job
+  // running still follows the worker's own account.
+  const runningHere = await runningJob(machineId)
+  if (activity.monitoring === 'JOB' && !runningHere) throw conflict('Start a job on this machine first.')
+  // The job's checks belong to the worker holding it: nobody else adds checks to another worker's job.
+  if (runningHere?.assignedWorkerId && runningHere.assignedWorkerId !== req.user!.id) {
+    throw forbidden(`The job on ${machine.name} is with ${runningHere.assignedWorkerName ?? 'another worker'}. Ask them to hand it over to you.`)
+  }
+  // Without a job, the worker's quality role decides which checks they may start.
+  if (!runningHere) await assertQualityRole(req.user!.id, activity.module, activity.name)
+  if (runningHere) {
+    if (!checkTypeInDepartment(activity.departmentId, runningHere.departmentId)) throw forbidden(`${activity.name} is not part of this job's department.`)
+  } else if (!checkTypeInDepartment(activity.departmentId, await userDepartmentId(req.user!.id))) {
     throw forbidden(`${activity.name} is done by another department.`)
+  }
   if (!activity.allowManual) throw badRequest(`${activity.name} can only be done when it is due.`)
   const [link] = await db
     .select({ machineId: machineActivities.machineId })
@@ -711,6 +868,10 @@ workerRouter.post('/machines/:machineId/checks', async (req, res) => {
   let created = false
   if (current) {
     const open = await openCheckOfSchedule(current.schedule.id)
+    // A check already given to another worker stays theirs.
+    if (open?.workerId && open.workerId !== req.user!.id) {
+      throw conflict('This check is assigned to another worker.')
+    }
     if (open && (open.status !== 'PENDING' || open.scheduledAt <= new Date(now.getTime() + EARLY_START_MINUTES * MINUTE))) {
       // A check is already open for this schedule: the worker fills that one in.
       await db
@@ -740,13 +901,37 @@ workerRouter.post('/machines/:machineId/checks', async (req, res) => {
   }
 
   if (!checkId) {
-    const [row] = await db
+    // Without a schedule, nothing in the database stops a second open check of the same machine and
+    // check type, so starting one is serialised and an open one is reused.
+    const row = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`manual:${machineId}:${activity.id}`}))`)
+      if (!current) {
+        const [existing] = await tx
+          .select({ id: qualityChecks.id, workerId: qualityChecks.workerId })
+          .from(qualityChecks)
+          .where(
+            and(
+              isNull(qualityChecks.scheduleId),
+              eq(qualityChecks.machineId, machineId),
+              eq(qualityChecks.activityId, activity.id),
+              eq(qualityChecks.kind, 'SCHEDULED'),
+              inArray(qualityChecks.status, ['PENDING', 'DUE', 'IN_PROGRESS'])
+            )
+          )
+          .limit(1)
+        if (existing?.workerId === req.user!.id) return { id: existing.id, reused: true }
+        // Someone else's open check only blocks a worker with no job here; the worker holding the
+        // machine's job (checked above) always does its checks, e.g. after a handover.
+        if (existing && !runningHere) throw conflict('Another worker already has this check open on this machine.')
+      }
+      const [inserted] = await tx
       .insert(qualityChecks)
       .values({
         code: makeCheckCode(now),
         scheduleId: current?.schedule.id ?? null,
         machineId,
         activityId: activity.id,
+        module: current?.schedule.module ?? activity.module,
         workerId: req.user!.id,
         // The work's department: the running job's, the check type's, else the worker's own.
         departmentId: job?.departmentId ?? activity.departmentId ?? myDepartment,
@@ -761,9 +946,11 @@ workerRouter.post('/machines/:machineId/checks', async (req, res) => {
       })
       .onConflictDoNothing()
       .returning({ id: qualityChecks.id })
+      return inserted ? { id: inserted.id, reused: false } : null
+    })
     if (!row) throw conflict('A check is already open for this machine. Open it from the machine screen.')
     checkId = row.id
-    created = true
+    created = !row.reused
   }
 
   const [check] = await listChecks({ ids: [checkId] })
@@ -807,7 +994,7 @@ workerRouter.get('/plant-status', async (_req, res) => {
 
 workerRouter.get('/checks/today', async (req, res) => {
   const today = startOfDay(new Date())
-  await prepareChecks([today])
+  await prepareChecksForRead()
   const checks = await listChecks({ from: today, to: addDays(today, 1), where: await workerScope(req.user!.id) })
   res.json(checks.map(summary))
 })
@@ -948,16 +1135,22 @@ workerRouter.get('/checks/:id', async (req, res) => {
   const check = await loadWorkerCheck(req.user!.id, idParam(req))
   const [activity] = await db.select().from(activities).where(eq(activities.id, check.activityId))
   if (!activity) throw notFound('Quality check type')
-  const [params, naReasons, exceptionReasonRows, job] = await Promise.all([
+  const [params, naReasons, exceptionReasonRows, job, machineRows] = await Promise.all([
     formParameters(activity.id, check.parameterIds),
     activeNaReasons(),
     activeExceptionReasons(),
     // A job check belongs to its own job; any other check to the job running now.
-    check.jobId && check.kind !== 'SCHEDULED' ? jobDtoById(check.jobId) : runningJob(check.machineId)
+    check.jobId && check.kind !== 'SCHEDULED' ? jobDtoById(check.jobId) : (check.machineId ? runningJob(check.machineId) : Promise.resolve(null)),
+    db
+      .select({ id: machines.id, name: machines.name, code: machines.code })
+      .from(machines)
+      .where(eq(machines.isActive, true))
+      .orderBy(asc(machines.name))
   ])
 
   res.json({
     check: summary(check),
+    machines: machineRows,
     /** Job Start / Job End checks cannot be skipped with an exception: the job waits for them. */
     allowException: check.kind === 'SCHEDULED' || check.kind === 'JOB_INTERVAL',
     activity: {
@@ -984,6 +1177,16 @@ workerRouter.get('/checks/:id', async (req, res) => {
     maxVideoSeconds: config.maxVideoSeconds,
     captureFreshnessMinutes: config.captureFreshnessMinutes
   })
+})
+
+/** Active machines list for worker selection */
+workerRouter.get('/machines-list', async (_req, res) => {
+  const rows = await db
+    .select({ id: machines.id, name: machines.name, code: machines.code })
+    .from(machines)
+    .where(eq(machines.isActive, true))
+    .orderBy(asc(machines.name))
+  res.json(rows)
 })
 
 async function assertOpen(userId: string, checkId: string) {
@@ -1019,12 +1222,15 @@ const submitUpload: import('express').RequestHandler = async (req, res, next) =>
 workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
   const uploaded = req.files as UploadedFiles | undefined
   let stored: StoredEvidence[] = []
+  // Once the submission is saved its files belong to it: a later step failing must not delete them.
+  let committed = false
   try {
     const checkId = idParam(req)
     const body = z
       .object({
         itemCode: z.string().trim().max(60).default(''),
         jobNo: z.string().trim().max(60).default(''),
+        machineId: z.string().trim().uuid().optional().or(z.literal('').transform(() => undefined)),
         values: z
           .string()
           .default('[]')
@@ -1077,12 +1283,25 @@ workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
       .parse(req.body)
 
     const check = await assertOpen(req.user!.id, checkId)
+    // A check with its own machine stays on it; a machine is only chosen for a check that has none.
+    if (check.machineId && body.machineId && body.machineId !== check.machineId) {
+      throw badRequest(`This check belongs to ${check.machineName ?? 'another machine'}.`)
+    }
+    const machineId = check.machineId ?? body.machineId
+    if (!machineId) throw badRequest('Please select a machine')
+    const [mach] = await db
+      .select({ id: machines.id, name: machines.name, isActive: machines.isActive, status: machines.status })
+      .from(machines)
+      .where(eq(machines.id, machineId))
+    if (!mach) throw badRequest('Selected machine does not exist')
+    if (!check.machineId && (!mach.isActive || mach.status !== 'ACTIVE')) throw badRequest('This machine is not running.')
+
     const [activity] = await db.select().from(activities).where(eq(activities.id, check.activityId))
     const isJobCheck = check.kind !== 'SCHEDULED' && !!check.jobId
     const [params, reasons, job] = await Promise.all([
       formParameters(check.activityId, check.parameterIds),
       db.select().from(monitoringReasons),
-      isJobCheck ? jobDtoById(check.jobId!) : runningJob(check.machineId)
+      isJobCheck ? jobDtoById(check.jobId!) : (machineId ? runningJob(machineId) : Promise.resolve(null))
     ])
 
     const files = filesByField(uploaded)
@@ -1108,12 +1327,14 @@ workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
       }
     }
 
-    // Item Code and PO No. come from the running job when the worker did not type them.
-    const itemCode = body.itemCode || job?.itemCode || ''
-    const jobNo = body.jobNo || job?.jobNo || ''
+    // During a job the Item Code and PO No. are the job's, whatever the app sends; only a check done
+    // with no job running records what the worker typed.
+    const itemCode = job ? (job.itemCode ?? '') : body.itemCode
+    const jobNo = job ? job.jobNo : body.jobNo
     const missing: string[] = []
     const missingMedia: string[] = []
-    if (activity.requireJobNo && !jobNo) missing.push('PO No.')
+    // A check the worker started manually (Manual Start, Click Image) does not ask for the PO No.
+    if (activity.requireJobNo && check.submissionType !== 'MANUAL' && !jobNo) missing.push('PO No.')
 
     const submitted = new Map(body.values.map((v) => [v.parameterId, v]))
     const valueRows: (typeof qualityCheckValues.$inferInsert)[] = []
@@ -1200,6 +1421,7 @@ workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
       const updated = await tx
         .update(qualityChecks)
         .set({
+          machineId,
           status,
           overallResult: failed ? 'FAIL' : 'PASS',
           itemCode: itemCode || null,
@@ -1233,6 +1455,8 @@ workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
         {
           oldValue: { status: check.status },
           newValue: {
+            machineId,
+            machineName: mach.name,
             status,
             submissionType,
             itemCode,
@@ -1253,6 +1477,7 @@ workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
         tx
       )
     })
+    committed = true
 
     // Videos are compressed in the background once the answer has gone to the worker, so it never
     // waits for it and the compression never competes with this submission's own work.
@@ -1285,7 +1510,7 @@ workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
       pendingJobChecks: isJobCheck ? await openJobCheckSummaries(req.user!.id, check.jobId!) : []
     })
   } catch (err) {
-    await removeStored(stored)
+    if (!committed) await removeStored(stored)
     throw err
   } finally {
     await cleanupTemp(uploaded)
@@ -1295,12 +1520,16 @@ workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
 workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
   const files = req.files as UploadedFiles | undefined
   let stored: StoredEvidence[] = []
+  let committed = false
   try {
     const checkId = idParam(req)
     const body = z
       .object({
         reason: z.string().trim().min(1, 'Please choose a reason').max(200),
         remark: z.string().trim().max(1000).default(''),
+        itemCode: z.string().trim().max(60).default(''),
+        jobNo: z.string().trim().max(60).default(''),
+        machineId: z.string().trim().uuid().optional().or(z.literal('').transform(() => undefined)),
         photoCapturedAt: z.string().optional(),
         deviceInfo: z.string().trim().max(200).optional()
       })
@@ -1316,6 +1545,23 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
         `The Job ${check.kind === 'JOB_START' ? 'Start' : 'End'} check cannot be skipped. Mark a parameter Not applicable where allowed, or ask a supervisor to close the job.`
       )
     }
+    // Every exception names its machine and PO No. / Item Code, taken the same way as a check
+    // submission: the check's own machine and the job's numbers win over what the app sends.
+    if (check.machineId && body.machineId && body.machineId !== check.machineId) {
+      throw badRequest(`This check belongs to ${check.machineName ?? 'another machine'}.`)
+    }
+    const machineId = check.machineId ?? body.machineId ?? null
+    const job = check.kind !== 'SCHEDULED' && check.jobId ? await jobDtoById(check.jobId) : machineId ? await runningJob(machineId) : null
+    const itemCode = job ? (job.itemCode ?? '') : body.itemCode
+    const jobNo = job ? job.jobNo : body.jobNo
+    const missingDetails = exceptionDetailsError(machineId, jobNo || itemCode, isMachineReason(body.reason))
+    if (missingDetails) throw badRequest(missingDetails)
+    // A stopped or under-maintenance machine is often the reason for the exception, so only a
+    // machine switched off in Machines is refused, never one whose status is Maintenance or Idle.
+    const [mach] = await db.select({ isActive: machines.isActive }).from(machines).where(eq(machines.id, machineId!))
+    if (!mach) throw badRequest('Selected machine does not exist')
+    if (!check.machineId && !mach.isActive) throw badRequest('This machine is switched off in Machines.')
+
     const photo = filesByField(files).get('photo')
     if (!photo) throw badRequest('Please take a photo')
 
@@ -1330,7 +1576,10 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
           submittedAt: new Date(),
           submittedById: req.user!.id,
           workerId: check.workerId ?? req.user!.id,
-          deviceInfo: body.deviceInfo ?? null
+          deviceInfo: body.deviceInfo ?? null,
+          machineId,
+          itemCode: itemCode || null,
+          jobNo: jobNo || null
         })
         .where(and(eq(qualityChecks.id, checkId), inArray(qualityChecks.status, ['PENDING', 'DUE', 'IN_PROGRESS'])))
         .returning({ id: qualityChecks.id })
@@ -1338,7 +1587,14 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
 
       const [exception] = await tx
         .insert(checkExceptions)
-        .values({ checkId, workerId: req.user!.id, machineId: check.machineId, reason: body.reason, remark: body.remark || null })
+        .values({
+          checkId,
+          workerId: req.user!.id,
+          machineId,
+          reason: body.reason,
+          remark: body.remark || null,
+          status: 'RESOLVED'
+        })
         .returning()
       await tx.insert(media).values(stored.map((s) => ({ ...s, exceptionId: exception.id, uploadedById: req.user!.id })))
       await audit(
@@ -1350,11 +1606,12 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
         tx
       )
     })
+    committed = true
 
     const [result] = await listChecks({ ids: [checkId] })
     res.json(summary(result))
   } catch (err) {
-    await removeStored(stored)
+    if (!committed) await removeStored(stored)
     throw err
   } finally {
     await cleanupTemp(files)

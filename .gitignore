@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+dist-update/
 dist-ssr/
 web-build/
 *.tsbuildinfo
@@ -20,6 +21,16 @@ backend/secrets/
 *.keystore
 *.mobileprovision
 certs/
+*.local
+
+# Firebase / Google config and service-account keys. The Android build reads google-services.json
+# from the worker-mobile folder (EAS_NO_VCS=1 and .easignore), not from git, so builds keep working.
+google-services.json
+GoogleService-Info.plist
+*service-account*.json
+fcm-key.json
+# EAS local build credentials
+credentials.json
 
 # Worker photos and videos uploaded to the backend
 backend/uploads/
@@ -45,6 +56,15 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Python virtual environment and caches
+.venv/
+__pycache__/
+*.py[cod]
+
+# Tool caches
+.eslintcache
+.cache/
+
 # Editors and OS files
 .vscode/*
 !.vscode/extensions.json
@@ -64,6 +84,9 @@ backend/.ocr-data/
 # Claude Code: installed skills and personal settings stay on each developer's machine
 .claude/
 
+# Codebase knowledge graph (graphify), regenerated on demand
+graphify-out/
+
 # Scratch and backup files, test output
 *.orig
 *.bak
@@ -72,3 +95,10 @@ screenshots/
 playwright-report/
 test-results/
 coverage/
+
+# Local backups (they hold database dumps and evidence uploads), builds and the launcher binary
+backups/
+builds/
+*.exe
+*.dump
+*.sql.gz

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { AppState, Platform, Text, View } from 'react-native'
-import type { Access, ManagerAccess, ModuleInfo, ModuleKey, Permissions, User } from '../types'
+import type { Access, ManagerRoleAccess, ModuleInfo, Permissions, User } from '../types'
 import { api } from '../../services/api'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
@@ -10,6 +10,7 @@ import {
   Badge,
   Card,
   DataState,
+  Empty,
   FormError,
   FormSection,
   Input,
@@ -30,138 +31,78 @@ import { ActionGroup, ActionItem, Initials, PersonRow, SummaryHeader, facts } fr
 
 const MONO = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' })
 
-const sameAccess = (a: Permissions, b: Permissions) => (Object.keys(a) as ModuleKey[]).every((k) => a[k] === b[k])
-const grantedCount = (p: Permissions) => Object.values(p).filter((a) => a !== 'none').length
+/** View-only modules have nothing to manage: "Manage" is saved as "View" (the server does the same). */
+const allowed = (module: ModuleInfo, level: Access): Access => (level === 'manage' && module.viewOnly ? 'view' : level)
 
-/** No / View / Manage for one module. View-only modules cannot be set to Manage. */
-const levelOptions = (module: ModuleInfo): Option<Access>[] => [
-  { value: 'none', label: 'No access' },
-  { value: 'view', label: 'View' },
-  { value: 'manage', label: 'Manage', disabled: !!module.viewOnly }
+/** No / View / Manage for one module. View-only modules cannot be set to Manage; nothing can change while saving. */
+const levelOptions = (module: ModuleInfo, locked: boolean): Option<Access>[] => [
+  { value: 'none', label: 'No access', disabled: locked },
+  { value: 'view', label: 'View', disabled: locked },
+  { value: 'manage', label: 'Manage', disabled: locked || !!module.viewOnly }
 ]
 
-/** Shown instead of the page to accounts that are not Admin or Super Admin (the backend refuses them too). */
-const AdminOnly: React.FC = () => (
-  <Screen title="Manager Access">
-    <AccessDenied title="Only an Admin can do this" message="Manager access is managed by Admins and the Super Admin." />
+/** Shown instead of these screens to everyone but the Super Admin (the backend refuses them too). */
+const SuperAdminOnly: React.FC<{ title?: string }> = ({ title = 'Manager Access' }) => (
+  <Screen title={title}>
+    <AccessDenied title="Only the Super Admin can manage Manager permissions." message="Admins can still add and edit Manager accounts in Workers & Users." />
   </Screen>
 )
 
 /**
- * Manager Access: Admins decide which modules each Manager can view or manage. The backend checks
- * the same permissions on every request, so hiding a screen here is not the only protection.
+ * Manager Access, for the Super Admin only: which modules Managers can view or manage. It is one set
+ * for the whole Manager role, so every Manager has the same access, in every department. The backend
+ * checks the same permissions on every request, so hiding a screen here is not the only protection.
+ *
+ * Below it, the Manager accounts it applies to. Admins also add and edit these accounts, in Workers &
+ * Users, but they cannot change the permissions.
  */
 export const ManagerAccessScreen: React.FC<{ params: Record<string, never> }> = () => {
-  const { isAdmin, push } = useStaff()
-  const modulesApi = useQuery<ModuleInfo[]>(isAdmin ? '/api/access/modules' : null)
-  const managersApi = useQuery<ManagerAccess[]>(isAdmin ? '/api/access/managers' : null)
+  const { isSuperAdmin, push } = useStaff()
+  const notify = useToast()
+  const modulesApi = useQuery<ModuleInfo[]>(isSuperAdmin ? '/api/access/modules' : null)
+  const roleApi = useQuery<ManagerRoleAccess>(isSuperAdmin ? '/api/access/roles/manager' : null)
   const [search, setSearch] = useState('')
+  /**
+   * Levels changed here and not saved yet. Every other module shows its saved level, so pulling to
+   * refresh keeps these changes.
+   */
+  const [changes, setChanges] = useState<Partial<Permissions>>({})
+  const [saving, setSaving] = useState(false)
 
-  const managers = useMemo(() => managersApi.data ?? [], [managersApi.data])
-  const moduleCount = modulesApi.data?.length ?? 0
+  const modules = useMemo(() => modulesApi.data ?? [], [modulesApi.data])
+  const managers = useMemo(() => roleApi.data?.managers ?? [], [roleApi.data])
+  const saved = roleApi.data?.permissions ?? null
+  const draft = useMemo(() => (saved ? { ...saved, ...changes } : null), [saved, changes])
+  const changed = saved && draft ? modules.filter((m) => draft[m.key] !== saved[m.key]) : []
+  const dirty = changed.length > 0
+  const grantedCount = (p: Permissions) => modules.filter((m) => (p[m.key] ?? 'none') !== 'none').length
+
   const term = search.trim().toLowerCase()
   const rows = term ? managers.filter((m) => `${m.name} ${m.employeeId} ${m.designation ?? ''}`.toLowerCase().includes(term)) : managers
 
-  if (!isAdmin) return <AdminOnly />
+  if (!isSuperAdmin) return <SuperAdminOnly />
 
   const reload = () => {
-    managersApi.reload()
+    roleApi.reload()
     modulesApi.reload()
   }
 
-  return (
-    <Screen
-      title="Manager Access"
-      right={{ label: 'Add', icon: 'add', onPress: () => push('managerAccessForm', {}) }}
-      onRefresh={reload}
-      refreshing={(managersApi.loading || modulesApi.loading) && !!managersApi.data}
-    >
-      <Notice tone="accent" message="Choose which modules each Manager can view or manage. Changes apply on the manager's next click." />
-      <DataState
-        loading={managersApi.loading || modulesApi.loading}
-        error={managersApi.error || modulesApi.error}
-        onRetry={reload}
-        hasData={!!managersApi.data && !!modulesApi.data}
-        empty={!!managersApi.data && managers.length === 0}
-        emptyText="No managers yet. Add a manager, then choose the modules they can use."
-        emptyIcon="shield-checkmark-outline"
-      >
-        {managers.length > 6 ? <SearchField value={search} onChangeText={setSearch} placeholder="Name, employee ID or designation" /> : null}
-        <Section title={`Managers · ${managers.length}`}>
-          {rows.length === 0 ? (
-            <Notice title="No managers match this search." icon="search-outline" />
-          ) : (
-            <List>
-              {rows.map((m) => {
-                const granted = grantedCount(m.permissions)
-                return (
-                  <PersonRow
-                    key={m.id}
-                    name={m.name}
-                    muted={!m.isActive}
-                    subtitle={facts(m.employeeId, `${granted} of ${moduleCount} modules granted`)}
-                    right={
-                      !m.isActive ? <Badge label="Deactivated" tone="missed" /> : granted === 0 ? <Badge label="No access" tone="neutral" /> : undefined
-                    }
-                    onPress={() => push('managerAccessDetail', { id: m.id })}
-                  />
-                )
-              })}
-            </List>
-          )}
-        </Section>
-      </DataState>
-    </Screen>
-  )
-}
-
-/** One manager: per-module permissions, account actions and activation. */
-export const ManagerAccessDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
-  const { isAdmin, isSuperAdmin, push, pop } = useStaff()
-  const notify = useToast()
-  const modulesApi = useQuery<ModuleInfo[]>(isAdmin ? '/api/access/modules' : null)
-  const managersApi = useQuery<ManagerAccess[]>(isAdmin ? '/api/access/managers' : null)
-  // Full account records, needed to activate a manager again.
-  const accountsApi = useQuery<User[]>(isAdmin ? '/api/users' : null, { role: 'MANAGER' })
-
-  const modules = useMemo(() => modulesApi.data ?? [], [modulesApi.data])
-  const selected = (managersApi.data ?? []).find((m) => m.id === params.id) ?? null
-  const [draft, setDraft] = useState<Permissions | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [toggling, setToggling] = useState(false)
-
-  useEffect(() => {
-    setDraft(selected ? { ...selected.permissions } : null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [managersApi.data])
-
-  if (!isAdmin) return <AdminOnly />
-
-  const dirty = !!(selected && draft && !sameAccess(selected.permissions, draft))
-  const changedCount = selected && draft ? modules.filter((m) => draft[m.key] !== selected.permissions[m.key]).length : 0
-
-  const setLevel = (module: ModuleInfo, level: Access) => {
-    if (!draft) return
-    setDraft({ ...draft, [module.key]: level === 'manage' && module.viewOnly ? 'view' : level })
-  }
-  const setAll = (level: Access) => {
-    if (!draft) return
-    setDraft(Object.fromEntries(modules.map((m) => [m.key, level === 'manage' && m.viewOnly ? 'view' : level])) as Permissions)
-  }
-
-  const reload = () => {
-    modulesApi.reload()
-    managersApi.reload()
-    accountsApi.reload()
-  }
+  const setLevel = (module: ModuleInfo, level: Access) => setChanges((c) => ({ ...c, [module.key]: allowed(module, level) }))
+  const setAll = (level: Access) => setChanges(Object.fromEntries(modules.map((m) => [m.key, allowed(m, level)])) as Partial<Permissions>)
 
   const save = async () => {
-    if (!selected || !draft) return
+    if (!draft || !dirty) return
     setSaving(true)
     try {
-      await api.put(`/api/access/managers/${selected.id}`, { permissions: draft })
-      notify('success', 'Permissions saved', `${selected.name} gets the new access on their next click.`)
-      pop()
+      // Only the modules changed here are sent; the server keeps every other module as it is.
+      const result = await api.put<{ permissions: Permissions }>('/api/access/roles/manager', {
+        permissions: Object.fromEntries(changed.map((m) => [m.key, draft[m.key]]))
+      })
+      roleApi.setData((d) => (d ? { ...d, permissions: result.permissions } : d))
+      setChanges({})
+      notify('success', 'Permissions saved', 'Every Manager gets the new access on their next click.')
+      // Also drops an older answer still on its way, so the screen cannot go back to the old permissions.
+      roleApi.reload()
     } catch (err) {
       notify('error', 'Could not save permissions', errorText(err))
     } finally {
@@ -169,16 +110,139 @@ export const ManagerAccessDetailScreen: React.FC<{ params: { id: string } }> = (
     }
   }
 
+  // Opening another screen drops unsaved changes, so it asks first.
+  const open = async (name: string, params: Record<string, unknown>) => {
+    if (dirty && !(await confirm('Discard changes?', 'You have unsaved permission changes. Discard them?', 'Discard', true))) return
+    push(name, params)
+  }
+  const addManager = () => open('managerAccessForm', {})
+
+  return (
+    <Screen
+      title="Manager Access"
+      right={{ label: 'Add', icon: 'add', onPress: addManager }}
+      onRefresh={reload}
+      refreshing={(roleApi.loading || modulesApi.loading) && !!roleApi.data}
+      footer={
+        draft && modulesApi.data ? (
+          <View className="gap-2">
+            <Text className={`text-center text-[13px] ${dirty ? 'font-semibold text-due' : 'text-staff-muted'}`} accessibilityLiveRegion="polite">
+              {dirty ? `Unsaved changes · ${changed.length} module${changed.length === 1 ? '' : 's'}` : `${grantedCount(draft)} of ${modules.length} modules granted`}
+            </Text>
+            <View className="flex-row gap-2">
+              <SmallButton label="Undo" icon="arrow-undo-outline" onPress={() => setChanges({})} disabled={!dirty || saving} className="h-12 flex-1" />
+              <View className="flex-[2]">
+                <PrimaryButton label="Save permissions" onPress={save} loading={saving} disabled={!dirty} />
+              </View>
+            </View>
+          </View>
+        ) : undefined
+      }
+    >
+      <Notice tone="accent" message="These permissions apply to every Manager. Changes apply on each Manager's next click." />
+      <DataState
+        loading={roleApi.loading || modulesApi.loading}
+        error={roleApi.error || modulesApi.error}
+        onRetry={reload}
+        hasData={!!roleApi.data && !!modulesApi.data}
+      >
+        {saved && draft ? (
+          <>
+            <Section title="Manager permissions" detail={dirty ? 'You have unsaved changes' : `${grantedCount(saved)} of ${modules.length} modules granted`}>
+              <Card>
+                <View className="gap-2 px-4 pb-3 pt-4">
+                  <Text className="text-[13px] font-medium text-staff-muted">Set all</Text>
+                  <View className="flex-row flex-wrap gap-2">
+                    <SmallButton label="No access" onPress={() => setAll('none')} disabled={saving} />
+                    <SmallButton label="View all" onPress={() => setAll('view')} disabled={saving} />
+                    <SmallButton label="Manage all" onPress={() => setAll('manage')} disabled={saving} />
+                  </View>
+                </View>
+                {modules.map((m) => {
+                  const level = draft[m.key] ?? 'none'
+                  const isChanged = level !== (saved[m.key] ?? 'none')
+                  return (
+                    <View key={m.key} className="gap-2.5 border-t border-staff-line px-4 py-3">
+                      <View className="flex-row items-start gap-2">
+                        <View className="flex-1">
+                          <Text className="text-[15px] font-semibold leading-[20px] text-staff-ink">{m.label}</Text>
+                          <Text className="mt-0.5 text-[13px] leading-[18px] text-staff-muted">
+                            {m.description}
+                            {m.viewOnly ? ' · view only' : ''}
+                          </Text>
+                        </View>
+                        {isChanged ? <Badge label="Changed" tone="due" /> : null}
+                      </View>
+                      <Segmented options={levelOptions(m, saving)} value={level} onChange={(l) => setLevel(m, l)} />
+                    </View>
+                  )
+                })}
+              </Card>
+            </Section>
+
+            <Section title={`Managers · ${managers.length}`}>
+              {managers.length === 0 ? (
+                <Empty
+                  text="No managers yet. Add a manager to give them these permissions."
+                  icon="people-outline"
+                  action={{ label: 'Add manager', icon: 'add', onPress: addManager }}
+                />
+              ) : (
+                <View className="gap-3">
+                  {managers.length > 6 ? <SearchField value={search} onChangeText={setSearch} placeholder="Name, employee ID or designation" /> : null}
+                  {rows.length === 0 ? (
+                    <Notice title="No managers match this search." icon="search-outline" />
+                  ) : (
+                    <List>
+                      {rows.map((m) => (
+                        <PersonRow
+                          key={m.id}
+                          name={m.name}
+                          muted={!m.isActive}
+                          subtitle={facts(m.employeeId, m.designation)}
+                          right={!m.isActive ? <Badge label="Deactivated" tone="missed" /> : undefined}
+                          onPress={() => open('managerAccessDetail', { id: m.id })}
+                        />
+                      ))}
+                    </List>
+                  )}
+                </View>
+              )}
+            </Section>
+          </>
+        ) : null}
+      </DataState>
+    </Screen>
+  )
+}
+
+/** One manager's account: details, edit, view password and activation. Their permissions are the Manager role's. */
+export const ManagerAccessDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
+  const { isSuperAdmin, push } = useStaff()
+  const notify = useToast()
+  const roleApi = useQuery<ManagerRoleAccess>(isSuperAdmin ? '/api/access/roles/manager' : null)
+  // Full account records, needed to edit a manager or activate them again.
+  const accountsApi = useQuery<User[]>(isSuperAdmin ? '/api/users' : null, { role: 'MANAGER' })
+
+  const selected = (roleApi.data?.managers ?? []).find((m) => m.id === params.id) ?? null
+  const [toggling, setToggling] = useState(false)
+
+  if (!isSuperAdmin) return <SuperAdminOnly title="Manager" />
+
+  // Every Manager has the Manager role's permissions, so this one has them too.
+  const levels: Access[] = roleApi.data ? Object.values(roleApi.data.permissions) : []
+  const granted = levels.filter((a) => a !== 'none').length
+
+  const reload = () => {
+    roleApi.reload()
+    accountsApi.reload()
+  }
+
   const toggleActive = async () => {
     if (!selected) return
     const ok = selected.isActive
-      ? await confirm(
-          'Deactivate manager?',
-          `${selected.name} will be signed out now and cannot sign in until activated again. Their permissions are kept.`,
-          'Deactivate',
-          true
-        )
-      : await confirm('Activate manager?', `${selected.name} can sign in again with the permissions they had.`, 'Activate')
+      ? await confirm('Deactivate manager?', `${selected.name} will be signed out now and cannot sign in until activated again.`, 'Deactivate', true)
+      : await confirm('Activate manager?', `${selected.name} can sign in again, with the same access as every Manager.`, 'Activate')
     if (!ok) return
     const record = accountsApi.data?.find((u) => u.id === selected.id)
     setToggling(true)
@@ -191,6 +255,7 @@ export const ManagerAccessDetailScreen: React.FC<{ params: { id: string } }> = (
           employeeId: record.employeeId,
           name: record.name,
           role: 'MANAGER',
+          ...(record.workerQualityRole ? { workerQualityRole: record.workerQualityRole } : {}),
           designation: record.designation,
           departmentId: record.departmentId,
           shiftId: record.shiftId,
@@ -199,9 +264,9 @@ export const ManagerAccessDetailScreen: React.FC<{ params: { id: string } }> = (
           appAccess: record.appAccess,
           machineIds: []
         })
-        notify('success', 'Manager activated', `${selected.name} can sign in again with the same access.`)
+        notify('success', 'Manager activated', `${selected.name} can sign in again, with the same access as every Manager.`)
       }
-      await Promise.all([managersApi.reload(), accountsApi.reload()])
+      await Promise.all([roleApi.reload(), accountsApi.reload()])
     } catch (err) {
       notify('error', 'Could not change the account', errorText(err))
     } finally {
@@ -209,50 +274,23 @@ export const ManagerAccessDetailScreen: React.FC<{ params: { id: string } }> = (
     }
   }
 
-  const discard = async () => {
-    if (dirty && !(await confirm('Discard changes?', 'You have unsaved permission changes. Discard them?', 'Discard', true))) return
-    pop()
-  }
-
-  const headerActions = [
-    ...(dirty ? [{ label: 'Discard', onPress: discard, tone: 'danger' as const }] : []),
-    ...(selected ? [{ label: 'Edit account', icon: 'create-outline' as const, onPress: () => push('managerAccessForm', { id: selected.id }), disabled: !accountsApi.data }] : [])
-  ]
-
   return (
     <Screen
       title="Manager"
-      right={headerActions.length ? headerActions : null}
+      right={selected ? { label: 'Edit account', icon: 'create-outline', onPress: () => push('managerAccessForm', { id: selected.id }), disabled: !accountsApi.data } : null}
       onRefresh={reload}
-      refreshing={managersApi.loading && !!managersApi.data}
-      footer={
-        selected && draft ? (
-          <View className="gap-2">
-            <Text className={`text-center text-[13px] ${dirty ? 'font-semibold text-due' : 'text-staff-muted'}`} accessibilityLiveRegion="polite">
-              {dirty
-                ? `Unsaved changes · ${changedCount} module${changedCount === 1 ? '' : 's'}`
-                : `${grantedCount(selected.permissions)} of ${modules.length} modules granted`}
-            </Text>
-            <View className="flex-row gap-2">
-              <SmallButton label="Undo" icon="arrow-undo-outline" onPress={() => setDraft({ ...selected.permissions })} disabled={!dirty || saving} className="h-12 flex-1" />
-              <View className="flex-[2]">
-                <PrimaryButton label="Save permissions" onPress={save} loading={saving} disabled={!dirty} />
-              </View>
-            </View>
-          </View>
-        ) : undefined
-      }
+      refreshing={roleApi.loading && !!roleApi.data}
     >
       <DataState
-        loading={managersApi.loading || modulesApi.loading}
-        error={managersApi.error || modulesApi.error}
+        loading={roleApi.loading}
+        error={roleApi.error}
         onRetry={reload}
-        hasData={!!managersApi.data && !!modulesApi.data}
-        empty={!!managersApi.data && !selected}
+        hasData={!!roleApi.data}
+        empty={!!roleApi.data && !selected}
         emptyText="This manager could not be found."
         emptyIcon="person-outline"
       >
-        {selected && draft ? (
+        {selected ? (
           <>
             <SummaryHeader
               leading={<Initials name={selected.name} size="lg" muted={!selected.isActive} />}
@@ -266,66 +304,25 @@ export const ManagerAccessDetailScreen: React.FC<{ params: { id: string } }> = (
               status={selected.isActive ? null : { label: 'Deactivated', tone: 'missed' }}
             />
 
-            <Section title="Permissions" detail={dirty ? 'You have unsaved changes' : `${grantedCount(selected.permissions)} of ${modules.length} modules granted`}>
-              <Card>
-                <View className="gap-2 px-4 pb-3 pt-4">
-                  <Text className="text-[13px] font-medium text-staff-muted">Set all</Text>
-                  <View className="flex-row flex-wrap gap-2">
-                    <SmallButton label="No access" onPress={() => setAll('none')} />
-                    <SmallButton label="View all" onPress={() => setAll('view')} />
-                    <SmallButton label="Manage all" onPress={() => setAll('manage')} />
-                  </View>
-                </View>
-                {modules.map((m) => {
-                  const level = draft[m.key]
-                  const changed = level !== selected.permissions[m.key]
-                  return (
-                    <View key={m.key} className="gap-2.5 border-t border-staff-line px-4 py-3">
-                      <View className="flex-row items-start gap-2">
-                        <View className="flex-1">
-                          <Text className="text-[15px] font-semibold leading-[20px] text-staff-ink">{m.label}</Text>
-                          <Text className="mt-0.5 text-[13px] leading-[18px] text-staff-muted">
-                            {m.description}
-                            {m.viewOnly ? ' · view only' : ''}
-                          </Text>
-                        </View>
-                        {changed ? <Badge label="Changed" tone="due" /> : null}
-                      </View>
-                      <Segmented options={levelOptions(m)} value={level} onChange={(l) => setLevel(m, l)} />
-                    </View>
-                  )
-                })}
-              </Card>
-            </Section>
+            <Notice
+              icon="shield-checkmark-outline"
+              title="Manager permissions"
+              message={`The same for every Manager: ${granted} of ${levels.length} modules granted. Change them for all Managers on Manager Access.`}
+            />
 
-            {isSuperAdmin || !selected.isActive ? (
-              <ActionGroup>
-                {isSuperAdmin ? (
-                  <ActionItem
-                    label="View password"
-                    description="Super Admin only · recorded in the audit log"
-                    onPress={() => push('managerAccessPassword', { id: selected.id, name: selected.name, employeeId: selected.employeeId })}
-                  />
-                ) : null}
-                {!selected.isActive ? (
-                  <ActionItem
-                    label="Activate"
-                    description="Lets them sign in again with the same access"
-                    onPress={toggleActive}
-                    disabled={toggling || !accountsApi.data}
-                  />
-                ) : null}
-              </ActionGroup>
-            ) : null}
+            <ActionGroup>
+              <ActionItem
+                label="View password"
+                description="Super Admin only · recorded in the audit log"
+                onPress={() => push('managerAccessPassword', { id: selected.id, name: selected.name, employeeId: selected.employeeId })}
+              />
+              {!selected.isActive ? (
+                <ActionItem label="Activate" description="Lets them sign in again" onPress={toggleActive} disabled={toggling || !accountsApi.data} />
+              ) : null}
+            </ActionGroup>
             {selected.isActive ? (
               <ActionGroup>
-                <ActionItem
-                  label="Deactivate"
-                  description="Signs them out. Their permissions are kept."
-                  tone="danger"
-                  onPress={toggleActive}
-                  disabled={toggling}
-                />
+                <ActionItem label="Deactivate" description="Signs them out and blocks sign-in" tone="danger" onPress={toggleActive} disabled={toggling} />
               </ActionGroup>
             ) : null}
           </>
@@ -347,14 +344,15 @@ interface AccountForm {
 
 const EMPTY_FORM: AccountForm = { employeeId: '', name: '', designation: '', password: '', isActive: true, appAccess: false }
 
-/** Add a manager (no id) or edit a manager's account (id). */
+/**
+ * Add a manager (no id) or edit a manager's account (id). Super Admin only here, like the rest of
+ * Manager Access; Admins add and edit Manager accounts in Workers & Users.
+ */
 export const ManagerAccessFormScreen: React.FC<{ params: { id?: string } }> = ({ params }) => {
-  const { isAdmin, isSuperAdmin, pop, replace } = useStaff()
+  const { isSuperAdmin, pop } = useStaff()
   const notify = useToast()
   const creating = !params?.id
-  // Only the Super Admin may reset another user's password.
-  const canResetPassword = isSuperAdmin
-  const accountsApi = useQuery<User[]>(isAdmin && !creating ? '/api/users' : null, { role: 'MANAGER' })
+  const accountsApi = useQuery<User[]>(isSuperAdmin && !creating ? '/api/users' : null, { role: 'MANAGER' })
   const record = creating ? null : ((accountsApi.data ?? []).find((u) => u.id === params?.id) ?? null)
 
   const [form, setFormState] = useState<AccountForm>(EMPTY_FORM)
@@ -368,7 +366,7 @@ export const ManagerAccessFormScreen: React.FC<{ params: { id?: string } }> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record?.id])
 
-  if (!isAdmin) return <AdminOnly />
+  if (!isSuperAdmin) return <SuperAdminOnly title={creating ? 'Add Manager' : 'Edit Manager'} />
 
   const setForm = <K extends keyof AccountForm>(key: K, value: AccountForm[K]) => setFormState((f) => ({ ...f, [key]: value }))
 
@@ -378,8 +376,14 @@ export const ManagerAccessFormScreen: React.FC<{ params: { id?: string } }> = ({
     if (!creating && form.password && form.password.length < 6) return setError('New password must be at least 6 characters')
     if (!creating && !record) return
 
+    // The stored fields this form does not show are sent unchanged.
     const base = record
-      ? { departmentId: record.departmentId, shiftId: record.shiftId, phone: record.phone }
+      ? {
+          departmentId: record.departmentId,
+          shiftId: record.shiftId,
+          phone: record.phone,
+          ...(record.workerQualityRole ? { workerQualityRole: record.workerQualityRole } : {})
+        }
       : { departmentId: null, shiftId: null, phone: null }
     const body = {
       ...base,
@@ -399,12 +403,11 @@ export const ManagerAccessFormScreen: React.FC<{ params: { id?: string } }> = ({
       if (record) {
         await api.put(`/api/users/${record.id}`, body)
         notify('success', 'Manager updated', body.name)
-        pop()
       } else {
         const created = await api.post<User>('/api/users', body)
-        notify('success', 'Manager created', `${created.name} has no access yet. Choose their modules and save.`)
-        replace('managerAccessDetail', { id: created.id })
+        notify('success', 'Manager created', `${created.name} gets the Manager permissions, like every Manager.`)
       }
+      pop()
     } catch (err) {
       setError(errorText(err))
     } finally {
@@ -421,19 +424,15 @@ export const ManagerAccessFormScreen: React.FC<{ params: { id?: string } }> = ({
         <Input label="Designation" value={form.designation} onChangeText={(v) => setForm('designation', v)} placeholder="e.g. Production Manager" maxLength={100} />
       </FormSection>
       <FormSection title="Sign-in & access">
-        {creating || canResetPassword ? (
-          <Input
-            label={creating ? 'Password' : 'New password'}
-            required={creating}
-            hint={creating ? 'At least 6 characters' : 'Leave blank to keep the current password'}
-            value={form.password}
-            onChangeText={(v) => setForm('password', v)}
-            secure
-            autoCapitalize="none"
-          />
-        ) : (
-          <Text className="text-[13px] leading-[18px] text-staff-muted">Only the Super Admin can change this manager's password.</Text>
-        )}
+        <Input
+          label={creating ? 'Password' : 'New password'}
+          required={creating}
+          hint={creating ? 'At least 6 characters' : 'Leave blank to keep the current password'}
+          value={form.password}
+          onChangeText={(v) => setForm('password', v)}
+          secure
+          autoCapitalize="none"
+        />
         <ToggleField label="Active" description="Deactivated managers cannot sign in" value={form.isActive} onChange={(v) => setForm('isActive', v)} />
         <ToggleField
           label="Mobile app access"
@@ -442,7 +441,7 @@ export const ManagerAccessFormScreen: React.FC<{ params: { id?: string } }> = ({
           onChange={(v) => setForm('appAccess', v)}
         />
       </FormSection>
-      {creating ? <Notice tone="accent" message="A new manager has no access until you choose their modules and save." /> : null}
+      {creating ? <Notice tone="accent" message="A new manager gets the Manager permissions set on Manager Access, like every other Manager." /> : null}
     </>
   )
 

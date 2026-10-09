@@ -115,11 +115,16 @@ export function dateKey(date: Date): string {
   return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`
 }
 
-/** Parses YYYY-MM-DD as midnight of that plant-local date. */
+/** Parses YYYY-MM-DD as midnight of that plant-local date. A date that does not exist (2026-02-31) is refused. */
 export function parseDateKey(value: string): Date {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   if (!match) throw new Error(`Invalid date "${value}"`)
-  return fromLocal(Number(match[1]), Number(match[2]), Number(match[3]))
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])]
+  const check = new Date(Date.UTC(year, month - 1, day))
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) {
+    throw new Error(`Invalid date "${value}"`)
+  }
+  return fromLocal(year, month, day)
 }
 
 /** Plant-local weekday, 0 = Sunday … 6 = Saturday. */

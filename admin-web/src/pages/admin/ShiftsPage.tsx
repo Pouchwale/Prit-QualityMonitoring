@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { Edit2, Moon, Plus, Trash2 } from 'lucide-react'
+import React, { useMemo, useState } from 'react'
+import { Clock3, Moon, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Shift } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
@@ -12,8 +12,12 @@ import { Modal } from '../../components/common/Modal'
 import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
-import { formatClock } from '../../lib/format'
+import { formatClockRange } from '../../lib/format'
 import { TimeInput } from '../../components/common/DateTimeInputs'
+import { Card, EmptyState } from '../../components/ui/Card'
+import { IconButton, ResultCount, Segmented, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
+import { CodeChip, matchesStatus, type StatusTab } from '../../components/ui/Chips'
+import { ShiftLoginSettingsCard } from './ShiftSignIn'
 
 interface FormState {
   name: string
@@ -47,6 +51,23 @@ const durationLabel = (minutes: number) => {
 
 const isOvernight = (s: { startTime: string; endTime: string }) => toMinutes(s.endTime) <= toMinutes(s.startTime)
 
+/**
+ * Where the shift falls in the day, midnight to midnight; an overnight shift wraps round to the
+ * start. Decorative: the times are always written next to it.
+ */
+const DayBar: React.FC<{ start: string; end: string }> = ({ start, end }) => {
+  const from = (toMinutes(start) / 1440) * 100
+  const to = (toMinutes(end) / 1440) * 100
+  const parts = (isOvernight({ startTime: start, endTime: end }) ? [[from, 100], [0, to]] : [[from, to]]).filter(([x, y]) => y > x)
+  return (
+    <span className="relative block w-28 h-1.5 rounded-full bg-subtle ring-1 ring-inset ring-line overflow-hidden" aria-hidden>
+      {parts.map(([a, b]) => (
+        <span key={a} className="absolute inset-y-0 bg-[var(--color-chart-primary)] rounded-full" style={{ left: `${a}%`, width: `${b - a}%` }} />
+      ))}
+    </span>
+  )
+}
+
 export const ShiftsPage: React.FC = () => {
   const canEdit = useCanManage('shifts')
   const notify = useToast()
@@ -58,7 +79,10 @@ export const ShiftsPage: React.FC = () => {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<Shift | null>(null)
 
-  const shifts = data ?? []
+  const shifts = useMemo(() => data ?? [], [data])
+  const [statusTab, setStatusTab] = useState<StatusTab>('ALL')
+  const activeCount = shifts.filter((s) => s.isActive).length
+  const filtered = useMemo(() => shifts.filter((s) => matchesStatus(statusTab, s.isActive)), [shifts, statusTab])
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => setForm((f) => ({ ...f, [key]: value }))
 
   const openNew = () => {
@@ -135,10 +159,12 @@ export const ShiftsPage: React.FC = () => {
   const formValid = HHMM.test(form.startTime) && HHMM.test(form.endTime) && form.startTime !== form.endTime
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
+        icon={<Clock3 className="w-4.5 h-4.5" />}
         title="Shifts"
-        description="Working shifts define when scheduled quality checks are generated"
+        description={data ? `${shifts.length} ${shifts.length === 1 ? 'shift' : 'shifts'} · ${activeCount} active` : 'Working shifts'}
+        info="Working shifts define when scheduled quality checks are generated. Times are plant time; an end time at or before the start runs past midnight."
         actions={
           canEdit && (
             <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
@@ -148,57 +174,107 @@ export const ShiftsPage: React.FC = () => {
         }
       />
 
-      <DataState loading={loading} error={error} onRetry={reload} empty={!loading && shifts.length === 0} emptyText="No shifts yet">
-        <div className="bg-white border border-line rounded-md shadow-2xs overflow-x-auto">
-          <table className="stack-sm w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50 border-b border-line text-ink-secondary font-mono text-[11px] uppercase tracking-wider">
-              <tr>
-                <th className="py-2.5 px-3.5">Shift</th>
-                <th className="py-2.5 px-3.5">Code</th>
-                <th className="py-2.5 px-3.5">Start</th>
-                <th className="py-2.5 px-3.5">End</th>
-                <th className="py-2.5 px-3.5">Duration</th>
-                <th className="py-2.5 px-3.5">Grace</th>
-                <th className="py-2.5 px-3.5">Status</th>
-                {canEdit && <th className="py-2.5 px-3.5 text-right">Action</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {shifts.map((s) => (
-                <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="py-2.5 px-3.5 font-semibold text-ink whitespace-nowrap">{s.name}</td>
-                  <td className="py-2.5 px-3.5 font-mono text-ink-secondary whitespace-nowrap">{s.code}</td>
-                  <td className="py-2.5 px-3.5 font-mono text-ink whitespace-nowrap">{formatClock(s.startTime)}</td>
-                  <td className="py-2.5 px-3.5 font-mono text-ink whitespace-nowrap">
-                    {formatClock(s.endTime)}
-                    {isOvernight(s) && (
-                      <span className="ml-1.5 inline-flex items-center gap-1 font-sans text-[11px] lg:text-[10px] text-ink-muted" title="Ends the next day">
-                        <Moon className="w-3 h-3" />
-                        next day
-                      </span>
+      <DataState loading={loading} error={error} onRetry={reload} empty={data ? false : undefined}>
+        <Card className="overflow-hidden">
+          <Toolbar>
+            <Segmented<StatusTab>
+              label="Filter by status"
+              value={statusTab}
+              onChange={setStatusTab}
+              options={[
+                { value: 'ALL', label: 'All', count: shifts.length },
+                { value: 'ACTIVE', label: 'Active', count: activeCount },
+                { value: 'INACTIVE', label: 'Inactive', count: shifts.length - activeCount }
+              ]}
+            />
+            <ToolbarSpacer />
+            <ResultCount shown={filtered.length} total={shifts.length} noun={shifts.length === 1 ? 'shift' : 'shifts'} />
+          </Toolbar>
+
+          {filtered.length === 0 ? (
+            <EmptyState
+              icon={<Clock3 className="w-5 h-5" />}
+              title={shifts.length === 0 ? 'No shifts yet' : 'No shifts match the filter'}
+              action={
+                shifts.length === 0 && canEdit ? (
+                  <Button size="sm" variant="outline" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
+                    Add Shift
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="data-table stack-sm">
+                <thead>
+                  <tr>
+                    <th>Shift</th>
+                    <th>Time</th>
+                    <th>Timeline</th>
+                    <th className="num">Duration</th>
+                    <th className="num">Grace</th>
+                    <th>Status</th>
+                    {canEdit && (
+                      <th className="text-right">
+                        <span className="sr-only">Actions</span>
+                      </th>
                     )}
-                  </td>
-                  <td className="py-2.5 px-3.5 text-ink-secondary whitespace-nowrap">{durationLabel(shiftLength(s.startTime, s.endTime))}</td>
-                  <td className="py-2.5 px-3.5 text-ink-secondary whitespace-nowrap">{s.graceMinutes} min</td>
-                  <td className="py-2.5 px-3.5 whitespace-nowrap">
-                    <StatusBadge status={s.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" />
-                  </td>
-                  {canEdit && (
-                    <td className="py-2 px-3.5 text-right whitespace-nowrap">
-                      <div className="inline-flex gap-1.5">
-                        <Button size="sm" variant="outline" onClick={() => openEdit(s)} icon={<Edit2 className="w-3 h-3 text-ink-muted" />}>
-                          Edit
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setDeleting(s)} title="Delete" aria-label={`Delete ${s.name}`} icon={<Trash2 className="w-3.5 h-3.5 text-failed" />} />
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((s) => (
+                    <tr key={s.id}>
+                      <td className="whitespace-nowrap">
+                        <div className="inline-flex items-center gap-2">
+                          <span className={`font-semibold ${s.isActive ? 'text-ink' : 'text-ink-muted'}`}>{s.name}</span>
+                          <CodeChip>{s.code}</CodeChip>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap">
+                        <div className="inline-flex items-center gap-2">
+                          <span className="tabular-nums text-ink">{formatClockRange(s.startTime, s.endTime)}</span>
+                          {isOvernight(s) && (
+                            <span
+                              className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-due-bg text-due ring-1 ring-inset ring-due-line text-[11px] font-medium"
+                              title="Ends the next day"
+                            >
+                              <Moon className="w-3 h-3" aria-hidden />
+                              Overnight
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      {/* Repeats the time column as a picture, so phones leave it out. */}
+                      <td data-empty="">
+                        <DayBar start={s.startTime} end={s.endTime} />
+                      </td>
+                      <td className="num text-ink-secondary whitespace-nowrap">{durationLabel(shiftLength(s.startTime, s.endTime))}</td>
+                      <td className="num text-ink-secondary whitespace-nowrap">{s.graceMinutes} min</td>
+                      <td className="whitespace-nowrap">
+                        <StatusBadge status={s.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" />
+                      </td>
+                      {canEdit && (
+                        <td className="text-right whitespace-nowrap" data-label="">
+                          <div className="inline-flex items-center gap-0.5">
+                            <IconButton label={`Edit ${s.name}`} onClick={() => openEdit(s)}>
+                              <Pencil className="w-3.5 h-3.5" />
+                            </IconButton>
+                            <IconButton label={`Delete ${s.name}`} tone="danger" onClick={() => setDeleting(s)}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </IconButton>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
       </DataState>
+
+      <ShiftLoginSettingsCard canEdit={canEdit} />
 
       <Modal
         isOpen={editing !== null}
@@ -233,9 +309,17 @@ export const ShiftsPage: React.FC = () => {
             </Field>
           </div>
           {formValid && (
-            <div className="px-3 py-2 rounded border border-line bg-subtle text-[11px] text-ink-secondary">
-              {durationLabel(shiftLength(form.startTime, form.endTime))} shift
-              {isOvernight(form) && ' — overnight: ends the next day, which is allowed.'}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 rounded-md border border-line bg-subtle text-[12px] text-ink-secondary" aria-live="polite">
+              <span className="inline-flex items-center gap-1.5">
+                {isOvernight(form) ? <Moon className="w-3.5 h-3.5 text-due" aria-hidden /> : <Clock3 className="w-3.5 h-3.5 text-ink-muted" aria-hidden />}
+                <span>
+                  <span className="font-semibold text-ink">{durationLabel(shiftLength(form.startTime, form.endTime))}</span> shift
+                  {isOvernight(form) && ' — overnight: ends the next day, which is allowed.'}
+                </span>
+              </span>
+              <span className="ml-auto">
+                <DayBar start={form.startTime} end={form.endTime} />
+              </span>
             </div>
           )}
           <Field label="Grace period (minutes)" hint="Minutes a check stays open after its scheduled time before it is marked Missed.">

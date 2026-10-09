@@ -1,25 +1,38 @@
 @import "tailwindcss";
 
-/* Shared design tokens — keep in sync with worker-mobile/tailwind.config.js */
+/*
+ * Design tokens (design-system/MASTER.md). Light enterprise palette: slate neutrals, one blue for
+ * actions and selection, and four status colours used only for meaning (Completed, Missed,
+ * Exception, Due). Every text colour here meets WCAG AA (4.5:1) on white and on the canvas.
+ */
 @theme {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 
-  --color-canvas: #F8F9FA;
+  /* Surfaces */
+  --color-canvas: #F5F7FA;
   --color-surface: #FFFFFF;
-  --color-subtle: #F1F5F9;
-  --color-line: #E2E8F0;
-  --color-line-strong: #CBD5E1;
+  --color-subtle: #F1F4F8;
+  /* Footer strip of modals, drawers and dialogs */
+  --color-panel: #FAFBFC;
+  --color-line: #E4E8EE;
+  --color-line-strong: #CFD6E0;
 
+  /* Text */
   --color-ink: #0F172A;
-  --color-ink-secondary: #475569;
-  --color-ink-muted: #64748B;
-  --color-ink-faint: #94A3B8;
+  --color-ink-secondary: #3D4A5C;
+  --color-ink-muted: #566578;
+  --color-ink-faint: #5E6D82;
 
-  --color-accent: #1E40AF;
+  /* Brand / actions */
+  --color-accent: #2563EB;
+  --color-accent-strong: #1D4ED8;
+  --color-accent-soft: #EEF4FF;
+  --color-accent-line: #C9D9FD;
 
-  --color-success: #15803D;
-  --color-success-bg: #F0FDF4;
-  --color-success-line: #BBF7D0;
+  /* Status (text on white or on the matching -bg passes 4.5:1) */
+  --color-success: #047857;
+  --color-success-bg: #ECFDF5;
+  --color-success-line: #A7F3D0;
 
   --color-due: #0369A1;
   --color-due-bg: #F0F9FF;
@@ -36,6 +49,35 @@
   --color-failed: #DC2626;
   --color-failed-bg: #FEF2F2;
   --color-failed-line: #FCA5A5;
+
+  /* Chart marks (3:1 or more against white) */
+  --color-chart-completed: #059669;
+  --color-chart-missed: #DC2626;
+  --color-chart-exception: #D97706;
+  --color-chart-open: #7B8AA0;
+  --color-chart-primary: #2563EB;
+  --color-chart-grid: #EDF0F4;
+
+  /* Type: the smallest caption size (badges, chart axes) */
+  --text-2xs: 11px;
+  --text-2xs--line-height: 1.35;
+
+  /* Motion: one short entrance for first-screen content (turned off by reduced motion) */
+  --animate-enter: enter 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* Elevation: one card shadow, one overlay shadow */
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.05);
+  --shadow-pop: 0 10px 30px -8px rgb(15 23 42 / 0.18), 0 4px 10px -4px rgb(15 23 42 / 0.08);
 }
 
 @layer base {
@@ -46,19 +88,50 @@
     background-color: var(--color-canvas);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    font-size: 13.5px;
-    line-height: 1.45;
+    font-size: 14px;
+    line-height: 1.5;
+    font-feature-settings: 'cv11', 'ss01';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   /*
    * Phones and tablets: a 16px root so rem-based text and spacing scale up for reading and
-   * tapping (text-xs becomes 12px instead of 10px). Desktop (lg, 1024px+) keeps 13.5px.
+   * tapping. Desktop (lg, 1024px+) uses 14px.
    */
   @media screen and (max-width: 1023.98px) {
     html {
       font-size: 16px;
+    }
+  }
+
+  /*
+   * Keyboard focus is always visible. Components with their own focus ring (buttons, inputs) remove
+   * the outline with focus:outline-none; everything else (links, menu items, row actions) gets this.
+   */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Tailwind 4 leaves buttons with the default arrow; clickable controls show the hand. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  summary,
+  label:has(> input[type='checkbox']:not(:disabled)) {
+    cursor: pointer;
+  }
+
+  /* Users who ask the system for less motion get no animations or slides. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
     }
   }
 
@@ -85,6 +158,61 @@
   }
 }
 
+@layer components {
+  /* A surface card: white, hairline border, one soft shadow. */
+  .card {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: 10px;
+    box-shadow: var(--shadow-card);
+  }
+
+  /*
+   * Data tables (design-system/MASTER.md "Tables"): compact rows, quiet uppercase headers that stay
+   * visible while the table scrolls inside its card, hairline row dividers and a hover tint.
+   */
+  .data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 12.5px;
+    text-align: left;
+  }
+  .data-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background-color: #F8FAFC;
+    color: var(--color-ink-muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .data-table tbody td {
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--color-line);
+    vertical-align: middle;
+    color: var(--color-ink);
+  }
+  .data-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .data-table tbody tr {
+    transition: background-color 120ms ease;
+  }
+  .data-table tbody tr:hover td {
+    background-color: #F8FAFD;
+  }
+  .data-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
 /*
  * Responsive tables. These rules sit outside any @layer on purpose: unlayered CSS wins over
  * Tailwind's utilities, so they can override the cells' padding, alignment and nowrap on phones.
@@ -103,6 +231,13 @@
   table.stack-sm tr {
     display: block;
     padding: 10px 12px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  table.stack-sm tr:last-child {
+    border-bottom: 0;
+  }
+  table.stack-sm tbody td {
+    border-bottom: 0;
   }
   /*
    * Label floated on the left (::before), value right-aligned beside it. flow-root makes the

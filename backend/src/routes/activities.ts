@@ -16,6 +16,7 @@ const input = z.object({
   code: z.string().trim().min(1, 'Code is required').max(40),
   departmentId: optionalUuid,
   description: optionalText(500),
+  module: z.enum(['IPQC', 'QC']).default('IPQC'),
   /** "Overall check photo/video": one photo/video for the whole check. */
   requirePhoto: z.boolean().default(true),
   requireVideo: z.boolean().default(false),

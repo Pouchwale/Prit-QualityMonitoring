@@ -60,6 +60,13 @@ export function clearTokens() {
 
 export const hasSession = () => !!(storage.get(ACCESS_KEY) || storage.get(REFRESH_KEY))
 
+/**
+ * True for a `storage` event that means the session changed in another tab: signed in, signed out
+ * or refreshed. Both tokens are always written together and the refresh token last, so only that
+ * key is watched (null is localStorage.clear()).
+ */
+export const isSessionChange = (e: StorageEvent) => e.key === null || e.key === REFRESH_KEY
+
 async function send(path: string, init: RequestInit) {
   try {
     return await fetch(`${API_URL}${path}`, init)
@@ -78,6 +85,11 @@ async function errorMessage(res: Response) {
   return `Request failed (${res.status})`
 }
 
+/**
+ * Swaps the refresh token for a new pair. Resolves false only when the server refuses the refresh
+ * token (401/403): the session is really over. A network error or a server fault (5xx) rejects
+ * instead, so the caller keeps the tokens and shows the error; the next request can try again.
+ */
 let refreshing: Promise<boolean> | null = null
 function refresh(): Promise<boolean> {
   const token = storage.get(REFRESH_KEY)
@@ -89,16 +101,22 @@ function refresh(): Promise<boolean> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: token })
       })
-      if (!res.ok) return false
+      if (res.status === 401 || res.status === 403) return false
+      if (!res.ok) throw new ApiError(res.status, await errorMessage(res))
       saveTokens(await res.json())
       return true
-    } catch {
-      return false
     } finally {
       refreshing = null
     }
   })()
   return refreshing
+}
+
+/** A request that is still refused after refreshing: the session is over, so sign out here. */
+async function endSession(res: Response): Promise<never> {
+  clearTokens()
+  unauthorizedHandler?.()
+  throw new ApiError(401, await errorMessage(res))
 }
 
 type Query = Record<string, string | number | boolean | null | undefined>
@@ -122,11 +140,7 @@ async function requestResponse(method: string, path: string, body?: unknown, ret
   const res = await send(path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
 
   if (res.status === 401 && retry && (await refresh())) return requestResponse(method, path, body, false)
-  if (res.status === 401) {
-    clearTokens()
-    unauthorizedHandler?.()
-    throw new ApiError(401, await errorMessage(res))
-  }
+  if (res.status === 401) return endSession(res)
   if (!res.ok) throw new ApiError(res.status, await errorMessage(res))
   return res
 }
@@ -140,17 +154,25 @@ async function request<T>(method: string, path: string, body?: unknown, retry = 
 /**
  * A list the server pages: the rows of this page, plus how many entries the filters match in
  * total (the `X-Total-Count` header). Servers that do not send it report the rows they returned.
+ * `truncated` is set when the server capped the list (`X-Truncated: 1`), so totals worked out from
+ * the rows are not exact.
  */
 export interface Page<T> {
   rows: T[]
   total: number
+  truncated: boolean
 }
 
 async function getPage<T>(path: string, query?: Query): Promise<Page<T>> {
   const res = await requestResponse('GET', withQuery(path, query))
   const rows = (await res.json()) as T[]
-  const total = Number(res.headers.get('X-Total-Count'))
-  return { rows, total: Number.isFinite(total) && total >= 0 ? total : rows.length }
+  const header = res.headers.get('X-Total-Count')
+  const total = header === null ? NaN : Number(header)
+  return {
+    rows,
+    total: Number.isFinite(total) && total >= 0 ? total : rows.length,
+    truncated: res.headers.get('X-Truncated') === '1'
+  }
 }
 
 export const api = {
@@ -171,6 +193,7 @@ export async function upload<T>(path: string, form: FormData, query?: Query, ret
     body: form
   })
   if (res.status === 401 && retry && (await refresh())) return upload<T>(path, form, query, false)
+  if (res.status === 401) return endSession(res)
   if (!res.ok) throw new ApiError(res.status, await errorMessage(res))
   return (await res.json()) as T
 }
@@ -180,6 +203,7 @@ export async function fetchBlob(path: string, retry = true): Promise<Blob> {
   const token = storage.get(ACCESS_KEY)
   const res = await send(path, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
   if (res.status === 401 && retry && (await refresh())) return fetchBlob(path, false)
+  if (res.status === 401) return endSession(res)
   if (!res.ok) throw new ApiError(res.status, await errorMessage(res))
   return res.blob()
 }
@@ -188,12 +212,13 @@ export async function fetchBlob(path: string, retry = true): Promise<Blob> {
  * Downloads a file (e.g. the report PDF) with the signed-in user's token and saves it
  * with the filename the server sends.
  */
-export async function download(path: string, query?: Query, fallbackName = 'download') {
+export async function download(path: string, query?: Query, fallbackName = 'download', retry = true): Promise<string> {
   const token = storage.get(ACCESS_KEY)
   const res = await send(withQuery(path, query), {
     headers: token ? { Authorization: `Bearer ${token}` } : {}
   })
-  if (res.status === 401 && (await refresh())) return download(path, query, fallbackName)
+  if (res.status === 401 && retry && (await refresh())) return download(path, query, fallbackName, false)
+  if (res.status === 401) return endSession(res)
   if (!res.ok) throw new ApiError(res.status, await errorMessage(res))
 
   const disposition = res.headers.get('content-disposition') ?? ''
@@ -221,9 +246,10 @@ export async function login(employeeId: string, password: string): Promise<Curre
   return data.user
 }
 
+/** Signs out on the server too: the refresh token is sent so the server revokes it. */
 export async function logout() {
   try {
-    await request('POST', '/api/auth/logout', {}, false)
+    await request('POST', '/api/auth/logout', { refreshToken: storage.get(REFRESH_KEY) ?? undefined }, false)
   } catch {
     /* ignore */
   }

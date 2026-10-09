@@ -146,7 +146,7 @@ export interface JobRow {
   plannedFor: string | null
   note: string | null
   forceClosed: boolean
-  /** The department doing this job, fixed when a worker started it. */
+  /** The department doing this job, worked out from its Item Code prefix and fixed from then on. */
   departmentId: string | null
   departmentName: string | null
   /** NONE: no Job Start/End parameters. PENDING: open. DONE: submitted. */
@@ -170,9 +170,9 @@ export interface JobFilters {
   running?: boolean
   statuses?: (typeof jobs.$inferSelect)['status'][]
   ids?: string[]
-  /** Only jobs of this department (a Manager sees their own department). */
+  /** Only jobs of this department (the department filter on the Jobs pages). */
   departmentId?: string
-  /** Extra condition, e.g. a Manager with no department who may see nothing. */
+  /** Extra condition. */
   where?: SQL
 }
 
@@ -189,7 +189,7 @@ export async function listJobs(filters: JobFilters = {}): Promise<JobRow[]> {
   if (filters.running === false) where.push(inArray(jobs.status, ['COMPLETED', 'CANCELLED']))
   if (filters.statuses?.length) where.push(inArray(jobs.status, filters.statuses))
   if (filters.ids) where.push(inArray(jobs.id, filters.ids.length ? filters.ids : ['00000000-0000-0000-0000-000000000000']))
-  // The department that ran the job, fixed when a worker started it (not the machine's).
+  // The department that ran the job, from its Item Code (not the machine's).
   if (filters.departmentId) where.push(eq(jobs.departmentId, filters.departmentId))
   if (filters.where) where.push(filters.where)
 
@@ -283,7 +283,7 @@ export async function listJobs(filters: JobFilters = {}): Promise<JobRow[]> {
 
 export interface OverviewSchedule {
   id: string
-  shiftId: string
+  shiftId: string | null
   shiftName: string
   intervalMinutes: number
   mode: 'INTERVAL' | 'JOB'

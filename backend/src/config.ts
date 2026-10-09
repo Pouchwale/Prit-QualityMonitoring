@@ -17,6 +17,13 @@ function envNumber(name: string, fallback: number, min: number, max: number): nu
   return Math.min(max, Math.max(min, Math.round(value)))
 }
 
+for (const name of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET']) {
+  const value = process.env[name] ?? ''
+  if (value.startsWith('change-me') || value.length < 32) {
+    console.warn(`${name} is a placeholder or shorter than 32 characters. Set a long random value in .env before going live.`)
+  }
+}
+
 export const config = {
   databaseUrl: required('DATABASE_URL'),
   port: Number(process.env.PORT ?? 4000),
@@ -26,8 +33,18 @@ export const config = {
    * when the server's own clock runs in another timezone (lib/time.ts).
    */
   plantTimezone: PLANT_TIMEZONE,
-  jwtAccessSecret: process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret',
-  jwtRefreshSecret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh-secret',
+  // Required: a missing secret must stop the server, never fall back to a value anyone can read here.
+  jwtAccessSecret: required('JWT_ACCESS_SECRET'),
+  jwtRefreshSecret: required('JWT_REFRESH_SECRET'),
+  /**
+   * Other web addresses allowed to call the API from a browser (CORS), comma-separated, e.g. a
+   * development admin panel. The API's own host on any port (admin panel on ADMIN_PORT) and
+   * localhost are always allowed; the mobile app sends no Origin and is not affected.
+   */
+  corsOrigins: (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim().replace(/\/$/, ''))
+    .filter(Boolean),
   accessTokenTtl: '12h' as const,
   refreshTokenTtl: '30d' as const,
   uploadDir: path.resolve(process.cwd(), process.env.UPLOAD_DIR ?? 'uploads'),
@@ -61,6 +78,12 @@ export const config = {
   },
   /** Built worker web app (`npm run build:web` in worker-mobile), served at /app. */
   workerWebDir: path.resolve(process.cwd(), process.env.WORKER_WEB_DIR ?? '../worker-mobile/dist'),
+  /**
+   * Built admin panel (`npm run build` in admin-web), served on its own port for desktop browsers.
+   * It calls the API on `port` at the same host. ADMIN_PORT=0 turns it off.
+   */
+  adminPort: Number(process.env.ADMIN_PORT ?? 5000),
+  adminWebDir: path.resolve(process.cwd(), process.env.ADMIN_WEB_DIR ?? '../admin-web/dist'),
   /**
    * Optional HTTPS listener on its own port, next to plain HTTP on `port`.
    * Browsers only allow the live camera preview, adding the app to the home screen and

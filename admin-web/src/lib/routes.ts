@@ -15,6 +15,7 @@ export const NAV_PATH: Record<NavTab, string> = {
   calendar: '/plant-calendar',
   workers: '/workers',
   departments: '/departments',
+  'department-config': '/department-configuration',
   shifts: '/shifts',
   'audit-logs': '/audit-logs',
   access: '/manager-access',
@@ -54,9 +55,14 @@ export function tabFromPath(pathname: string): NavTab | null {
   return null
 }
 
-/** Where to go after signing in: only a path inside this app, never another site. */
+/**
+ * Where to go after signing in: only a path inside this app, never another site. It must start
+ * with a single "/"; "//host", any backslash ("/\host" is read as "//host" by browsers) and control
+ * characters (browsers drop tabs and newlines, so "/<tab>/host" becomes "//host") are refused.
+ */
 export function safeNext(next: string | null): string {
-  if (!next || !next.startsWith('/') || next.startsWith('//') || next.startsWith(LOGIN_PATH)) return '/'
+  // eslint-disable-next-line no-control-regex
+  if (!next || !/^\/(?!\/)/.test(next) || /[\\\u0000-\u001f]/.test(next) || next.startsWith(LOGIN_PATH)) return '/'
   return next
 }
 
@@ -65,3 +71,10 @@ export function safeNext(next: string | null): string {
  * next person to sign in starts on their own first page instead of the previous user's page.
  */
 export const signOutIntent = { active: false }
+
+/**
+ * Set when the server ends a signed-in session (a 401 after sign-in: expired, password changed,
+ * account disabled), so the sign-in page can say so. Only a message: the session itself is
+ * already cleared by lib/api.ts.
+ */
+export const sessionEnded = { active: false }

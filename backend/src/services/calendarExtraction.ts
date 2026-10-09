@@ -125,7 +125,9 @@ async function fromPdf(filePath: string): Promise<ExtractionResult> {
       return { method: 'PDF_TEXT', rows, note: null }
     }
     // A scanned PDF: read each page image with OCR.
-    const shots = await parser.getScreenshot({ scale: 2 })
+    // A company calendar is a page or two; at most MAX_OCR_PAGES are read, so a long scan cannot tie up
+    // the server.
+    const shots = await parser.getScreenshot({ scale: 2, first: MAX_OCR_PAGES })
     const rows: SourceRow[] = []
     for (const page of shots.pages) {
       const pageRows = await ocrImage(Buffer.from(page.data))
@@ -304,6 +306,11 @@ async function recognizeCell(w: Worker, canvas: Canvas, box: { x0: number; y0: n
   return cell
 }
 
+/** Limits that keep the offline OCR of one document within the server's memory and time. */
+const MAX_OCR_PAGES = 5
+const MAX_OCR_INPUT_PIXELS = 40_000_000
+const MAX_OCR_WORK_PIXELS = 12_000_000
+
 export async function ocrImage(buffer: Buffer): Promise<SourceRow[]> {
   return exclusive(async () => {
     let image
@@ -312,8 +319,12 @@ export async function ocrImage(buffer: Buffer): Promise<SourceRow[]> {
     } catch {
       throw badRequest('The image could not be read. Upload a JPG or PNG photo or scan of the calendar.')
     }
+    // A picture far bigger than a page scan would need gigabytes of memory to process.
+    if (image.width * image.height > MAX_OCR_INPUT_PIXELS || Math.max(image.width, image.height) > 12_000) {
+      throw badRequest('The image is too large. Upload a photo or scan of the calendar page (at most about 40 megapixels).')
+    }
     // Work at a size where table text is legible but processing stays quick.
-    const scale = Math.min(2.5, Math.max(0.5, 1800 / image.width))
+    const scale = Math.min(2.5, Math.max(0.5, 1800 / image.width), Math.sqrt(MAX_OCR_WORK_PIXELS / (image.width * image.height)))
     let canvas = createCanvas(Math.round(image.width * scale), Math.round(image.height * scale))
     let ctx = canvas.getContext('2d')
     ctx.fillStyle = '#fff'

@@ -127,18 +127,44 @@ function sameBytes(a: Uint8Array, b: Uint8Array) {
   return a.length === b.length && a.every((v, i) => v === b[i])
 }
 
-/** Stops alerts for this browser, used when the worker signs out. */
-export async function unregisterForPush(): Promise<void> {
+/**
+ * Stops alerts for this browser, used when the worker signs out. `keepShiftReminders` (workers):
+ * the subscription is kept and the server only sends it the shift-start login reminder.
+ */
+export async function unregisterForPush(options: { keepShiftReminders?: boolean } = {}): Promise<void> {
   try {
     const reg = await registerServiceWorker()
     const subscription = await reg?.pushManager.getSubscription()
     if (subscription) {
       await deletePushToken(subscription.endpoint).catch(() => undefined)
-      await subscription.unsubscribe()
+      if (!options.keepShiftReminders) await subscription.unsubscribe()
     }
   } catch {
     // Signing out locally is enough.
   }
+  subscriptionEndpoint = null
+}
+
+/**
+ * The session expired: this browser stops receiving the signed-out worker's alerts. The server can
+ * no longer be asked to remove it, but a cancelled subscription is dropped there on the next send.
+ */
+export async function stopAlertsLocally(): Promise<void> {
+  try {
+    const reg = await registerServiceWorker()
+    const subscription = await reg?.pushManager.getSubscription()
+    if (subscription) await subscription.unsubscribe()
+  } catch {
+    // Nothing more can be done without the server.
+  }
+  subscriptionEndpoint = null
+}
+
+/**
+ * The worker's shift ended: the subscription is kept for the next shift's login reminder (the
+ * server marked it signed out, so it gets no check alerts).
+ */
+export async function endShiftLocally(): Promise<void> {
   subscriptionEndpoint = null
 }
 

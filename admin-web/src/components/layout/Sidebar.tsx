@@ -1,9 +1,10 @@
-import React, { useEffect, useRef } from 'react'
-import { AlertOctagon, Building2, CalendarClock, CalendarOff, Clock3, Cpu, Factory, FileSpreadsheet, Gauge, History, LayoutDashboard, ShieldCheck, SlidersHorizontal, UserRound, Users, Workflow, X } from 'lucide-react'
+import React, { useEffect } from 'react'
+import { AlertOctagon, Building2, CalendarClock, CalendarOff, Clock3, Cpu, Factory, FileSpreadsheet, Gauge, History, LayoutDashboard, ShieldCheck, SlidersHorizontal, Tags, UserRound, Users, Workflow, X } from 'lucide-react'
 import type { ModuleKey } from '../../types'
 import { portalLabel, useAuth } from '../../lib/auth'
 import { Link } from 'react-router-dom'
 import { MONITORING_LABEL, MONITORING_TABS, NAV_PATH } from '../../lib/routes'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 
 export type NavTab =
   | 'dashboard'
@@ -14,6 +15,7 @@ export type NavTab =
   | 'performance'
   | 'machines'
   | 'departments'
+  | 'department-config'
   | 'parameters'
   | 'activities'
   | 'schedules'
@@ -39,18 +41,19 @@ export const NAV_LABEL: Record<NavTab, string> = {
   calendar: 'Plant Calendar',
   workers: 'Workers & Users',
   departments: 'Departments',
+  'department-config': 'Department Configuration',
   shifts: 'Shifts',
   'audit-logs': 'Audit Logs',
   access: 'Manager Access',
   account: 'My Account'
 }
 
-/** The permission module behind each page. Manager Access and My Account are not modules. */
+/** The permission module behind each page. Manager Access (Super Admin only) and My Account are not modules. */
 export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
   dashboard: 'dashboard',
   checks: 'checks',
-  // Jobs are part of Quality Checks: view to follow them, manage to plan / hand over / close.
-  jobs: 'checks',
+  // Jobs have their own module: view to follow them, manage to plan / hand over / close.
+  jobs: 'jobs',
   exceptions: 'exceptions',
   reports: 'reports',
   performance: 'performance',
@@ -61,6 +64,8 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
   calendar: 'calendar',
   workers: 'workers',
   departments: 'departments',
+  // Item Code prefix -> department mappings: view to see them, manage (Departments) to change them.
+  'department-config': 'departments',
   shifts: 'shifts',
   'audit-logs': 'audit_logs'
 }
@@ -68,15 +73,16 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
 /** Pages in menu order, used to find where to land when the current page is not allowed. */
 export const NAV_ORDER: NavTab[] = [
   'dashboard', 'checks', 'jobs', 'exceptions', 'reports', 'performance', 'parameters', 'activities', 'machines', 'schedules', 'calendar',
-  'workers', 'departments', 'shifts', 'audit-logs', 'access', 'account'
+  'workers', 'departments', 'department-config', 'shifts', 'audit-logs', 'access', 'account'
 ]
 
 /** Whether the signed-in user may open a page. */
 export function useCanOpen() {
-  const { can, isAdmin } = useAuth()
+  const { can, isSuperAdmin } = useAuth()
   return (tab: NavTab) => {
     if (tab === 'account') return true
-    if (tab === 'access') return isAdmin
+    // Only the Super Admin sets the Manager role's permissions (the backend refuses everyone else).
+    if (tab === 'access') return isSuperAdmin
     const module = NAV_MODULE[tab]
     return module ? can(module) : false
   }
@@ -99,6 +105,8 @@ interface NavItem {
   id: NavTab
   icon: React.ReactNode
   badge?: number
+  /** What the badge counts, read out after the number by screen readers. */
+  badgeLabel?: string
   badgeColor?: string
   /** Shown instead of the page name, for an entry that stands for several pages. */
   label?: string
@@ -115,25 +123,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   mobileOpen,
   onMobileClose
 }) => {
-  const closeButton = useRef<HTMLButtonElement>(null)
   const canOpen = useCanOpen()
   const { user } = useAuth()
+  // Focus moves into the panel and stays there; Escape closes it; focus returns to the menu button.
+  const panelRef = useDialogFocus<HTMLDivElement>(mobileOpen, onMobileClose)
 
   useEffect(() => {
     if (!mobileOpen) return
-    closeButton.current?.focus()
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onMobileClose()
-    }
     // The panel is only ever open on small screens; close it if the window grows to desktop width.
     const desktop = window.matchMedia('(min-width: 1024px)')
     const onResize = () => desktop.matches && onMobileClose()
-    window.addEventListener('keydown', onKey)
     desktop.addEventListener('change', onResize)
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      desktop.removeEventListener('change', onResize)
-    }
+    return () => desktop.removeEventListener('change', onResize)
   }, [mobileOpen, onMobileClose])
 
   // Quality Monitoring is one entry for three pages (Overview, Checks, Jobs). It opens the first
@@ -147,7 +148,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           matches: [...MONITORING_TABS],
           icon: <LayoutDashboard className="w-4 h-4" />,
           badge: missedCount || undefined,
-          badgeColor: 'bg-red-100 text-red-700 border-red-200'
+          badgeLabel: 'missed today',
+          badgeColor: 'bg-missed-bg text-missed ring-missed-line'
         }
       ]
     : []
@@ -161,7 +163,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           id: 'exceptions',
           icon: <AlertOctagon className="w-4 h-4" />,
           badge: exceptionCount || undefined,
-          badgeColor: 'bg-amber-100 text-amber-800 border-amber-200'
+          badgeLabel: 'exceptions today',
+          badgeColor: 'bg-exception-bg text-exception ring-exception-line'
         },
         { id: 'reports', icon: <FileSpreadsheet className="w-4 h-4" /> },
         { id: 'performance', icon: <Gauge className="w-4 h-4" /> }
@@ -177,6 +180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'calendar', icon: <CalendarOff className="w-4 h-4" /> },
         { id: 'workers', icon: <Users className="w-4 h-4" /> },
         { id: 'departments', icon: <Building2 className="w-4 h-4" /> },
+        { id: 'department-config', icon: <Tags className="w-4 h-4" /> },
         { id: 'shifts', icon: <Clock3 className="w-4 h-4" /> }
       ]
     },
@@ -195,78 +199,86 @@ export const Sidebar: React.FC<SidebarProps> = ({
     .filter((group) => group.items.length > 0)
 
   const brand = (
-    <div className="flex items-center gap-2.5">
-      <img src="/logo.png" alt="" className="w-8 h-8 rounded-lg shadow-xs" />
-      <div>
-        <div className="text-[13px] font-semibold tracking-tight text-ink leading-none">Quality Monitoring</div>
-        <div className="text-[11px] text-ink-muted tracking-tight mt-1">{portalLabel(user?.role)}</div>
+    <div className="flex items-center gap-2.5 min-w-0">
+      <img src="/logo.png" alt="" className="w-8 h-8 rounded-lg ring-1 ring-line" />
+      <div className="min-w-0">
+        <div className="text-[13.5px] font-semibold tracking-tight text-ink leading-none truncate">Quality Monitoring</div>
+        <div className="text-[11.5px] text-ink-muted mt-1 truncate">{portalLabel(user?.role)}</div>
       </div>
     </div>
   )
 
+  // Design: quiet group labels, 36px rows, a tinted pill with a blue edge marks the current page
+  // (design-system/MASTER.md "Navigation").
   const nav = (
-    <nav className="flex-1 py-3 px-2.5 space-y-4 overflow-y-auto" aria-label="Main">
+    <nav className="flex-1 py-3 px-3 space-y-5 overflow-y-auto" aria-label="Main">
       {groups.map((group) => (
-        <div key={group.title} className="space-y-0.5">
-          <div className="px-2 py-1 text-[11px] font-medium text-ink-faint uppercase tracking-wider">{group.title}</div>
-          {group.items.map((item) => {
-            const isActive = (item.matches ?? [item.id]).includes(currentTab as NavTab)
-            return (
-              <Link
-                key={item.id}
-                to={NAV_PATH[item.id]}
-                onClick={() => onSelectTab(item.id)}
-                aria-current={isActive ? 'page' : undefined}
-                className={`w-full flex items-center justify-between px-2.5 py-2.5 lg:py-2 rounded text-[14px] lg:text-[13px] font-medium transition-colors text-left ${
-                  isActive
-                    ? 'bg-subtle text-accent font-semibold border-l-2 border-accent pl-2'
-                    : 'text-ink-secondary hover:bg-slate-50 hover:text-ink'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span className={isActive ? 'text-accent' : 'text-ink-muted'}>{item.icon}</span>
-                  <span>{item.label ?? NAV_LABEL[item.id]}</span>
-                </div>
-                {item.badge !== undefined && (
-                  <span className={`text-[11px] font-mono font-bold px-1.5 rounded border ${item.badgeColor}`}>{item.badge}</span>
-                )}
-              </Link>
-            )
-          })}
+        <div key={group.title}>
+          <div className="px-2.5 pb-1.5 text-[10.5px] font-semibold text-ink-faint uppercase tracking-[0.08em]">{group.title}</div>
+          <div className="space-y-0.5">
+            {group.items.map((item) => {
+              const isActive = (item.matches ?? [item.id]).includes(currentTab as NavTab)
+              return (
+                <Link
+                  key={item.id}
+                  to={NAV_PATH[item.id]}
+                  onClick={() => onSelectTab(item.id)}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`group relative w-full flex items-center justify-between gap-2 h-10 lg:h-9 px-2.5 rounded-md text-[14px] lg:text-[13px] font-medium transition-colors ${
+                    isActive ? 'bg-accent-soft text-accent-strong' : 'text-ink-secondary hover:bg-subtle hover:text-ink'
+                  }`}
+                >
+                  {isActive && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-accent" aria-hidden />}
+                  <span className="flex items-center gap-2.5 min-w-0">
+                    <span className={`shrink-0 transition-colors ${isActive ? 'text-accent' : 'text-ink-faint group-hover:text-ink-secondary'}`} aria-hidden>
+                      {item.icon}
+                    </span>
+                    <span className="truncate">{item.label ?? NAV_LABEL[item.id]}</span>
+                  </span>
+                  {item.badge !== undefined && (
+                    <span className={`min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums ring-1 ring-inset ${item.badgeColor}`}>
+                      {item.badge}
+                      {item.badgeLabel && <span className="sr-only"> {item.badgeLabel}</span>}
+                    </span>
+                  )}
+                </Link>
+              )
+            })}
+          </div>
         </div>
       ))}
     </nav>
   )
 
   const footer = plantName && (
-    <div className="p-3 border-t border-line bg-slate-50">
-      <div className="flex items-center gap-2 px-1 text-[11px] text-ink-muted">
-        <Factory className="w-3.5 h-3.5 text-ink-faint" />
-        <span className="truncate">{plantName}</span>
+    <div className="p-3 border-t border-line">
+      <div className="flex items-center gap-2 px-2.5 py-2 rounded-md bg-subtle text-[12px] text-ink-secondary">
+        <Factory className="w-3.5 h-3.5 text-ink-faint shrink-0" aria-hidden />
+        <span className="truncate font-medium">{plantName}</span>
       </div>
     </div>
   )
 
   return (
     <>
-      {/* Desktop: fixed sidebar, unchanged */}
-      <aside className="hidden lg:flex w-60 bg-white border-r border-line flex-col shrink-0 select-none no-print">
-        <div className="h-14 px-4 border-b border-line flex items-center bg-white">{brand}</div>
+      {/* Desktop: fixed sidebar */}
+      <aside className="hidden lg:flex w-[248px] bg-white border-r border-line flex-col shrink-0 select-none no-print">
+        <div className="h-14 px-4 border-b border-line flex items-center">{brand}</div>
         {nav}
         {footer}
       </aside>
 
       {/* Phone and tablet: slide-in panel over a dimmed backdrop */}
       {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 no-print" role="dialog" aria-modal="true" aria-label="Navigation">
-          <div className="absolute inset-0 bg-slate-900/50" onClick={onMobileClose} />
-          <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-white border-r border-line flex flex-col shadow-xl select-none">
+        <div className="lg:hidden fixed inset-0 z-40 no-print outline-none" role="dialog" aria-modal="true" aria-label="Navigation" ref={panelRef} tabIndex={-1}>
+          <div className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]" onClick={onMobileClose} />
+          <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-white border-r border-line flex flex-col shadow-[var(--shadow-pop)] select-none">
             <div className="h-14 pl-4 pr-2 border-b border-line flex items-center justify-between">
               {brand}
               <button
-                ref={closeButton}
+                data-autofocus
                 onClick={onMobileClose}
-                className="w-[40px] h-[40px] rounded flex items-center justify-center text-ink-muted hover:bg-slate-50 hover:text-ink"
+                className="w-[40px] h-[40px] rounded-md flex items-center justify-center text-ink-muted hover:bg-subtle hover:text-ink"
                 aria-label="Close navigation menu"
               >
                 <X className="w-5 h-5" />

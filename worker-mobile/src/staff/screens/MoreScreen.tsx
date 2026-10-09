@@ -8,14 +8,16 @@ import { ActionList, ActionRow, Badge, List, ProfileCard, Row, Screen, Section, 
 interface Entry {
   label: string
   description: string
+  /** Shown instead of `description` to an account without Export Reports (no CSV or PDF for them). */
+  descriptionNoExport?: string
   screen: string
   icon: IconName
   /** Shown when the account may view this module. */
   module?: ModuleKey
   /** Shown when the account may view any of these modules (for screens that read several). */
   anyModules?: ModuleKey[]
-  /** Admin / Super Admin only. */
-  adminOnly?: boolean
+  /** Super Admin only. */
+  superAdminOnly?: boolean
   /** Opens this bottom tab (when it is shown) instead of pushing a second copy. */
   tab?: TabKey
 }
@@ -25,10 +27,18 @@ const GROUPS: { title: string; detail?: string; entries: Entry[] }[] = [
     title: 'Monitoring',
     entries: [
       { label: 'Quality Checks', description: 'Scheduled checks, values and evidence', screen: 'checks', icon: 'clipboard-outline', module: 'checks', tab: 'checks' },
-      { label: 'Jobs', description: 'Planned and running jobs, handovers', screen: 'jobs', icon: 'briefcase-outline', module: 'checks' },
+      { label: 'Jobs', description: 'Planned and running jobs, handovers', screen: 'jobs', icon: 'briefcase-outline', module: 'jobs' },
       { label: 'Exceptions', description: 'Checks workers could not perform', screen: 'exceptions', icon: 'alert-circle-outline', module: 'exceptions', tab: 'exceptions' },
-      { label: 'Reports', description: 'Summaries, CSV and PDF', screen: 'reports', icon: 'bar-chart-outline', module: 'reports', tab: 'reports' },
-      { label: 'Worker Performance', description: 'Assigned, completed, missed and score', screen: 'performance', icon: 'speedometer-outline', module: 'performance' },
+      {
+        label: 'Reports',
+        description: 'Summaries, CSV and PDF',
+        descriptionNoExport: 'Summaries by machine and worker',
+        screen: 'reports',
+        icon: 'bar-chart-outline',
+        module: 'reports',
+        tab: 'reports'
+      },
+      { label: 'Worker Performance', description: 'Assigned, completed, exceptions, missed and score', screen: 'performance', icon: 'speedometer-outline', module: 'performance' },
       { label: 'Plant Calendar', description: 'Holidays and working days', screen: 'calendar', icon: 'calendar-outline', module: 'calendar' }
     ]
   },
@@ -36,14 +46,14 @@ const GROUPS: { title: string; detail?: string; entries: Entry[] }[] = [
     title: 'People',
     entries: [
       { label: 'Workers & Users', description: 'Accounts, roles and app access', screen: 'users', icon: 'people-outline', module: 'workers' },
-      { label: 'Manager Access', description: 'What each Manager may do', screen: 'managerAccess', icon: 'shield-checkmark-outline', adminOnly: true }
+      { label: 'Manager Access', description: 'What every Manager may do', screen: 'managerAccess', icon: 'shield-checkmark-outline', superAdminOnly: true }
     ]
   },
   {
     title: 'Plant setup',
     detail: 'In setup order',
     entries: [
-      { label: 'Departments', description: 'Plant departments', screen: 'departments', icon: 'business-outline', module: 'departments' },
+      { label: 'Departments', description: 'Plant departments and their Item Code prefixes', screen: 'departments', icon: 'business-outline', module: 'departments' },
       { label: 'Shifts', description: 'Shift timings', screen: 'shifts', icon: 'time-outline', module: 'shifts' },
       { label: 'Parameters', description: 'Quality parameters and limits', screen: 'parameters', icon: 'speedometer-outline', module: 'parameters' },
       { label: 'Check Types', description: 'Parameters, evidence rules and reasons', screen: 'activities', icon: 'list-outline', module: 'activities' },
@@ -60,13 +70,14 @@ const GROUPS: { title: string; detail?: string; entries: Entry[] }[] = [
 ]
 
 /** Modules that only have a view level, so "View only" would say nothing. */
-const VIEW_ONLY_MODULES: ModuleKey[] = ['dashboard', 'reports', 'audit_logs', 'performance']
+const VIEW_ONLY_MODULES: ModuleKey[] = ['dashboard', 'reports', 'export', 'audit_logs', 'performance']
 
 /** All modules: every module this account may open, grouped like the web panel's sidebar. */
 export const MoreScreen: React.FC = () => {
-  const { profile, can, isAdmin, push, switchTab, signOut } = useStaff()
+  const { profile, can, isAdmin, isSuperAdmin, push, switchTab, signOut } = useStaff()
+  // Manager permissions are the Super Admin's alone, so Admins do not see Manager Access.
   const visible = (e: Entry) =>
-    e.adminOnly ? isAdmin : e.anyModules ? e.anyModules.some((m) => can(m)) : e.module ? can(e.module) : true
+    e.superAdminOnly ? isSuperAdmin : e.anyModules ? e.anyModules.some((m) => can(m)) : e.module ? can(e.module) : true
   const open = (e: Entry) => (e.tab && e.module && can(e.module) ? switchTab(e.tab) : push(e.screen))
 
   return (
@@ -86,7 +97,7 @@ export const MoreScreen: React.FC = () => {
                     key={e.screen}
                     icon={e.icon}
                     title={e.label}
-                    subtitle={e.description}
+                    subtitle={e.descriptionNoExport && !can('export') ? e.descriptionNoExport : e.description}
                     accessibilityLabel={e.label}
                     right={viewOnly ? <Badge label="View only" /> : null}
                     onPress={() => open(e)}

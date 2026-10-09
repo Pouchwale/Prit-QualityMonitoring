@@ -1,17 +1,25 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { Access, CurrentUser, ModuleKey, Role } from '../types'
-import { api, clearTokens, hasSession, login as apiLogin, logout as apiLogout, onUnauthorized } from './api'
+import { ApiError, api, clearTokens, errorText, hasSession, isSessionChange, login as apiLogin, logout as apiLogout, onUnauthorized } from './api'
+import { sessionEnded, signOutIntent } from './routes'
 
 interface AuthContextValue {
   user: CurrentUser | null
   loading: boolean
+  /**
+   * Set when the saved session could not be checked because the server was unreachable or failed
+   * (not because it was refused): the tokens are kept and the app offers "Try again".
+   */
+  connectionError: string | null
   /** True when the user has at least `level` on the module. */
   can: (module: ModuleKey, level?: Exclude<Access, 'none'>) => boolean
-  /** Admin or Super Admin: manages accounts and manager permissions. */
+  /** Admin or Super Admin: every module, and the Manager and Worker accounts. */
   isAdmin: boolean
+  /** Super Admin: also Admin accounts, and the only one who sets the Manager role's permissions (Manager Access). */
+  isSuperAdmin: boolean
   login: (employeeId: string, password: string) => Promise<void>
   logout: () => Promise<void>
-  /** Re-reads the signed-in user, so permission changes made by an Admin show up. */
+  /** Re-reads the signed-in user, so permission changes made by the Super Admin show up. */
   refresh: () => Promise<void>
 }
 
@@ -43,29 +51,69 @@ const PERMISSION_REFRESH_MS = 60_000
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
+  // Who is signed in, for the cross-tab check below (which is set up once).
+  const userId = useRef<string | null>(null)
+  useEffect(() => {
+    userId.current = user?.id ?? null
+  }, [user])
 
   const refresh = useCallback(async () => {
     try {
       const me = await api.get<CurrentUser>('/api/auth/me')
+      setConnectionError(null)
       if (me.role === 'WORKER') {
         clearTokens()
         setUser(null)
         return
       }
       setUser(me)
-    } catch {
-      /* a 401 clears the session through onUnauthorized; other errors keep the current view */
+    } catch (err) {
+      // A 401 clears the session through onUnauthorized. Other errors (server down, 5xx) keep the
+      // tokens and the current view; with nobody shown yet, the app offers to try again.
+      setConnectionError(err instanceof ApiError && err.status === 401 ? null : errorText(err))
     }
   }, [])
 
   useEffect(() => {
-    onUnauthorized(() => setUser(null))
+    onUnauthorized(() => {
+      // Tell the sign-in page why it is shown, unless the user is signing out on purpose.
+      if (!signOutIntent.active) sessionEnded.active = true
+      setUser(null)
+    })
     if (!hasSession()) {
       setLoading(false)
       return
     }
     refresh().finally(() => setLoading(false))
   }, [refresh])
+
+  /*
+   * Keeps tabs in step: signing out in another tab signs out here too, and when another tab signs
+   * in (or someone else signs in there) this tab re-reads who is signed in. A different account
+   * reloads the page so nothing loaded for the previous account stays on screen.
+   */
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (!isSessionChange(e)) return
+      if (!hasSession()) {
+        setUser(null)
+        return
+      }
+      const before = userId.current
+      api
+        .get<CurrentUser>('/api/auth/me')
+        .then((me) => {
+          if (before && me.id !== before) window.location.reload()
+          else if (me.role !== 'WORKER') setUser(me)
+        })
+        .catch(() => {
+          /* a 401 signs out through onUnauthorized; other errors keep the current view */
+        })
+    }
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [])
 
   const signedIn = !!user
   useEffect(() => {
@@ -81,11 +129,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = useCallback(async (employeeId: string, password: string) => {
     setUser(await apiLogin(employeeId, password))
+    setConnectionError(null)
   }, [])
 
   const logout = useCallback(async () => {
     await apiLogout()
     setUser(null)
+    setConnectionError(null)
   }, [])
 
   const can = useCallback(
@@ -97,7 +147,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   )
 
   return (
-    <AuthContext.Provider value={{ user, loading, can, isAdmin: isAdminRole(user?.role), login, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, connectionError, can, isAdmin: isAdminRole(user?.role), isSuperAdmin: user?.role === 'SUPER_ADMIN', login, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   )

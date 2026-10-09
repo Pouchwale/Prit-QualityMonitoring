@@ -22,6 +22,19 @@ export async function downloadAndShare(path: string, fileName: string, query?: Q
   return file.uri
 }
 
+/**
+ * Deletes the downloaded and exported files (report PDFs, CSVs) kept in the app's cache, so the
+ * next person who signs in on this phone cannot open them. Called at sign out.
+ */
+export function clearDownloads() {
+  try {
+    const dir = new Directory(Paths.cache, 'downloads')
+    if (dir.exists) dir.delete()
+  } catch (err) {
+    console.warn('Could not delete downloaded files', err)
+  }
+}
+
 /** Writes text (e.g. a CSV export) to a file and shares it. */
 export async function shareText(fileName: string, text: string, mimeType = 'text/csv') {
   const dir = new Directory(Paths.cache, 'downloads')

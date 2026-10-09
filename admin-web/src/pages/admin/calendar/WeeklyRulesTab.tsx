@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { CalendarRange, Lock, Plus, StopCircle, Trash2 } from 'lucide-react'
+import { CalendarRange, CalendarX2, Lock, Plus, StopCircle, Trash2 } from 'lucide-react'
 import type { WeeklyRule } from '../../../types'
 import { api, errorText } from '../../../lib/api'
 import { useApi } from '../../../lib/useApi'
@@ -13,6 +13,8 @@ import { Field, FormError, Select, TextInput } from '../../../components/common/
 import { Modal } from '../../../components/common/Modal'
 import { useToast } from '../../../components/common/Toast'
 import { DateInput } from '../../../components/common/DateTimeInputs'
+import { Card, CardHeader, EmptyState } from '../../../components/ui/Card'
+import { IconButton } from '../../../components/ui/Toolbar'
 
 interface RulesResponse {
   startsOn: string
@@ -26,10 +28,10 @@ type RuleStatus = 'ACTIVE' | 'SCHEDULED' | 'ENDED'
 const statusOf = (rule: WeeklyRule, today: string): RuleStatus =>
   rule.effectiveFrom > today ? 'SCHEDULED' : rule.effectiveTo && rule.effectiveTo < today ? 'ENDED' : 'ACTIVE'
 
-const STATUS_STYLE: Record<RuleStatus, { label: string; className: string }> = {
-  ACTIVE: { label: 'Active', className: 'bg-success-bg text-success border-success-line' },
-  SCHEDULED: { label: 'Starts later', className: 'bg-blue-50 text-blue-700 border-blue-200' },
-  ENDED: { label: 'Ended', className: 'bg-slate-50 text-ink-muted border-line' }
+const STATUS_STYLE: Record<RuleStatus, { label: string; className: string; dot: string }> = {
+  ACTIVE: { label: 'Active', className: 'bg-success-bg text-success ring-success-line', dot: 'bg-[var(--color-chart-completed)]' },
+  SCHEDULED: { label: 'Starts later', className: 'bg-due-bg text-due ring-due-line', dot: 'bg-due' },
+  ENDED: { label: 'Ended', className: 'bg-subtle text-ink-muted ring-line', dot: 'bg-ink-faint' }
 }
 
 // Monday first, like the calendar.
@@ -66,71 +68,90 @@ export const WeeklyRulesTab: React.FC = () => {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-base font-bold text-ink">Weekly rules</h2>
-          <p className="text-xs text-ink-muted">
-            The plant is closed on these weekdays from {data ? fullDate(data.startsOn) : '01/01/2027'} onwards, in every year, unless a date in the annual
-            calendar says otherwise (an Adjustment Working Day opens it).
-          </p>
-        </div>
-        {canEdit && (
-          <Button size="sm" variant="primary" onClick={() => setAdding(true)} icon={<Plus className="w-3.5 h-3.5" />}>
-            Add weekly rule
-          </Button>
-        )}
-      </div>
-
-      <DataState loading={loading} error={error} onRetry={reload} empty={data !== null && rules.length === 0} emptyText="No weekly rules: from 2027 the plant is open every day unless a date is marked closed.">
-        <div className="bg-white border border-line rounded-lg shadow-2xs overflow-x-auto">
-          <table className="stack-sm w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50 border-b border-line text-ink-secondary text-[11px] uppercase tracking-wider">
-              <tr>
-                <th className="py-2.5 px-3.5 font-semibold">Closed every</th>
-                <th className="py-2.5 px-3.5 font-semibold">From</th>
-                <th className="py-2.5 px-3.5 font-semibold">Until</th>
-                <th className="py-2.5 px-3.5 font-semibold">Status</th>
-                <th className="py-2.5 px-3.5 font-semibold">Note</th>
-                {canEdit && <th className="py-2.5 px-3.5 font-semibold text-right">Action</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {rules.map((rule) => {
-                const status = statusOf(rule, today)
-                const started = rule.effectiveFrom < earliest
-                return (
-                  <tr key={rule.id} className="hover:bg-slate-50">
-                    <td className="py-2.5 px-3.5 font-semibold text-ink whitespace-nowrap">{WEEKDAY_NAMES[rule.weekday]}</td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap">{fullDate(rule.effectiveFrom)}</td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap">{rule.effectiveTo ? fullDate(rule.effectiveTo) : <span className="text-ink-muted">No end date</span>}</td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[11px] font-medium ${STATUS_STYLE[status].className}`}>{STATUS_STYLE[status].label}</span>
-                    </td>
-                    <td className="py-2.5 px-3.5 text-ink-secondary">{rule.note || <span className="text-ink-faint">—</span>}</td>
-                    {canEdit && (
-                      <td className="py-2.5 px-3.5 text-right whitespace-nowrap">
-                        {status !== 'ENDED' && (
-                          <Button size="sm" variant="ghost" onClick={() => setEnding(rule)} icon={<StopCircle className="w-3.5 h-3.5" />}>
-                            {rule.effectiveTo ? 'Change end' : 'End rule'}
-                          </Button>
-                        )}
-                        {!started && (
-                          <Button size="sm" variant="ghost" onClick={() => setDeleting(rule)} icon={<Trash2 className="w-3.5 h-3.5" />} className="text-failed hover:text-failed">
-                            Delete
-                          </Button>
-                        )}
-                      </td>
-                    )}
+      <DataState loading={loading} error={error} onRetry={reload} empty={data === null ? undefined : false}>
+        <Card className="overflow-hidden">
+          <CardHeader
+            icon={<CalendarRange className="w-4 h-4" />}
+            title="Weekly rules"
+            subtitle={`Closed weekdays from ${data ? fullDate(data.startsOn) : '01/01/2027'}`}
+            info={`The plant is closed on these weekdays from ${data ? fullDate(data.startsOn) : '01/01/2027'} onwards, in every year, unless a date in the annual calendar says otherwise (an Adjustment Working Day opens it).`}
+            actions={
+              canEdit && (
+                <Button size="sm" variant="primary" onClick={() => setAdding(true)} icon={<Plus className="w-3.5 h-3.5" />}>
+                  Add weekly rule
+                </Button>
+              )
+            }
+          />
+          {rules.length === 0 ? (
+            <EmptyState icon={<CalendarX2 className="w-5 h-5" />} title="No weekly rules" hint="From 2027 the plant is open every day unless a date is marked closed." compact />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="data-table stack-sm">
+                <thead>
+                  <tr>
+                    <th>Closed every</th>
+                    <th>From</th>
+                    <th>Until</th>
+                    <th>Status</th>
+                    <th>Note</th>
+                    {canEdit && <th className="text-right">Actions</th>}
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {rules.map((rule) => {
+                    const status = statusOf(rule, today)
+                    const started = rule.effectiveFrom < earliest
+                    const day = WEEKDAY_NAMES[rule.weekday]
+                    return (
+                      <tr key={rule.id}>
+                        <td className="whitespace-nowrap">
+                          <span className="inline-flex items-center gap-2 font-semibold text-ink">
+                            <span className="w-7 h-7 rounded-md bg-subtle ring-1 ring-inset ring-line text-[11px] font-semibold text-ink-secondary flex items-center justify-center" aria-hidden>
+                              {day.slice(0, 3)}
+                            </span>
+                            {day}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap tabular-nums">{fullDate(rule.effectiveFrom)}</td>
+                        <td className="whitespace-nowrap tabular-nums">{rule.effectiveTo ? fullDate(rule.effectiveTo) : <span className="text-ink-muted">No end date</span>}</td>
+                        <td className="whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1.5 h-5 px-1.5 rounded-full ring-1 ring-inset text-[11px] font-medium ${STATUS_STYLE[status].className}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${STATUS_STYLE[status].dot}`} aria-hidden />
+                            {STATUS_STYLE[status].label}
+                          </span>
+                        </td>
+                        <td className="text-ink-secondary">{rule.note || <span className="text-ink-faint">—</span>}</td>
+                        {canEdit && (
+                          <td className="text-right whitespace-nowrap" data-label="">
+                            <div className="inline-flex items-center gap-0.5">
+                              {status !== 'ENDED' && (
+                                <IconButton label={rule.effectiveTo ? `Change end of the ${day} rule` : `End the ${day} rule`} onClick={() => setEnding(rule)}>
+                                  <StopCircle className="w-3.5 h-3.5" />
+                                </IconButton>
+                              )}
+                              {!started && (
+                                <IconButton label={`Delete the ${day} rule`} tone="danger" onClick={() => setDeleting(rule)}>
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </IconButton>
+                              )}
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
       </DataState>
 
-      <div className="flex items-start gap-2.5 px-4 py-3 rounded-lg border border-line bg-slate-50 text-xs text-ink-secondary">
-        <Lock className="w-4 h-4 shrink-0 mt-px text-ink-muted" />
+      <div className="flex items-start gap-3 px-4 py-3 rounded-[10px] border border-line bg-subtle/60 text-[12.5px] text-ink-secondary">
+        <span className="w-7 h-7 shrink-0 rounded-md bg-white ring-1 ring-inset ring-line text-ink-muted flex items-center justify-center" aria-hidden>
+          <Lock className="w-3.5 h-3.5" />
+        </span>
         <div>
           <div className="font-semibold text-ink">Up to 31/12/2026</div>
           <div>
@@ -301,7 +322,7 @@ const EndRuleModal: React.FC<{ rule: WeeklyRule; earliest: string; onClose: () =
           <DateInput value={to} min={minEnd} disabled={openEnded} onChange={(e) => setTo(e.target.value)} required={!openEnded} />
         </Field>
         {rule.effectiveTo && (
-          <label className="flex items-center gap-2 text-xs text-ink">
+          <label className="flex items-center gap-2 text-[12.5px] text-ink">
             <input type="checkbox" checked={openEnded} onChange={(e) => setOpenEnded(e.target.checked)} className="h-3.5 w-3.5 accent-accent" />
             Remove the end date (keep the rule going)
           </label>

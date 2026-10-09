@@ -3,11 +3,12 @@ import http from 'node:http'
 import https from 'node:https'
 import os from 'node:os'
 import { config } from './config'
-import { createApp } from './app'
+import { createAdminWebApp, createApp } from './app'
 import { removeLegacyPlantLabel } from './db/cleanupLegacy'
 import { ensureSuperAdmin } from './db/ensureSuperAdmin'
 import { ensureNewParameters } from './db/ensureNewParameters'
 import { ensureCheckTypes } from './db/ensureCheckTypes'
+import { ensurePouchCheckTypes } from './db/ensurePouchCheckTypes'
 import path from 'node:path'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import { db } from './db/client'
@@ -18,6 +19,9 @@ import { ensureDefaultWeeklyRules } from './services/weeklyRules'
 import { adoptExistingFutureEntries } from './services/calendarYears'
 import { checkPushReceipts, notifyDueChecks } from './services/notifications'
 import { cleanOldTempFiles, kickVideoOptimization, videoOptimizationEnabled } from './services/mediaOptimizer'
+import { executeAutomatedReportRun } from './services/automatedReports'
+import { purgeExpiredRevokedTokens } from './routes/auth'
+import { runShiftLoginTick } from './services/workerShifts'
 
 // Bring the database up to date before serving requests. New code can reach a running backend
 // (e.g. `npm run dev` reloads on save) before anyone runs `npm run db:migrate`; without this the
@@ -37,14 +41,28 @@ const app = createApp()
  */
 const TICK_MS = 60_000
 
+/** True while a tick runs: a slow tick (a report being emailed) is never overlapped by the next one. */
+let ticking = false
+
 async function tick() {
+  if (ticking) return
+  ticking = true
   try {
     await prepareChecks([new Date()])
     const sent = await notifyDueChecks()
     if (sent.messages) console.log(`Notified ${sent.messages} device(s) about ${sent.checks} due check(s)`)
     await checkPushReceipts()
+    await purgeExpiredRevokedTokens()
+    // Workers' shift sign-in: logouts at shift end and shift-start login reminders.
+    const shiftLogin = await runShiftLoginTick()
+    if (shiftLogin.reminders || shiftLogin.autoLoggedOut) {
+      console.log(`Shift sign-in: ${shiftLogin.reminders} reminder(s) sent, ${shiftLogin.autoLoggedOut} worker(s) logged out at shift end`)
+    }
+    await executeAutomatedReportRun()
   } catch (err) {
     console.error('Scheduler tick failed', err)
+  } finally {
+    ticking = false
   }
 }
 
@@ -61,6 +79,14 @@ if (config.httpsKeyFile && config.httpsCertFile) {
     const lan = addresses('https', config.httpsPort)
     console.log(`HTTPS on https://localhost:${config.httpsPort}${lan.length ? ` and ${lan.join(', ')}` : ''}`)
     if (lan.length) console.log(`Worker web app (iPhone/PC): ${lan[0]}/app/`)
+  })
+}
+
+// The admin panel for desktop browsers, on its own port.
+if (config.adminPort) {
+  http.createServer(createAdminWebApp()).listen(config.adminPort, '0.0.0.0', () => {
+    const lan = addresses('http', config.adminPort)
+    console.log(`Admin panel (desktop): ${lan.length ? lan.join(', ') : `http://localhost:${config.adminPort}`}`)
   })
 }
 
@@ -84,6 +110,8 @@ http.createServer(app).listen(config.port, '0.0.0.0', () => {
     // The Label and Sleeve department check types, after the parameters they share.
     .then(() => ensureCheckTypes())
     .then((made) => made && console.log(`Check Types: created ${made} department check type(s) (Label, Sleeve).`))
+    .then(() => ensurePouchCheckTypes())
+    .then((made) => made && console.log(`Check Types: ensured Pouch check type(s) (Pouch Printing IPQC, Pouch QC).`))
     .catch((err) => console.error('Adding the new parameters failed', err))
   // Load the 2026 company holiday calendar (once), then give every stored check its worker,
   // both before the first scheduler pass.

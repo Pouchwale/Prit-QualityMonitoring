@@ -20,9 +20,9 @@ export const KIND_LABEL: Record<CheckKind, string> = {
 
 const STATUS_TEXT: Record<string, string> = {
   PLANNED: 'Planned',
-  STARTING: 'Waiting for the Job Start check',
+  STARTING: 'Pre-start checks pending',
   ACTIVE: 'Running',
-  ENDING: 'Waiting for the Job End check',
+  ENDING: 'Job end checks pending',
   COMPLETED: 'Completed',
   CANCELLED: 'Cancelled'
 }
@@ -96,6 +96,10 @@ export const JobScreen: React.FC<Props> = ({ jobId, onBack, onOpenCheck }) => {
                     {job.itemCode}
                   </Text>
                 ) : null}
+                <Text className="text-[16px] text-ink">
+                  <Text className="text-ink-muted">Department </Text>
+                  {job.departmentName ?? '—'}
+                </Text>
                 <Text className="text-[16px] text-ink">
                   <Text className="text-ink-muted">Worker now </Text>
                   {job.assignedWorkerName ?? '—'}

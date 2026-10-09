@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { db } from '../db/client'
-import { jobs, users } from '../db/schema'
+import { departments, jobs, users } from '../db/schema'
 import { RUNNING_STATUSES } from './jobMonitoring'
 
 /**
@@ -31,11 +31,15 @@ export interface JobDto {
   plannedFor: string | null
   note: string | null
   forceClosed: boolean
-  /** The department doing this job, fixed when a worker started it. */
+  /** The job's department, worked out from its Item Code prefix when it is planned or started. */
   departmentId: string | null
+  departmentName: string | null
 }
 
-export function jobDto(job: Job, names: { startedByName?: string | null; assignedWorkerName?: string | null } = {}): JobDto {
+export function jobDto(
+  job: Job,
+  names: { startedByName?: string | null; assignedWorkerName?: string | null; departmentName?: string | null } = {}
+): JobDto {
   return {
     id: job.id,
     machineId: job.machineId,
@@ -54,7 +58,8 @@ export function jobDto(job: Job, names: { startedByName?: string | null; assigne
     plannedFor: job.plannedFor,
     note: job.note,
     forceClosed: job.forceClosed,
-    departmentId: job.departmentId
+    departmentId: job.departmentId,
+    departmentName: names.departmentName ?? null
   }
 }
 
@@ -63,10 +68,11 @@ const assignee = alias(users, 'assignee')
 
 async function withNames(where: ReturnType<typeof and>) {
   const rows = await db
-    .select({ job: jobs, startedByName: starter.name, assignedWorkerName: assignee.name })
+    .select({ job: jobs, startedByName: starter.name, assignedWorkerName: assignee.name, departmentName: departments.name })
     .from(jobs)
     .leftJoin(starter, eq(jobs.startedById, starter.id))
     .leftJoin(assignee, eq(jobs.assignedWorkerId, assignee.id))
+    .leftJoin(departments, eq(jobs.departmentId, departments.id))
     .where(where)
     .orderBy(desc(jobs.startedAt))
   return rows.map((r) => jobDto(r.job, r))

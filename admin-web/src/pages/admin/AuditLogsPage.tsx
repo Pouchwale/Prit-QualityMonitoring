@@ -1,20 +1,61 @@
 import React, { useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, RefreshCw, Search } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw, RotateCcw, ScrollText } from 'lucide-react'
 import type { AuditLog } from '../../types'
 import { api, type Page } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { addDaysKey, dateKey, formatDateTime } from '../../lib/format'
+import { addDaysKey, dateKey, formatDate, formatDateKey, formatTime } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { PageHeader } from '../../components/common/PageHeader'
 import { DataState } from '../../components/common/DataState'
 import { inputClass } from '../../components/common/Form'
 import { DateInput } from '../../components/common/DateTimeInputs'
+import { Card } from '../../components/ui/Card'
+import { IconButton, ResultCount, SearchInput, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
 
-const ENTITIES = ['User', 'Parameter', 'Activity', 'Machine', 'Schedule', 'Shift', 'Department', 'PlantCalendar', 'QualityCheck', 'Exception', 'Settings']
+/** Every entity name the backend writes to the audit log (the Entity filter). */
+const ENTITIES = [
+  'User',
+  'Role',
+  'Parameter',
+  'Activity',
+  'Machine',
+  'MachineDayPlan',
+  'Schedule',
+  'Shift',
+  'Department',
+  'DepartmentMapping',
+  'PlantCalendar',
+  'Job',
+  'QualityCheck',
+  'Exception',
+  'ExceptionReason',
+  'MonitoringReason',
+  'ModuleNotificationAssignments',
+  'Report',
+  'ReportSharing',
+  'Settings'
+]
 const PER_PAGE = [25, 50, 100, 200]
 
 /** The server pages the log, so only one page of entries is ever loaded. */
 const loadPage = (path: string, query?: Record<string, string | number | boolean | null | undefined>) => api.getPage<AuditLog>(path, query)
+
+/** "UPDATE_MACHINE" as "Update machine"; the stored code stays in the tooltip and the details. */
+const actionLabel = (action: string) => {
+  const words = action.toLowerCase().split('_').filter(Boolean)
+  return words.length ? `${words[0][0].toUpperCase()}${words[0].slice(1)} ${words.slice(1).join(' ')}`.trim() : action
+}
+
+/** Pill colour by what the action did: added (green), removed or refused (red), changed (blue), anything else neutral. */
+const actionTone = (action: string) => {
+  if (/_DENIED$/.test(action) || /^(DELETE|REMOVE|DISABLE)/.test(action)) return 'bg-missed-bg text-missed ring-missed-line'
+  if (/^(CREATE|ADD|APPROVE|CONFIRM|START)/.test(action)) return 'bg-success-bg text-success ring-success-line'
+  if (/^(UPDATE|EDIT|CHANGE|REORDER)/.test(action)) return 'bg-accent-soft text-accent-strong ring-accent-line'
+  return 'bg-subtle text-ink-secondary ring-line'
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+const valueText = (v: unknown) => (v === undefined ? '—' : v === null ? 'null' : typeof v === 'string' ? v : JSON.stringify(v))
 
 export const AuditLogsPage: React.FC = () => {
   const [search, setSearch] = useState('')
@@ -24,6 +65,7 @@ export const AuditLogsPage: React.FC = () => {
   const [to, setTo] = useState(dateKey)
   const [perPage, setPerPage] = useState(25)
   const [page, setPage] = useState(1)
+  const [open, setOpen] = useState<Set<string>>(() => new Set())
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -56,41 +98,52 @@ export const AuditLogsPage: React.FC = () => {
     setPage(1)
   }
 
+  const toggle = (id: string) =>
+    setOpen((s) => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  // Up to 5 page buttons around the current page, as in the shared Pagination.
+  const start = Math.max(1, Math.min(page - 2, totalPages - 4))
+  const numbers = Array.from({ length: Math.min(5, totalPages) }, (_, i) => start + i)
+  const pageBtn = 'h-8 min-w-8 px-2 inline-flex items-center justify-center rounded-md text-[12.5px] font-medium tabular-nums transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
+        icon={<ScrollText className="w-4.5 h-4.5" />}
         title="Audit Logs"
-        description="Who changed what and when — configuration edits, check submissions and exception reviews"
+        description={
+          <span className="inline-flex items-center gap-1.5 flex-wrap">
+            <span className="font-medium text-ink-secondary">
+              {from && to ? (from === to ? formatDateKey(from) : `${formatDateKey(from)} – ${formatDateKey(to)}`) : 'All dates'}
+            </span>
+            <span aria-hidden>·</span>
+            {total.toLocaleString('en-IN')} {total === 1 ? 'entry' : 'entries'}
+          </span>
+        }
+        info="Who changed what and when — configuration edits, check submissions and exception reviews. Open a row to see the entity ID, IP address and the values before and after the change."
         actions={
-          <Button size="sm" variant="outline" onClick={() => reload()} loading={loading && data !== null} icon={<RefreshCw className="w-3.5 h-3.5" />}>
-            Refresh
-          </Button>
+          <IconButton label="Refresh" size="md" onClick={() => reload()} className="border border-line-strong bg-white">
+            <RefreshCw className={`w-4 h-4 ${loading && data !== null ? 'animate-spin' : ''}`} />
+          </IconButton>
         }
       />
 
-      <div className="bg-white border border-line rounded-md p-3 shadow-2xs grid grid-cols-2 sm:flex sm:flex-wrap items-end gap-2.5 text-xs">
-        <div className="col-span-2 sm:flex-1 sm:min-w-[220px] sm:max-w-sm">
-          <div className="text-[11px] font-semibold text-ink-secondary mb-1">Search</div>
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 lg:top-2.5 lg:translate-y-0 text-ink-faint pointer-events-none" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Action, user, entity or ID…"
-              className={`${inputClass} pl-8`}
-            />
-          </div>
-        </div>
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold text-ink-secondary mb-1">Entity</div>
+      <Card className="overflow-hidden">
+        <Toolbar className="items-end sm:items-center">
+          <SearchInput value={search} onChange={setSearch} label="Search audit log" placeholder="Action, user, entity or ID…" className="sm:w-60" />
           <select
             value={entity}
+            aria-label="Filter by entity"
             onChange={(e) => {
               setEntity(e.target.value)
               setPage(1)
             }}
-            className={`${inputClass} px-2 sm:w-auto`}
+            className={`${inputClass} px-2 w-full sm:w-auto sm:max-w-[200px] ${entity ? 'border-accent bg-accent-soft/40' : ''}`}
           >
             <option value="">All entities</option>
             {ENTITIES.map((e) => (
@@ -99,117 +152,248 @@ export const AuditLogsPage: React.FC = () => {
               </option>
             ))}
           </select>
-        </div>
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold text-ink-secondary mb-1">From</div>
-          <DateInput
-            value={from}
-            max={to}
-            onChange={(e) => {
-              const v = e.target.value
-              setFrom(v)
-              if (v && to && v > to) setTo(v)
-              setPage(1)
-            }}
-            className="sm:w-[160px] lg:w-[132px]"
-          />
-        </div>
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold text-ink-secondary mb-1">To</div>
-          <DateInput
-            value={to}
-            min={from}
-            onChange={(e) => {
-              const v = e.target.value
-              setTo(v)
-              if (v && from && v < from) setFrom(v)
-              setPage(1)
-            }}
-            className="sm:w-[160px] lg:w-[132px]"
-          />
-        </div>
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold text-ink-secondary mb-1">Rows per page</div>
-          <select
-            aria-label="Rows per page"
-            value={perPage}
-            onChange={(e) => {
-              setPerPage(Number(e.target.value))
-              setPage(1)
-            }}
-            className={`${inputClass} px-2 sm:w-auto`}
-          >
-            {PER_PAGE.map((l) => (
-              <option key={l} value={l}>
-                {l} rows
-              </option>
-            ))}
-          </select>
-        </div>
-        <Button size="field" variant="ghost" onClick={reset}>
-          Reset
-        </Button>
-        <span className="col-span-2 sm:ml-auto self-center text-[11px] text-ink-muted">
-          {total} entr{total === 1 ? 'y' : 'ies'}
-        </span>
-      </div>
+          <div className="grid grid-cols-2 sm:flex items-center gap-1.5 w-full sm:w-auto">
+            <DateInput
+              value={from}
+              max={to}
+              aria-label="From date"
+              onChange={(e) => {
+                const v = e.target.value
+                setFrom(v)
+                if (v && to && v > to) setTo(v)
+                setPage(1)
+              }}
+              className="sm:w-[150px] lg:w-[128px]"
+            />
+            <DateInput
+              value={to}
+              min={from}
+              aria-label="To date"
+              onChange={(e) => {
+                const v = e.target.value
+                setTo(v)
+                if (v && from && v < from) setFrom(v)
+                setPage(1)
+              }}
+              className="sm:w-[150px] lg:w-[128px]"
+            />
+          </div>
+          <Button size="field" variant="ghost" onClick={reset} icon={<RotateCcw className="w-3 h-3" />}>
+            Reset
+          </Button>
+          <ToolbarSpacer />
+          <ResultCount shown={total} noun={total === 1 ? 'entry' : 'entries'} />
+        </Toolbar>
 
-      <DataState loading={loading} error={error} onRetry={reload} empty={data === null ? undefined : logs.length === 0} emptyText="No audit entries match these filters.">
-        <div className="bg-white border border-line rounded-md shadow-2xs overflow-hidden">
+        {/* The loading / error / empty block sits flush inside this card instead of drawing a second card. */}
+        <div className="[&>.card]:border-0 [&>.card]:shadow-none [&>.card]:rounded-none">
+        <DataState loading={loading} error={error} onRetry={reload} empty={data === null ? undefined : logs.length === 0} emptyText="No audit entries match these filters.">
           <div className="overflow-x-auto">
-            <table className="stack-sm w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-50 border-b border-line text-ink-secondary text-[11px] uppercase tracking-wider">
+            <table className="data-table stack-sm">
+              <thead>
                 <tr>
-                  <th className="py-2.5 px-3 font-semibold">Time</th>
-                  <th className="py-2.5 px-3 font-semibold">User</th>
-                  <th className="py-2.5 px-3 font-semibold">Role</th>
-                  <th className="py-2.5 px-3 font-semibold">Action</th>
-                  <th className="py-2.5 px-3 font-semibold">Entity</th>
-                  <th className="py-2.5 px-3 font-semibold">Entity ID</th>
-                  <th className="py-2.5 px-3 font-semibold text-right">IP address</th>
+                  <th>Time</th>
+                  <th>Action</th>
+                  <th>Entity</th>
+                  <th>User</th>
+                  <th className="text-right">
+                    <span className="sr-only">Details</span>
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line">
-                {logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50">
-                    <td className="py-2 px-3 font-mono text-ink whitespace-nowrap">{formatDateTime(log.createdAt)}</td>
-                    <td className="py-2 px-3 font-medium text-ink whitespace-nowrap">{log.userName ?? <span className="text-ink-faint italic">System</span>}</td>
-                    <td className="py-2 px-3 text-ink-secondary whitespace-nowrap">{log.role ?? '—'}</td>
-                    <td className="py-2 px-3 whitespace-nowrap">
-                      <span className="px-1.5 py-0.5 rounded bg-blue-50 text-accent border border-blue-200 font-mono text-[11px]">{log.action}</span>
-                    </td>
-                    <td className="py-2 px-3 text-ink whitespace-nowrap">{log.entity}</td>
-                    <td className="py-2 px-3 font-mono text-[11px] text-ink-muted max-w-[220px] truncate" title={log.entityId ?? undefined}>
-                      {log.entityId ?? '—'}
-                    </td>
-                    <td className="py-2 px-3 font-mono text-ink-muted text-right whitespace-nowrap">{log.ipAddress ?? '—'}</td>
-                  </tr>
-                ))}
+              <tbody>
+                {logs.map((log) => {
+                  const expanded = open.has(log.id)
+                  return (
+                    <React.Fragment key={log.id}>
+                      <tr className="cursor-pointer" onClick={() => toggle(log.id)}>
+                        <td className="whitespace-nowrap tabular-nums">
+                          <div className="text-ink">{formatDate(log.createdAt)}</div>
+                          <div className="text-[11.5px] text-ink-muted">{formatTime(log.createdAt, true)}</div>
+                        </td>
+                        <td className="whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center h-5 px-2 rounded-full text-[11.5px] font-medium ring-1 ring-inset ${actionTone(log.action)}`}
+                            title={log.action}
+                          >
+                            {actionLabel(log.action)}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="font-medium text-ink">{log.entity}</div>
+                          {log.entityId && (
+                            <div className="max-w-[200px] text-[11.5px] text-ink-muted font-mono truncate" title={log.entityId}>
+                              {log.entityId}
+                            </div>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap">
+                          <div className="font-medium text-ink">{log.userName ?? <span className="text-ink-muted italic">System</span>}</div>
+                          {log.role && <div className="text-[11.5px] text-ink-muted">{log.role}</div>}
+                        </td>
+                        <td className="text-right" data-label="">
+                          <IconButton
+                            label={expanded ? 'Hide details' : 'Show details'}
+                            aria-expanded={expanded}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggle(log.id)
+                            }}
+                          >
+                            <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                          </IconButton>
+                        </td>
+                      </tr>
+                      {expanded && (
+                        <tr>
+                          <td colSpan={5} className="bg-subtle/60">
+                            <AuditDetails log={log} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  )
+                })}
               </tbody>
             </table>
           </div>
-
-          <nav
-            aria-label="Audit log pages"
-            className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-3 py-2.5 border-t border-line bg-slate-50 text-[11px] text-ink-muted"
-          >
-            <span>
-              Showing {firstOnPage}–{lastOnPage} of {total}
-            </span>
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))} icon={<ChevronLeft className="w-3.5 h-3.5" />}>
-                Previous
-              </Button>
-              <span className="font-medium text-ink-secondary whitespace-nowrap" aria-live="polite">
-                Page {page} of {totalPages}
-              </span>
-              <Button size="sm" variant="outline" disabled={page >= totalPages || loading} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} iconRight={<ChevronRight className="w-3.5 h-3.5" />}>
-                Next
-              </Button>
-            </div>
-          </nav>
+        </DataState>
         </div>
-      </DataState>
+
+        <nav aria-label="Audit log pages" className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 border-t border-line">
+          <div className="flex items-center gap-2 text-[12px] text-ink-muted">
+            <select
+              aria-label="Rows per page"
+              value={perPage}
+              onChange={(e) => {
+                setPerPage(Number(e.target.value))
+                setPage(1)
+              }}
+              className={`${inputClass} px-2 !w-[104px]`}
+            >
+              {PER_PAGE.map((l) => (
+                <option key={l} value={l}>
+                  {l} rows
+                </option>
+              ))}
+            </select>
+            <span className="tabular-nums whitespace-nowrap">
+              {firstOnPage.toLocaleString('en-IN')}–{lastOnPage.toLocaleString('en-IN')} of {total.toLocaleString('en-IN')}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className={`${pageBtn} text-ink-secondary hover:bg-subtle`}
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            {numbers.map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={`${pageBtn} ${n === page ? 'bg-accent-soft text-accent-strong ring-1 ring-accent-line' : 'text-ink-secondary hover:bg-subtle'}`}
+                disabled={loading && n !== page}
+                onClick={() => setPage(n)}
+                aria-current={n === page ? 'page' : undefined}
+                aria-label={`Page ${n}`}
+              >
+                {n}
+              </button>
+            ))}
+            <button
+              type="button"
+              className={`${pageBtn} text-ink-secondary hover:bg-subtle`}
+              disabled={page >= totalPages || loading}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              aria-label="Next page"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            <span className="sr-only" aria-live="polite">
+              Page {page} of {totalPages}
+            </span>
+          </div>
+        </nav>
+      </Card>
     </div>
   )
 }
+
+/** The expanded row: identifiers, then each field whose value changed (before → after), then the raw values. */
+const AuditDetails: React.FC<{ log: AuditLog }> = ({ log }) => {
+  const before = log.oldValue
+  const after = log.newValue
+  const fields =
+    isRecord(before) || isRecord(after)
+      ? [...new Set([...Object.keys(isRecord(before) ? before : {}), ...Object.keys(isRecord(after) ? after : {})])].filter(
+          (k) => JSON.stringify(isRecord(before) ? before[k] : undefined) !== JSON.stringify(isRecord(after) ? after[k] : undefined)
+        )
+      : []
+  const hasValues = (before !== null && before !== undefined) || (after !== null && after !== undefined)
+  return (
+    <div className="py-1 space-y-3 text-left">
+      <dl className="flex flex-wrap gap-x-6 gap-y-1.5 text-[12px]">
+        <Meta label="Action code" value={log.action} mono />
+        <Meta label="Entity ID" value={log.entityId ?? '—'} mono />
+        <Meta label="IP address" value={log.ipAddress ?? '—'} mono />
+        {log.role && <Meta label="Role" value={log.role} />}
+      </dl>
+      {!hasValues ? (
+        <p className="text-[12px] text-ink-muted">No values recorded for this entry.</p>
+      ) : fields.length > 0 ? (
+        // Divs, not a nested table: the phone layout of the log table restyles every cell inside it.
+        <div className="rounded-md border border-line bg-white text-[12px] divide-y divide-line" role="list" aria-label="Changed fields">
+          <div className="hidden sm:grid grid-cols-[minmax(120px,1fr)_2fr_2fr] gap-3 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-ink-muted" aria-hidden>
+            <span>Field</span>
+            <span>Before</span>
+            <span>After</span>
+          </div>
+          {fields.map((k) => (
+            <div key={k} role="listitem" className="grid grid-cols-1 sm:grid-cols-[minmax(120px,1fr)_2fr_2fr] gap-x-3 gap-y-0.5 px-3 py-1.5">
+              <span className="font-medium text-ink [overflow-wrap:anywhere]">{k}</span>
+              <span className="font-mono text-ink-muted [overflow-wrap:anywhere]">
+                <span className="sm:sr-only">Before: </span>
+                {valueText(isRecord(before) ? before[k] : undefined)}
+              </span>
+              <span className="font-mono text-ink [overflow-wrap:anywhere]">
+                <span className="sm:sr-only">After: </span>
+                {valueText(isRecord(after) ? after[k] : undefined)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[12px] text-ink-muted">No field changed between the recorded values.</p>
+      )}
+      {hasValues && (
+        <details className="text-[12px]">
+          <summary className="cursor-pointer text-ink-secondary font-medium w-fit">Raw values</summary>
+          <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-2">
+            <RawValue label="Before" value={before} />
+            <RawValue label="After" value={after} />
+          </div>
+        </details>
+      )}
+    </div>
+  )
+}
+
+const Meta: React.FC<{ label: string; value: string; mono?: boolean }> = ({ label, value, mono }) => (
+  <div className="min-w-0">
+    <dt className="text-[11px] font-semibold uppercase tracking-[0.04em] text-ink-muted">{label}</dt>
+    <dd className={`text-ink [overflow-wrap:anywhere] ${mono ? 'font-mono text-[11.5px]' : ''}`}>{value}</dd>
+  </div>
+)
+
+const RawValue: React.FC<{ label: string; value: unknown }> = ({ label, value }) => (
+  <div className="min-w-0">
+    <div className="text-[11px] font-semibold uppercase tracking-[0.04em] text-ink-muted mb-1">{label}</div>
+    <pre className="max-h-64 overflow-auto rounded-md border border-line bg-white p-2.5 font-mono text-[11.5px] text-ink whitespace-pre-wrap [overflow-wrap:anywhere]">
+      {value === null || value === undefined ? '—' : JSON.stringify(value, null, 2)}
+    </pre>
+  </div>
+)

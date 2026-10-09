@@ -53,7 +53,7 @@ export const StaffApp: React.FC<{ profile: Profile; onProfileChange: (p: Profile
     more: [route('more')]
   }))
 
-  // A tab that is no longer permitted (an Admin changed the access) falls back to Home.
+  // A tab that is no longer permitted (the Super Admin changed the Manager access) falls back to Home.
   const activeTab = tabs.some((t) => t.key === tab) ? tab : 'home'
   const stack = stacks[activeTab]
   const current = stack[stack.length - 1]

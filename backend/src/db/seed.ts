@@ -3,6 +3,7 @@ import {
   activities,
   activityParameters,
   departments,
+  departmentMappings,
   machineActivities,
   machines,
   exceptionReasons,
@@ -28,11 +29,17 @@ async function main() {
   }
 
   await db.transaction(async (tx) => {
-    await tx.insert(departments).values([
-      { name: 'Pouch', code: 'POUCH' },
-      { name: 'Slive', code: 'SLIVE' },
-      { name: 'Label', code: 'LABEL' }
-    ])
+    const seededDepartments = await tx
+      .insert(departments)
+      .values([
+        { name: 'Pouch', code: 'POUCH' },
+        { name: 'Slive', code: 'SLIVE' },
+        { name: 'Label', code: 'LABEL' }
+      ])
+      .returning()
+    // A job's department is worked out from how its Item Code starts (services/itemCodeDepartment.ts).
+    const prefixOf: Record<string, string> = { POUCH: 'RMPO', SLIVE: 'RMSL', LABEL: 'RMLA' }
+    await tx.insert(departmentMappings).values(seededDepartments.map((d) => ({ prefix: prefixOf[d.code], departmentId: d.id })))
 
     const allShifts = await tx
       .insert(shifts)

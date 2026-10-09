@@ -11,6 +11,21 @@ import { config } from '../config'
  */
 
 const LINK_TTL_SECONDS = 12 * 60 * 60
+
+/** Content types evidence files are served with, by stored extension (services/uploads.ts decides it). */
+const MEDIA_TYPES: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  heic: 'image/heic',
+  heif: 'image/heif',
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+  '3gp': 'video/3gpp'
+}
 const secret = process.env.MEDIA_LINK_SECRET ?? createHmac('sha256', config.jwtAccessSecret).update('media-links').digest('hex')
 
 const sign = (relativePath: string, exp: number) => createHmac('sha256', secret).update(`${relativePath}\n${exp}`).digest('base64url')
@@ -43,8 +58,14 @@ export function serveSignedMedia(app: Express) {
       res.status(403).json({ error: 'This link has expired or is not valid. Open the check again to view its evidence.' })
       return
     }
+    // Only photos and videos are served as themselves; anything else (an older upload with another
+    // extension) is a download. The file can never run as a page or script on this origin.
+    const type = MEDIA_TYPES[path.extname(full).slice(1).toLowerCase()]
     res.setHeader('Cache-Control', 'private, max-age=3600')
-    res.sendFile(full, { dotfiles: 'deny' }, (err) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; media-src 'self'; sandbox")
+    if (!type) res.setHeader('Content-Disposition', 'attachment')
+    res.sendFile(full, { dotfiles: 'deny', headers: { 'Content-Type': type ?? 'application/octet-stream' } }, (err) => {
       if (err && !res.headersSent) res.status(404).json({ error: 'File not found' })
     })
   })

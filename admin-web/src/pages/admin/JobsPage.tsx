@@ -1,5 +1,22 @@
 import React, { useMemo, useState } from 'react'
-import { ArrowLeftRight, Briefcase, ExternalLink, Pencil, Plus, RefreshCw, StopCircle } from 'lucide-react'
+import {
+  AlarmClock,
+  AlertTriangle,
+  ArrowLeftRight,
+  Briefcase,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  ExternalLink,
+  Flag,
+  ListChecks,
+  Pencil,
+  Plus,
+  RefreshCw,
+  StopCircle,
+  Trash2,
+  XCircle
+} from 'lucide-react'
 import type { CheckKind, Department, JobHandover, JobRow, JobStatus, Machine, QualityCheck, Shift, User } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
@@ -15,14 +32,30 @@ import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { Field, FormError, Select, TextArea, TextInput, inputClass } from '../../components/common/Form'
 import { DateInput } from '../../components/common/DateTimeInputs'
+import { DeleteRecordsModal } from '../../components/common/DeleteRecordsModal'
+import { BulkDeleteBar, RowCheckbox, useSelection } from '../../components/common/BulkSelection'
+import { useDeletePermissions } from '../../lib/deletePermissions'
+import { Card, EmptyState } from '../../components/ui/Card'
+import { StatCard } from '../../components/ui/StatCard'
+import { IconButton, ResultCount, SearchInput, Segmented, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
+import { Pagination, usePagination } from '../../components/ui/Pagination'
 
-const STATUS: Record<JobStatus, { label: string; cls: string }> = {
-  PLANNED: { label: 'Planned', cls: 'bg-slate-50 text-ink-secondary border-line' },
-  STARTING: { label: 'Job Start check', cls: 'bg-due-bg text-due border-due-line' },
-  ACTIVE: { label: 'Running', cls: 'bg-success-bg text-success border-success-line' },
-  ENDING: { label: 'Job End check', cls: 'bg-due-bg text-due border-due-line' },
-  COMPLETED: { label: 'Completed', cls: 'bg-slate-50 text-ink border-line' },
-  CANCELLED: { label: 'Cancelled', cls: 'bg-slate-50 text-ink-muted border-line' }
+/** Five KPI tiles with no empty cell: 2 + 2 + 1 (wide) on phones, 3 + 2 on tablets, one row on desktop. */
+const KPI_GRID =
+  'grid grid-cols-2 md:grid-cols-6 xl:grid-cols-5 gap-3 [&>*:last-child]:col-span-2 md:[&>*]:col-span-2 md:[&>*:nth-child(n+4)]:col-span-3 xl:[&>*]:col-span-1 xl:[&>*:nth-child(n+4)]:col-span-1'
+
+/** A running job is never deleted: it has to be force-closed first (the server refuses too). */
+const RUNNING: JobStatus[] = ['STARTING', 'ACTIVE', 'ENDING']
+
+// Job status pills: soft tint, dot and text (never colour alone). Running is green, the Start /
+// End check steps are "due" blue, finished and planned jobs stay neutral.
+const STATUS: Record<JobStatus, { label: string; cls: string; dot: string }> = {
+  PLANNED: { label: 'Planned', cls: 'bg-white text-ink-secondary ring-line-strong', dot: 'border border-ink-faint' },
+  STARTING: { label: 'Job Start check', cls: 'bg-due-bg text-due ring-due-line', dot: 'bg-due' },
+  ACTIVE: { label: 'Running', cls: 'bg-success-bg text-success ring-success-line', dot: 'bg-[var(--color-chart-completed)]' },
+  ENDING: { label: 'Job End check', cls: 'bg-due-bg text-due ring-due-line', dot: 'bg-due' },
+  COMPLETED: { label: 'Completed', cls: 'bg-subtle text-ink ring-line', dot: 'bg-ink-muted' },
+  CANCELLED: { label: 'Cancelled', cls: 'bg-subtle text-ink-muted ring-line', dot: 'bg-ink-faint' }
 }
 
 const KIND_LABEL: Record<CheckKind, string> = {
@@ -41,19 +74,31 @@ const FILTERS: { key: string; label: string; statuses: JobStatus[] }[] = [
 ]
 
 const StatusPill: React.FC<{ status: JobStatus; forced?: boolean }> = ({ status, forced }) => (
-  <span className={`inline-flex items-center px-1.5 py-px rounded border text-[11px] font-semibold whitespace-nowrap ${STATUS[status].cls}`}>
+  <span className={`inline-flex items-center gap-1.5 h-5 px-1.5 rounded-full ring-1 ring-inset text-[11px] font-medium whitespace-nowrap leading-none ${STATUS[status].cls}`}>
+    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS[status].dot}`} aria-hidden />
     {STATUS[status].label}
     {forced ? ' · force closed' : ''}
   </span>
 )
 
-const EdgeState: React.FC<{ state: JobRow['startCheck'] }> = ({ state }) =>
+/** Job Start / Job End check state: Done, Pending, or a dash when the job has none. */
+const EdgeState: React.FC<{ state: JobRow['startCheck']; label?: string }> = ({ state, label }) =>
   state === 'NONE' ? (
-    <span className="text-ink-faint">—</span>
+    <span className="inline-flex items-center gap-1 text-ink-faint" title={label ? `${label}: none` : undefined}>
+      {label && <span className="text-[11px] text-ink-muted">{label}</span>}—
+    </span>
   ) : state === 'DONE' ? (
-    <span className="text-success font-semibold">Done</span>
+    <span className="inline-flex items-center gap-1 text-success font-medium">
+      <CheckCircle2 className="w-3.5 h-3.5" aria-hidden />
+      {label && <span className="text-[11px] text-ink-muted font-normal">{label}</span>}
+      Done
+    </span>
   ) : (
-    <span className="text-due font-semibold">Pending</span>
+    <span className="inline-flex items-center gap-1 text-due font-medium">
+      <Clock3 className="w-3.5 h-3.5" aria-hidden />
+      {label && <span className="text-[11px] text-ink-muted font-normal">{label}</span>}
+      Pending
+    </span>
   )
 
 const duration = (minutes: number) => (minutes >= 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes} min`)
@@ -61,24 +106,28 @@ const duration = (minutes: number) => (minutes >= 60 ? `${Math.floor(minutes / 6
 interface PlanForm {
   machineId: string
   jobNo: string
+  /** Required: its prefix decides the job's department, on the server. */
   itemCode: string
-  /** Empty: the department of the worker who starts the job. */
-  departmentId: string
   plannedFor: string
   note: string
 }
-const emptyPlan: PlanForm = { machineId: '', jobNo: '', itemCode: '', departmentId: '', plannedFor: '', note: '' }
+const emptyPlan: PlanForm = { machineId: '', jobNo: '', itemCode: '', plannedFor: '', note: '' }
 
 /**
  * Jobs: plan and assign jobs, follow every running job (worker, Job Start / End check, pending,
  * missed and overdue checks, handovers), open one job with all its records, hand it over, or
  * force-close a stuck job.
+ *
+ * Nobody picks a job's department: the server works it out from the Item Code prefix, using the
+ * prefixes set on the Department Configuration page. View needs the Jobs module; changes need Jobs manage.
  */
 export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: React.ReactNode }> = ({ onViewCheck, tabs }) => {
-  const canManage = useCanManage('checks')
+  const canManage = useCanManage('jobs')
   const notify = useToast()
   const [filter, setFilter] = useState('running')
   const [machineId, setMachineId] = useState('')
+  const [search, setSearch] = useState('')
+  const [departmentFilter, setDepartmentFilter] = useState('')
   const [from, setFrom] = useState(addDaysKey(dateKey(), -29))
   const [to, setTo] = useState(dateKey())
   const statuses = FILTERS.find((f) => f.key === filter)!.statuses
@@ -103,19 +152,39 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
   const [planError, setPlanError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [handover, setHandover] = useState<{ job: JobRow; toUserId: string; shiftId: string; note: string; error: string | null } | null>(null)
+  const [handingOver, setHandingOver] = useState(false)
   const [closing, setClosing] = useState<JobRow | null>(null)
 
-  const rows = useMemo(() => data ?? [], [data])
+  // The list is loaded whole for the chosen status, machine and dates, so the search narrows it
+  // as the user types without another request: PO No. or Item Code, any part, any case.
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return (data ?? []).filter(
+      (j) =>
+        (!departmentFilter || j.departmentId === departmentFilter) &&
+        (!q || j.jobNo.toLowerCase().includes(q) || (j.itemCode ?? '').toLowerCase().includes(q))
+    )
+  }, [data, search, departmentFilter])
   const refreshAll = () => {
     reload()
     if (openId) detail.reload()
   }
 
+  // Permanent delete: needs Delete Jobs (checked again by the server).
+  const canDeleteJobs = useDeletePermissions().DELETE_JOBS
+  // Only one page of rows is rendered, and only rows on that page can be selected, so nothing out
+  // of sight is ever deleted.
+  const paging = usePagination(rows, 25, `${filter}|${machineId}|${search}|${departmentFilter}|${from}|${to}`)
+  const selection = useSelection(
+    useMemo(() => (canDeleteJobs ? paging.visible.filter((j) => !RUNNING.includes(j.status)).map((j) => j.id) : []), [paging.visible, canDeleteJobs])
+  )
+  const [deleting, setDeleting] = useState<{ ids: string[]; bulk: boolean } | null>(null)
+
   const openPlan = (job: JobRow | null) => {
     setEditing(job)
     setPlan(
       job
-        ? { machineId: job.machineId, jobNo: job.jobNo, itemCode: job.itemCode ?? '', departmentId: job.departmentId ?? '', plannedFor: job.plannedFor ?? '', note: job.note ?? '' }
+        ? { machineId: job.machineId, jobNo: job.jobNo, itemCode: job.itemCode ?? '', plannedFor: job.plannedFor ?? '', note: job.note ?? '' }
         : { ...emptyPlan, machineId: machineId || '', plannedFor: dateKey() }
     )
     setPlanError(null)
@@ -125,20 +194,24 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
   const savePlan = async () => {
     if (!plan.machineId) return setPlanError('Choose the machine')
     if (!plan.jobNo.trim()) return setPlanError('Enter the PO No.')
+    if (!plan.itemCode.trim()) return setPlanError('Enter the Item Code.')
     setSaving(true)
     setPlanError(null)
+    // No department: the server works it out from the Item Code, and refuses an Item Code it cannot place.
     const body = {
       machineId: plan.machineId,
       jobNo: plan.jobNo.trim(),
-      itemCode: plan.itemCode.trim() || null,
-      departmentId: plan.departmentId || null,
+      itemCode: plan.itemCode.trim(),
       plannedFor: plan.plannedFor || null,
       note: plan.note.trim() || null
     }
     try {
-      if (editing) await api.put(`/api/jobs/${editing.id}`, body)
-      else await api.post('/api/jobs', body)
-      notify('success', editing ? 'Job updated' : 'Job planned', `PO No. ${body.jobNo} — any worker can start it on the machine`)
+      const saved = editing ? await api.put<JobRow>(`/api/jobs/${editing.id}`, body) : await api.post<JobRow>('/api/jobs', body)
+      notify(
+        'success',
+        editing ? 'Job updated' : 'Job planned',
+        `PO No. ${body.jobNo}${saved?.departmentName ? ` · ${saved.departmentName}` : ''} — any worker can start it on the machine`
+      )
       setPlanOpen(false)
       refreshAll()
     } catch (err) {
@@ -149,8 +222,9 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
   }
 
   const sendHandover = async () => {
-    if (!handover) return
+    if (!handover || handingOver) return
     if (!handover.toUserId) return setHandover({ ...handover, error: 'Choose the worker' })
+    setHandingOver(true)
     try {
       await api.post(`/api/jobs/${handover.job.id}/handover`, { toUserId: handover.toUserId, shiftId: handover.shiftId || null, note: handover.note.trim() || undefined })
       notify('success', 'Job handed over', `PO No. ${handover.job.jobNo} and its open checks moved; the worker was notified.`)
@@ -158,23 +232,46 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
       refreshAll()
     } catch (err) {
       setHandover({ ...handover, error: errorText(err) })
+    } finally {
+      setHandingOver(false)
     }
   }
 
   const machineOptions = (machines ?? []).filter((m) => m.isActive)
-  const job = detail.data?.job
+  // useApi keeps the previous answer while the next one loads: only the job that is open now is
+  // shown and acted on, never the one opened before it.
+  const current = detail.data?.job?.id === openId ? detail.data : null
+  const job = current?.job
+
+  // KPI strip: worked out from the jobs on screen (the list is loaded for the chosen status tab).
+  const kpi = useMemo(() => {
+    const k = { running: 0, edge: 0, planned: 0, overdue: 0, missed: 0, handovers: 0 }
+    for (const j of rows) {
+      if (j.status === 'ACTIVE') k.running++
+      if (j.status === 'STARTING' || j.status === 'ENDING') k.edge++
+      if (j.status === 'PLANNED') k.planned++
+      k.overdue += j.counts.overdue
+      k.missed += j.counts.missed
+      k.handovers += j.handovers
+    }
+    return k
+  }, [rows])
+  const filterLabel = FILTERS.find((f) => f.key === filter)!.label
+  const activeSelect = 'border-accent bg-accent-soft/40'
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
         tabs={tabs}
+        icon={<Briefcase className="w-4.5 h-4.5" />}
         title="Quality Monitoring"
-        description="Plan and assign jobs, follow running jobs, their start and end checks, scheduled checks and handovers"
+        description={data === null ? 'Jobs, their checks and handovers' : `${rows.length} ${rows.length === 1 ? 'job' : 'jobs'} · ${filterLabel.toLowerCase()}${dated ? ` · ${formatDate(from)} – ${formatDate(to)}` : ''}`}
+        info="Plan and assign jobs, follow every running job (worker, Job Start / End check, pending, missed and overdue checks, handovers), open one job with all its records, hand it over, or force-close a stuck job. Nobody picks a job's department: it comes from the Item Code prefix set on Department Configuration."
         actions={
           <>
-            <Button size="sm" variant="ghost" onClick={refreshAll} loading={loading && data !== null} icon={<RefreshCw className="w-3.5 h-3.5" />}>
-              Refresh
-            </Button>
+            <IconButton label="Refresh" size="md" onClick={refreshAll} className="border border-line-strong bg-white">
+              <RefreshCw className={`w-4 h-4 ${loading && data !== null ? 'animate-spin' : ''}`} />
+            </IconButton>
             {canManage && (
               <Button size="sm" variant="primary" onClick={() => openPlan(null)} icon={<Plus className="w-3.5 h-3.5" />}>
                 Plan Job
@@ -184,24 +281,47 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
         }
       />
 
-      <section className="bg-white border border-line rounded-md p-3 shadow-2xs flex flex-wrap items-end gap-3 text-xs">
-        <div className="flex rounded border border-line-strong overflow-hidden" role="tablist" aria-label="Job status">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              type="button"
-              role="tab"
-              aria-selected={filter === f.key}
-              onClick={() => setFilter(f.key)}
-              className={`px-3 h-[40px] lg:h-8 text-[12px] lg:text-[11px] font-medium border-r border-line last:border-r-0 ${filter === f.key ? 'bg-accent text-white' : 'bg-white text-ink-secondary hover:bg-slate-50'}`}
-            >
-              {f.label}
-            </button>
-          ))}
+      {data !== null && (
+        <div className={KPI_GRID}>
+          <StatCard
+            label="Jobs"
+            value={rows.length}
+            icon={<Briefcase className="w-4 h-4" />}
+            meta={filter === 'running' ? `${kpi.running} running` : filter === 'all' ? `${kpi.running} running · ${kpi.planned} planned` : filterLabel}
+          />
+          <StatCard label="Start / End check" value={kpi.edge} icon={<Flag className="w-4 h-4" />} tone="due" meta="Job Start or End check due" />
+          <StatCard
+            label="Overdue checks"
+            value={kpi.overdue}
+            icon={<AlarmClock className="w-4 h-4" />}
+            tone={kpi.overdue > 0 ? 'missed' : 'neutral'}
+            alert={kpi.overdue > 0}
+            meta={kpi.overdue > 0 ? 'Past their time window' : 'None'}
+          />
+          <StatCard label="Missed checks" value={kpi.missed} icon={<XCircle className="w-4 h-4" />} tone={kpi.missed > 0 ? 'missed' : 'neutral'} meta="On these jobs" />
+          <StatCard label="Handovers" value={kpi.handovers} icon={<ArrowLeftRight className="w-4 h-4" />} meta="Between workers" />
         </div>
-        <label className="min-w-0">
-          <span className="block text-[11px] font-semibold text-ink-secondary mb-1">Machine</span>
-          <select value={machineId} onChange={(e) => setMachineId(e.target.value)} className={`${inputClass} px-2 sm:w-auto sm:min-w-[160px]`}>
+      )}
+
+      {canDeleteJobs && (
+        <BulkDeleteBar
+          count={selection.selected.length}
+          noun={selection.selected.length === 1 ? 'job' : 'jobs'}
+          onClear={selection.clear}
+          onDelete={() => setDeleting({ ids: selection.selected, bulk: true })}
+        />
+      )}
+
+      <Card className="overflow-hidden">
+        <Toolbar>
+          <SearchInput value={search} onChange={setSearch} placeholder="Search by PO No. / Item" label="Search by PO No. / Item" />
+          <Segmented label="Filter by job status" value={filter} onChange={setFilter} options={FILTERS.map((f) => ({ value: f.key, label: f.label }))} />
+          <select
+            value={machineId}
+            onChange={(e) => setMachineId(e.target.value)}
+            aria-label="Machine"
+            className={`${inputClass} px-2 w-full sm:w-auto sm:min-w-[150px] ${machineId ? activeSelect : ''}`}
+          >
             <option value="">All machines</option>
             {(machines ?? []).map((m) => (
               <option key={m.id} value={m.id}>
@@ -209,94 +329,155 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
               </option>
             ))}
           </select>
-        </label>
-        {dated && (
-          <>
-            <label className="min-w-0">
-              <span className="block text-[11px] font-semibold text-ink-secondary mb-1">From</span>
-              <DateInput value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} className="sm:w-[140px]" />
-            </label>
-            <label className="min-w-0">
-              <span className="block text-[11px] font-semibold text-ink-secondary mb-1">To</span>
-              <DateInput value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} className="sm:w-[140px]" />
-            </label>
-          </>
-        )}
-      </section>
+          <select
+            value={departmentFilter}
+            onChange={(e) => setDepartmentFilter(e.target.value)}
+            aria-label="Department"
+            className={`${inputClass} px-2 w-full sm:w-auto sm:min-w-[150px] ${departmentFilter ? activeSelect : ''}`}
+          >
+            <option value="">All departments</option>
+            {(departments ?? []).map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+          {/* Finished jobs are listed by date; running and planned ones whenever they started. */}
+          {dated && (
+            <span className="flex items-center gap-1.5">
+              <DateInput value={from} max={to} onChange={(e) => e.target.value && setFrom(e.target.value)} aria-label="From" className="w-[150px] lg:w-[132px]" />
+              <span className="text-ink-muted" aria-hidden>
+                –
+              </span>
+              <DateInput value={to} min={from} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label="To" className="w-[150px] lg:w-[132px]" />
+            </span>
+          )}
+          <ToolbarSpacer />
+          {data !== null && <ResultCount shown={rows.length} total={data.length} noun="jobs" />}
+        </Toolbar>
 
-      <DataState loading={loading} error={error} onRetry={reload} empty={data === null ? undefined : rows.length === 0} emptyText="No jobs for these filters.">
-        <div className="bg-white border border-line rounded-md shadow-2xs overflow-x-auto">
-          <table className="stack-sm w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50 border-b border-line text-ink-secondary text-[11px] uppercase tracking-wider">
-              <tr>
-                <th className="py-2 px-3 font-semibold">PO No. / Item</th>
-                <th className="py-2 px-3 font-semibold">Machine</th>
-                <th className="py-2 px-3 font-semibold">Status</th>
-                <th className="py-2 px-3 font-semibold">Worker now</th>
-                <th className="py-2 px-3 font-semibold">Start check</th>
-                <th className="py-2 px-3 font-semibold">End check</th>
-                <th className="py-2 px-3 font-semibold">Checks</th>
-                <th className="py-2 px-3 font-semibold">Handovers</th>
-                <th className="py-2 px-3 font-semibold">Started / planned</th>
-                <th className="py-2 px-3 font-semibold text-right">Details</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {rows.map((j) => (
-                <tr key={j.id} className="hover:bg-slate-50">
-                  <td className="py-2 px-3">
-                    <div className="font-mono font-semibold text-ink">{j.jobNo}</div>
-                    <div className="font-mono text-[11px] text-ink-muted">{j.itemCode ?? '—'}</div>
-                  </td>
-                  <td className="py-2 px-3 whitespace-nowrap">
-                    {j.machineName}
-                    <div className="text-[11px] text-ink-muted font-mono">{j.machineCode}</div>
-                  </td>
-                  <td className="py-2 px-3">
-                    <StatusPill status={j.status} forced={j.forceClosed} />
-                  </td>
-                  <td className="py-2 px-3 whitespace-nowrap">{j.assignedWorkerName ?? <span className="text-ink-faint">Any worker</span>}</td>
-                  <td className="py-2 px-3">
-                    <EdgeState state={j.startCheck} />
-                  </td>
-                  <td className="py-2 px-3">
-                    <EdgeState state={j.endCheck} />
-                  </td>
-                  <td className="py-2 px-3 whitespace-nowrap">
-                    <span className="text-success font-semibold">{j.counts.completed} done</span>
-                    {j.counts.due + j.counts.pending > 0 && <span className="text-due"> · {j.counts.due + j.counts.pending} pending</span>}
-                    {j.counts.overdue > 0 && <span className="text-missed font-semibold"> · {j.counts.overdue} overdue</span>}
-                    {j.counts.missed > 0 && <span className="text-missed"> · {j.counts.missed} missed</span>}
-                    {j.counts.exception > 0 && <span className="text-exception"> · {j.counts.exception} exception</span>}
-                  </td>
-                  <td className="py-2 px-3 text-center font-mono">{j.handovers || <span className="text-ink-faint">0</span>}</td>
-                  <td className="py-2 px-3 font-mono whitespace-nowrap text-ink-secondary">
-                    {j.startedAt ? formatDateTime(j.startedAt) : j.plannedFor ? `Planned ${formatDate(j.plannedFor)}` : 'Planned'}
-                    {j.startedAt && <div className="text-[11px] text-ink-muted font-sans">{duration(j.durationMinutes ?? 0)}</div>}
-                  </td>
-                  <td className="py-2 px-3 text-right">
-                    <Button size="sm" variant="outline" onClick={() => setOpenId(j.id)} aria-label={`Open job ${j.jobNo}`}>
-                      View
-                    </Button>
-                  </td>
+        {error || data === null ? (
+          <div className="p-3">
+            <DataState loading={loading} error={error} onRetry={reload}>
+              {null}
+            </DataState>
+          </div>
+        ) : rows.length === 0 ? (
+          <EmptyState
+            icon={<Briefcase className="w-5 h-5" />}
+            title={search.trim() ? `No jobs match “${search.trim()}”.` : 'No jobs for these filters.'}
+            action={
+              canManage && !search.trim() ? (
+                <Button size="sm" variant="outline" onClick={() => openPlan(null)} icon={<Plus className="w-3.5 h-3.5" />}>
+                  Plan Job
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="data-table stack-sm">
+              <thead>
+                <tr>
+                  {canDeleteJobs && (
+                    <th className="w-8 !pr-0">
+                      <RowCheckbox checked={selection.allChecked} indeterminate={selection.partial} onChange={selection.toggleAll} label="Select all jobs shown that are not running" />
+                    </th>
+                  )}
+                  <th>PO No. / Item</th>
+                  <th>Machine</th>
+                  <th>Status</th>
+                  <th>Worker / started</th>
+                  <th>Checks</th>
+                  {/* Named by aria-label, not text: the phone card layout copies header text into each cell. */}
+                  <th className="text-right" aria-label="Details" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </DataState>
+              </thead>
+              <tbody>
+                {paging.visible.map((j) => (
+                  <tr key={j.id} className="cursor-pointer" onClick={() => setOpenId(j.id)}>
+                    {canDeleteJobs && (
+                      <td className="!pr-0">
+                        {RUNNING.includes(j.status) ? (
+                          <span title="Running jobs must be force-closed before they can be deleted" className="sr-only">
+                            Running
+                          </span>
+                        ) : (
+                          <RowCheckbox checked={selection.isSelected(j.id)} onChange={() => selection.toggle(j.id)} label={`Select job ${j.jobNo}`} />
+                        )}
+                      </td>
+                    )}
+                    <td className="whitespace-nowrap">
+                      <div className="font-mono font-semibold text-ink">{j.jobNo}</div>
+                      <div className="font-mono text-[11px] text-ink-muted">{j.itemCode ?? '—'}</div>
+                    </td>
+                    <td className="whitespace-nowrap">
+                      <div className="text-ink">{j.machineName}</div>
+                      <div className="text-[11.5px] text-ink-muted">{[j.machineCode, j.departmentName].filter(Boolean).join(' · ')}</div>
+                    </td>
+                    <td className="whitespace-nowrap">
+                      <StatusPill status={j.status} forced={j.forceClosed} />
+                      {/* Job Start / Job End check state under the status, instead of two more columns. */}
+                      <div className="mt-1 flex items-center gap-2.5 text-[11.5px]">
+                        <EdgeState state={j.startCheck} label="Start" />
+                        <EdgeState state={j.endCheck} label="End" />
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap">
+                      {j.assignedWorkerName ?? <span className="text-ink-muted">Any worker</span>}
+                      {/* When it started (and for how long), or when it is planned for. */}
+                      <div className="text-[11.5px] text-ink-muted tabular-nums">
+                        {j.startedAt ? `${formatDateTime(j.startedAt)} · ${duration(j.durationMinutes ?? 0)}` : j.plannedFor ? `Planned ${formatDate(j.plannedFor)}` : 'Planned'}
+                      </div>
+                      {j.handovers > 0 && (
+                        <div className="flex items-center gap-1 text-[11.5px] text-ink-muted">
+                          <ArrowLeftRight className="w-3 h-3" aria-hidden />
+                          {j.handovers} handover{j.handovers === 1 ? '' : 's'}
+                        </div>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap">
+                      <CheckCounts counts={j.counts} />
+                    </td>
+                    <td className="text-right" data-label="">
+                      <IconButton
+                        label={`Open job ${j.jobNo}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setOpenId(j.id)
+                        }}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </IconButton>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <Pagination page={paging.page} pages={paging.pages} total={paging.total} pageSize={paging.pageSize} onPage={paging.setPage} noun="jobs" />
+      </Card>
 
       {/* One job with all its records */}
-      <Drawer isOpen={!!openId} onClose={() => setOpenId(null)} title={job ? `PO No. ${job.jobNo}` : 'Job'} subtitle={job ? `${job.machineName} · ${job.machineCode}` : undefined} width="xl"
+      <Drawer isOpen={!!openId} onClose={() => setOpenId(null)} title={job ? `PO No. ${job.jobNo}` : 'Job'} subtitle={job ? `${job.machineName} · ${job.machineCode}${job.departmentName ? ` · ${job.departmentName}` : ''}` : undefined} width="xl"
         footer={
-          job && canManage ? (
-            <div className="flex flex-wrap gap-2 justify-end">
-              {job.status === 'PLANNED' && (
+          job && (canManage || canDeleteJobs) ? (
+            <div className="flex flex-wrap gap-2 justify-end w-full">
+              {canDeleteJobs && !RUNNING.includes(job.status) && (
+                <Button size="sm" variant="outline" className="mr-auto" icon={<Trash2 className="w-3.5 h-3.5 text-failed" />} onClick={() => setDeleting({ ids: [job.id], bulk: false })}>
+                  Delete job
+                </Button>
+              )}
+              {canDeleteJobs && RUNNING.includes(job.status) && (
+                <span className="mr-auto self-center text-[11.5px] text-ink-muted">Force-close this job before deleting it.</span>
+              )}
+              {canManage && job.status === 'PLANNED' && (
                 <Button size="sm" variant="outline" icon={<Pencil className="w-3.5 h-3.5" />} onClick={() => openPlan(job)}>
                   Edit
                 </Button>
               )}
-              {['STARTING', 'ACTIVE', 'ENDING'].includes(job.status) && (
+              {canManage && ['STARTING', 'ACTIVE', 'ENDING'].includes(job.status) && (
                 <Button
                   size="sm"
                   variant="outline"
@@ -306,7 +487,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
                   Handover
                 </Button>
               )}
-              {!['COMPLETED', 'CANCELLED'].includes(job.status) && (
+              {canManage && !['COMPLETED', 'CANCELLED'].includes(job.status) && (
                 <Button size="sm" variant="danger" icon={<StopCircle className="w-3.5 h-3.5" />} onClick={() => setClosing(job)}>
                   {job.status === 'PLANNED' ? 'Cancel job' : 'Force close'}
                 </Button>
@@ -315,62 +496,48 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
           ) : undefined
         }
       >
-        <DataState loading={detail.loading && !detail.data} error={detail.error} onRetry={detail.reload}>
-          {job && detail.data && (
-            <div className="space-y-5 text-xs">
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
-                <div>
-                  <dt className="text-ink-muted">Status</dt>
-                  <dd><StatusPill status={job.status} forced={job.forceClosed} /></dd>
-                </div>
-                <div>
-                  <dt className="text-ink-muted">Item Code</dt>
-                  <dd className="font-mono">{job.itemCode ?? '—'}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-muted">Worker now</dt>
-                  <dd>{job.assignedWorkerName ?? 'Any worker on the machine'}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-muted">Started</dt>
-                  <dd>{job.startedAt ? `${formatDateTime(job.startedAt)}${job.startedByName ? ` · ${job.startedByName}` : ''}` : job.plannedFor ? `Planned for ${formatDate(job.plannedFor)}` : 'Not started'}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-muted">Job Start check</dt>
-                  <dd><EdgeState state={job.startCheck} /></dd>
-                </div>
-                <div>
-                  <dt className="text-ink-muted">Job End check</dt>
-                  <dd><EdgeState state={job.endCheck} /></dd>
-                </div>
-                {job.endedAt && (
-                  <div>
-                    <dt className="text-ink-muted">Ended</dt>
-                    <dd>{formatDateTime(job.endedAt)}{job.endedByName ? ` · ${job.endedByName}` : ''}</dd>
-                  </div>
-                )}
-                {job.note && (
-                  <div className="col-span-2">
-                    <dt className="text-ink-muted">Note</dt>
-                    <dd>{job.note}</dd>
-                  </div>
-                )}
+        <DataState loading={detail.loading && !current} error={detail.loading ? null : detail.error} onRetry={detail.reload}>
+          {job && current && (
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill status={job.status} forced={job.forceClosed} />
+                <CheckCounts counts={job.counts} />
+              </div>
+
+              <dl className="grid grid-cols-2 gap-px rounded-lg border border-line bg-line overflow-hidden">
+                <DrawerFact label="Item Code" value={<span className="font-mono">{job.itemCode ?? '—'}</span>} />
+                <DrawerFact label="Worker now" value={job.assignedWorkerName ?? 'Any worker on the machine'} />
+                <DrawerFact
+                  label="Started"
+                  value={job.startedAt ? formatDateTime(job.startedAt) : job.plannedFor ? `Planned for ${formatDate(job.plannedFor)}` : 'Not started'}
+                  detail={job.startedAt && job.startedByName ? `by ${job.startedByName}` : undefined}
+                />
+                <DrawerFact
+                  label="Ended"
+                  value={job.endedAt ? formatDateTime(job.endedAt) : '—'}
+                  detail={job.endedAt && job.endedByName ? `by ${job.endedByName}` : undefined}
+                />
+                <DrawerFact label="Job Start check" value={<EdgeState state={job.startCheck} />} />
+                <DrawerFact label="Job End check" value={<EdgeState state={job.endCheck} />} />
+                {job.note && <DrawerFact label="Note" value={job.note} wide />}
               </dl>
 
               <section>
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-secondary mb-1.5">Handovers ({detail.data.handovers.length})</h3>
-                {detail.data.handovers.length === 0 ? (
-                  <p className="text-ink-muted">No handovers.</p>
+                <DrawerHeading icon={<ArrowLeftRight className="w-3.5 h-3.5" />} title="Handovers" count={current.handovers.length} />
+                {current.handovers.length === 0 ? (
+                  <p className="text-[12px] text-ink-muted">No handovers.</p>
                 ) : (
-                  <ul className="divide-y divide-line border border-line rounded">
-                    {detail.data.handovers.map((h) => (
-                      <li key={h.id} className="px-3 py-2">
-                        <div className="font-semibold text-ink">{h.fromName ?? '—'} → {h.toName ?? '—'}</div>
-                        <div className="text-ink-muted">
+                  <ul className="divide-y divide-line border border-line rounded-lg">
+                    {current.handovers.map((h) => (
+                      <li key={h.id} className="px-3 py-2.5 text-[12.5px]">
+                        <div className="font-semibold text-ink">
+                          {h.fromName ?? '—'} <span className="text-ink-muted font-normal">→</span> {h.toName ?? '—'}
+                        </div>
+                        <div className="text-[11.5px] text-ink-muted">
                           {formatDateTime(h.at)}
                           {h.shiftName ? ` · ${h.shiftName}` : ''} · by {h.byName ?? '—'} · {h.movedChecks} open check{h.movedChecks === 1 ? '' : 's'} moved
                         </div>
-                        {h.note && <div className="text-ink-secondary">{h.note}</div>}
+                        {h.note && <div className="mt-0.5 text-ink-secondary">{h.note}</div>}
                       </li>
                     ))}
                   </ul>
@@ -378,41 +545,63 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
               </section>
 
               <section>
-                <h3 className="text-[11px] font-bold uppercase tracking-wider text-ink-secondary mb-1.5">Quality checks ({detail.data.checks.length})</h3>
-                {detail.data.checks.length === 0 ? (
-                  <p className="text-ink-muted">No checks yet.</p>
+                <DrawerHeading icon={<ListChecks className="w-3.5 h-3.5" />} title="Quality checks" count={current.checks.length} />
+                {current.checks.length === 0 ? (
+                  <p className="text-[12px] text-ink-muted">No checks yet.</p>
                 ) : (
-                  <ul className="divide-y divide-line border border-line rounded">
-                    {detail.data.checks.map((c) => {
+                  <ul className="divide-y divide-line border border-line rounded-lg">
+                    {current.checks.map((c) => {
                       const open = ['PENDING', 'DUE', 'IN_PROGRESS'].includes(c.status)
                       return (
-                        <li key={c.id} className="px-3 py-2">
+                        <li key={c.id} className="px-3 py-2.5 text-[12.5px]">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-ink">{KIND_LABEL[c.kind ?? 'SCHEDULED']}</span>
-                            <span className="text-ink-muted">{c.activityName}</span>
-                            <span className="ml-auto">
-                              {c.result ? <StatusBadge status={c.result} size="sm" /> : <span className="text-due font-semibold">{c.status === 'PENDING' ? 'Upcoming' : 'Due'}</span>}
+                            <span className="text-ink-muted truncate">{c.activityName}</span>
+                            <span className="ml-auto flex items-center gap-1 shrink-0">
+                              {c.result ? (
+                                <StatusBadge status={c.result} size="sm" />
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-full ring-1 ring-inset ring-due-line bg-due-bg text-due text-[11px] font-medium">
+                                  <Clock3 className="w-3 h-3" aria-hidden />
+                                  {c.status === 'PENDING' ? 'Upcoming' : 'Due'}
+                                </span>
+                              )}
+                              {!open && (
+                                <IconButton label={`Open check ${c.code}`} onClick={() => onViewCheck(c.id)}>
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </IconButton>
+                              )}
                             </span>
                           </div>
-                          <div className="text-ink-muted">
+                          <div className="text-[11.5px] text-ink-muted">
                             {open ? `Due ${formatDateTime(c.scheduledAt)}` : formatDateTime(c.submittedAt ?? c.scheduledAt)} · {c.submittedByName ?? c.workerName ?? '—'}
                           </div>
                           {c.values.length > 0 ? (
-                            <div className="mt-1 flex flex-wrap gap-1">
+                            <div className="mt-1.5 flex flex-wrap gap-1">
                               {c.values.map((v, i) => (
-                                <span key={i} className={`px-1.5 py-0.5 rounded border ${v.result === 'FAIL' ? 'border-missed-line bg-missed-bg text-missed' : 'border-line bg-white'}`}>
-                                  {v.parameterName}: <span className="font-mono font-semibold">{v.notApplicable ? 'N/A' : v.value && /^(PASS|FAIL|YES|NO)$/.test(v.value) ? v.value[0] + v.value.slice(1).toLowerCase() : v.value ?? '—'}{v.unit && v.value ? ` ${v.unit}` : ''}</span>
+                                <span
+                                  key={i}
+                                  className={`px-1.5 py-0.5 rounded-md text-[11.5px] ring-1 ring-inset ${v.result === 'FAIL' ? 'ring-missed-line bg-missed-bg text-missed' : 'ring-line bg-subtle text-ink-secondary'}`}
+                                  title={v.result === 'FAIL' ? 'Outside limits' : undefined}
+                                >
+                                  {v.parameterName}:{' '}
+                                  <span className="font-mono font-semibold">
+                                    {v.notApplicable ? 'N/A' : v.value && /^(PASS|FAIL|YES|NO)$/.test(v.value) ? v.value[0] + v.value.slice(1).toLowerCase() : v.value ?? '—'}
+                                    {v.unit && v.value ? ` ${v.unit}` : ''}
+                                  </span>
                                 </span>
                               ))}
                             </div>
                           ) : open && c.parameterIds?.length ? (
-                            <div className="mt-1 text-ink-secondary">{c.parameterIds.length} parameter{c.parameterIds.length === 1 ? '' : 's'} to check</div>
+                            <div className="mt-1 text-ink-secondary">
+                              {c.parameterIds.length} parameter{c.parameterIds.length === 1 ? '' : 's'} to check
+                            </div>
                           ) : null}
-                          {c.exception && <div className="mt-1 text-exception">Exception: {[c.exception.reason, c.exception.remark].filter(Boolean).join(' — ')}</div>}
-                          {!open && (
-                            <button type="button" className="mt-1 inline-flex items-center gap-1 text-accent hover:underline" onClick={() => onViewCheck(c.id)}>
-                              Open check <ExternalLink className="w-3 h-3" />
-                            </button>
+                          {c.exception && (
+                            <div className="mt-1.5 flex items-start gap-1 text-exception">
+                              <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" aria-hidden />
+                              <span>Exception: {[c.exception.reason, c.exception.remark].filter(Boolean).join(' — ')}</span>
+                            </div>
                           )}
                         </li>
                       )
@@ -424,7 +613,6 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
           )}
         </DataState>
       </Drawer>
-
       {/* Plan / edit a job */}
       <Modal
         isOpen={planOpen}
@@ -458,23 +646,13 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
             <Field label="PO No." required>
               <TextInput value={plan.jobNo} onChange={(e) => setPlan({ ...plan, jobNo: e.target.value })} className="font-mono" maxLength={60} />
             </Field>
-            <Field label="Item Code">
+            <Field label="Item Code" required hint="The department is set automatically from the Item Code prefix (see Department Configuration).">
               <TextInput value={plan.itemCode} onChange={(e) => setPlan({ ...plan, itemCode: e.target.value })} className="font-mono" maxLength={60} />
             </Field>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Planned for" hint="The worker who starts this job on the machine becomes responsible for it.">
               <DateInput value={plan.plannedFor} onChange={(e) => setPlan({ ...plan, plannedFor: e.target.value })} />
-            </Field>
-            <Field label="Department" hint="Leave empty to use the department of the worker who starts it.">
-              <Select value={plan.departmentId} onChange={(e) => setPlan({ ...plan, departmentId: e.target.value })}>
-                <option value="">Set when the job starts</option>
-                {(departments ?? []).filter((d) => d.isActive || d.id === plan.departmentId).map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </Select>
             </Field>
           </div>
           <Field label="Note">
@@ -494,7 +672,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
             <Button size="sm" variant="outline" onClick={() => setHandover(null)}>
               Cancel
             </Button>
-            <Button size="sm" variant="primary" onClick={sendHandover} icon={<ArrowLeftRight className="w-3.5 h-3.5" />}>
+            <Button size="sm" variant="primary" onClick={sendHandover} loading={handingOver} icon={<ArrowLeftRight className="w-3.5 h-3.5" />}>
               Hand over
             </Button>
           </>
@@ -555,6 +733,53 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
         }}
         onClose={() => setClosing(null)}
       />
+
+      <DeleteRecordsModal
+        type={deleting ? 'jobs' : null}
+        ids={deleting?.ids ?? []}
+        bulk={deleting?.bulk}
+        onClose={() => setDeleting(null)}
+        onDeleted={(r) => {
+          notify('success', r.deleted === 1 ? 'Job deleted' : `${r.deleted} jobs deleted`, `${r.filesRemoved} evidence file${r.filesRemoved === 1 ? '' : 's'} removed. Recorded in the audit log.`)
+          if (r.filesNotRemoved.length) notify('error', 'Some files could not be removed', `${r.filesNotRemoved.length} evidence file(s) are still on the server.`)
+          selection.clear()
+          if (deleting && openId && deleting.ids.includes(openId)) setOpenId(null)
+          reload()
+        }}
+      />
     </div>
   )
 }
+
+/** A job's check counts as compact pills: done, pending, overdue, missed, exception (zeros left out). */
+const CheckCounts: React.FC<{ counts: JobRow['counts'] }> = ({ counts }) => {
+  const pending = counts.due + counts.pending
+  const pill = 'inline-flex items-center h-5 px-1.5 rounded-full ring-1 ring-inset text-[11px] font-medium tabular-nums whitespace-nowrap'
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1">
+      <span className={`${pill} bg-success-bg text-success ring-success-line`}>{counts.completed} done</span>
+      {pending > 0 && <span className={`${pill} bg-due-bg text-due ring-due-line`}>{pending} pending</span>}
+      {counts.overdue > 0 && <span className={`${pill} bg-missed-bg text-missed ring-missed-line font-semibold`}>{counts.overdue} overdue</span>}
+      {counts.missed > 0 && <span className={`${pill} bg-missed-bg text-missed ring-missed-line`}>{counts.missed} missed</span>}
+      {counts.exception > 0 && <span className={`${pill} bg-exception-bg text-exception ring-exception-line`}>{counts.exception} exception</span>}
+    </span>
+  )
+}
+
+/** One fact in the job drawer's summary grid. */
+const DrawerFact: React.FC<{ label: string; value: React.ReactNode; detail?: string; wide?: boolean }> = ({ label, value, detail, wide }) => (
+  <div className={`bg-white px-3 py-2.5 min-w-0 ${wide ? 'col-span-2' : ''}`}>
+    <dt className="text-[11.5px] text-ink-muted">{label}</dt>
+    <dd className="mt-0.5 text-[13px] font-medium text-ink break-words">{value}</dd>
+    {detail && <dd className="text-[11.5px] text-ink-muted">{detail}</dd>}
+  </div>
+)
+
+/** Small section heading inside the job drawer, with the number of records. */
+const DrawerHeading: React.FC<{ icon: React.ReactNode; title: string; count: number }> = ({ icon, title, count }) => (
+  <h3 className="flex items-center gap-1.5 mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+    <span aria-hidden>{icon}</span>
+    {title}
+    <span className="ml-0.5 min-w-5 h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-subtle text-ink-secondary text-[11px] tabular-nums normal-case tracking-normal">{count}</span>
+  </h3>
+)

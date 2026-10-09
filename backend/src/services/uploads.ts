@@ -1,6 +1,8 @@
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import multer from 'multer'
+import sharp from 'sharp'
 import { inArray, or } from 'drizzle-orm'
 import { config } from '../config'
 import { db } from '../db/client'
@@ -118,10 +120,68 @@ export interface StoredEvidence {
   originalSha256: string
   width: number | null
   height: number | null
+  /** Photos: hash of the decoded pixels (see pixelHash). */
+  contentSha256: string | null
 }
 
-const extensionFor = (file: Express.Multer.File) =>
-  path.extname(file.originalname).slice(1) || file.mimetype.split('/')[1] || 'bin'
+interface DetectedType {
+  extension: string
+  mimeType: string
+}
+
+/** Photo formats accepted as evidence, by sharp's format name. SVG, GIF, TIFF and others are refused. */
+const PHOTO_FORMATS: Record<string, DetectedType> = {
+  jpeg: { extension: 'jpg', mimeType: 'image/jpeg' },
+  png: { extension: 'png', mimeType: 'image/png' },
+  webp: { extension: 'webp', mimeType: 'image/webp' },
+  heif: { extension: 'heic', mimeType: 'image/heic' }
+}
+
+/**
+ * What an uploaded file really is, from its content. The file name and the type the phone sent are
+ * never trusted: the stored extension decides how the file is served (lib/mediaLinks.ts).
+ */
+async function detectType(file: Express.Multer.File, kind: 'PHOTO' | 'VIDEO', label: string): Promise<DetectedType> {
+  if (kind === 'PHOTO') {
+    const meta = await sharp(file.path, { limitInputPixels: 100_000_000 })
+      .metadata()
+      .catch(() => null)
+    const type = meta?.format ? PHOTO_FORMATS[meta.format] : undefined
+    if (!type || !meta?.width || !meta.height) throw badRequest(`${label} is not a photo. Please take it with the camera.`)
+    return type
+  }
+  const handle = await fsp.open(file.path, 'r')
+  const head = Buffer.alloc(12)
+  try {
+    await handle.read(head, 0, 12, 0)
+  } finally {
+    await handle.close()
+  }
+  // MP4, MOV and 3GP are ISO media files ("ftyp" box); WebM starts with the EBML signature.
+  if (head.toString('latin1', 4, 8) === 'ftyp') {
+    const brand = head.toString('latin1', 8, 12)
+    if (brand === 'qt  ') return { extension: 'mov', mimeType: 'video/quicktime' }
+    if (brand.startsWith('3g')) return { extension: '3gp', mimeType: 'video/3gpp' }
+    return { extension: 'mp4', mimeType: 'video/mp4' }
+  }
+  if (head.readUInt32BE(0) === 0x1a45dfa3) return { extension: 'webm', mimeType: 'video/webm' }
+  throw badRequest(`${label} is not a video. Please record it with the camera.`)
+}
+
+/**
+ * SHA-256 of a photo's pixels (upright, scaled to a fixed size). Unlike the file hash it does not
+ * change when metadata is edited or bytes are appended, so a photo sent before cannot be passed off
+ * as new that way.
+ */
+async function pixelHash(filePath: string): Promise<string> {
+  const pixels = await sharp(filePath, { limitInputPixels: 100_000_000 })
+    .rotate()
+    .resize(256, 256, { fit: 'fill' })
+    .removeAlpha()
+    .raw()
+    .toBuffer()
+  return createHash('sha256').update(pixels).digest('hex')
+}
 
 /** Validates and moves evidence into storage. Returns rows ready to insert into `media`. */
 export async function storeEvidence(items: EvidenceInput[], category: StorageCategory): Promise<StoredEvidence[]> {
@@ -133,28 +193,43 @@ export async function storeEvidence(items: EvidenceInput[], category: StorageCat
       if (item.kind === 'VIDEO' && item.durationSeconds != null && item.durationSeconds > config.maxVideoSeconds + 2) {
         throw badRequest(`Video must be ${config.maxVideoSeconds} seconds or shorter`)
       }
+      const capturedAt = parseCapturedAt(item.capturedAt, label)
+      const type = await detectType(item.file, item.kind, label)
       return {
         item,
         label,
-        capturedAt: parseCapturedAt(item.capturedAt, label),
-        hash: await sha256File(item.file.path)
+        capturedAt,
+        type,
+        hash: await sha256File(item.file.path),
+        contentHash: item.kind === 'PHOTO' ? await pixelHash(item.file.path) : null
       }
     })
   )
 
   if (prepared.length) {
-    // The same file sent twice in one submission is a reuse as well.
+    // The same file (or the same picture) sent twice in one submission is a reuse as well.
     const hashes = new Set<string>()
     for (const p of prepared) {
-      if (hashes.has(p.hash)) throw conflict(`${p.label} was already used. Please take a new one.`)
-      hashes.add(p.hash)
+      for (const h of [p.hash, p.contentHash]) {
+        if (!h) continue
+        if (hashes.has(h)) throw conflict(`${p.label} was already used. Please take a new one.`)
+        hashes.add(h)
+      }
     }
-    // Compared with the files as received and as stored (a stored photo may be compressed).
+    // Compared with the files as received and as stored (a stored photo may be compressed), and with
+    // the pixels of every photo stored before.
     const hashList = prepared.map((p) => p.hash)
+    const pixelList = prepared.map((p) => p.contentHash).filter((h): h is string => !!h)
     const reused = await db
       .select({ kind: media.kind })
       .from(media)
-      .where(or(inArray(media.sha256, hashList), inArray(media.originalSha256, hashList)))
+      .where(
+        or(
+          inArray(media.sha256, hashList),
+          inArray(media.originalSha256, hashList),
+          ...(pixelList.length ? [inArray(media.contentSha256, pixelList)] : [])
+        )
+      )
     if (reused.length) {
       throw conflict(`This ${reused[0].kind === 'VIDEO' ? 'video' : 'photo'} was already used. Please take a new one.`)
     }
@@ -162,7 +237,7 @@ export async function storeEvidence(items: EvidenceInput[], category: StorageCat
 
   // Photos are compressed now (in parallel, off the main thread); videos after the check is saved.
   const photos = await Promise.all(
-    prepared.map((p) => (p.item.kind === 'PHOTO' ? optimizePhoto(p.item.file, extensionFor(p.item.file)) : null))
+    prepared.map((p) => (p.item.kind === 'PHOTO' ? optimizePhoto({ ...p.item.file, mimetype: p.type.mimeType }, p.type.extension) : null))
   )
   const videosWait = videoOptimizationEnabled()
 
@@ -170,12 +245,12 @@ export async function storeEvidence(items: EvidenceInput[], category: StorageCat
   try {
     for (const [i, p] of prepared.entries()) {
       const photo = photos[i]
-      const saved = await storage.save(photo?.path ?? p.item.file.path, { category, extension: photo?.extension ?? extensionFor(p.item.file) })
+      const saved = await storage.save(photo?.path ?? p.item.file.path, { category, extension: photo?.extension ?? p.type.extension })
       stored.push({
         kind: p.item.kind,
         parameterId: p.item.parameterId ?? null,
         path: saved.path,
-        mimeType: photo?.mimeType ?? p.item.file.mimetype,
+        mimeType: photo?.mimeType ?? p.type.mimeType,
         sizeBytes: photo?.sizeBytes ?? p.item.file.size,
         sha256: photo?.processing === 'COMPRESSED' ? await sha256File(storage.localPath(saved.path)) : p.hash,
         capturedAt: p.capturedAt,
@@ -184,7 +259,8 @@ export async function storeEvidence(items: EvidenceInput[], category: StorageCat
         originalSizeBytes: p.item.file.size,
         originalSha256: p.hash,
         width: photo?.width ?? null,
-        height: photo?.height ?? null
+        height: photo?.height ?? null,
+        contentSha256: p.contentHash
       })
     }
   } catch (err) {

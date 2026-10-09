@@ -421,8 +421,8 @@ export async function buildQualityReport(
       code: c.code,
       scheduledAt: new Date(c.scheduledAt),
       submittedAt: c.submittedAt ? new Date(c.submittedAt) : null,
-      machineName: c.machineName,
-      machineCode: c.machineCode,
+      machineName: c.machineName ?? DASH,
+      machineCode: c.machineCode ?? DASH,
       activityName: c.activityName,
       workerName: worker.name,
       workerEmployeeId: worker.employeeId,
@@ -440,8 +440,8 @@ export async function buildQualityReport(
       const worker = workerOf(c)
       return {
         code: c.code,
-        machineName: c.machineName,
-        machineCode: c.machineCode,
+        machineName: c.machineName ?? DASH,
+        machineCode: c.machineCode ?? DASH,
         activityName: c.activityName,
         submittedAt: c.submittedAt ? new Date(c.submittedAt) : null,
         scheduledAt: new Date(c.scheduledAt),
@@ -466,8 +466,8 @@ export async function buildQualityReport(
       return {
         code: c.code,
         scheduledAt: new Date(c.scheduledAt),
-        machineName: c.machineName,
-        machineCode: c.machineCode,
+        machineName: c.machineName ?? DASH,
+        machineCode: c.machineCode ?? DASH,
         activityName: c.activityName,
         workerName: `${worker.name} (${worker.employeeId})`,
         shiftName: c.shiftName ?? DASH,
@@ -486,7 +486,7 @@ export async function buildQualityReport(
       return {
         code: c.code,
         submittedAt: c.submittedAt ? new Date(c.submittedAt) : null,
-        machineName: c.machineName,
+        machineName: c.machineName ?? DASH,
         activityName: c.activityName,
         workerName: `${worker.name} (${worker.employeeId})`,
         shiftName: c.shiftName ?? DASH,
@@ -511,7 +511,7 @@ export async function buildQualityReport(
         : OVERALL_EVIDENCE
       evidence.push({
         code: c.code,
-        machineName: `${c.machineName} (${c.machineCode})`,
+        machineName: `${c.machineName ?? DASH} (${c.machineCode ?? DASH})`,
         activityName: c.activityName,
         workerName: `${worker.name} (${worker.employeeId})`,
         capturedAt: m.capturedAt ? new Date(m.capturedAt) : null,
@@ -687,10 +687,10 @@ export async function buildQualityReport(
     completionRate,
     reconciles: counts.scheduled === counts.completed + counts.missed + counts.exception + counts.open,
     breakdown,
-    byMachine: group(checks, (c) => ({
-      key: c.machineId,
-      label: c.machineName,
-      sublabel: c.machineCode
+    byMachine: group(checks.filter((c) => !!c.machineId), (c) => ({
+      key: c.machineId!,
+      label: c.machineName ?? DASH,
+      sublabel: c.machineCode ?? DASH
     })),
     byWorker: group(checks, (c) => {
       const worker = workerOf(c)

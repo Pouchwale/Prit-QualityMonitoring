@@ -32,9 +32,12 @@ export function describeError(err: unknown): FriendlyError {
     }
   }
   if (err.status === 401) return { message: serverText ?? 'Your session has ended.', next: 'Sign in again.', retryable: false }
-  if (err.status === 403) return { message: serverText ?? 'Your account is not allowed to do this.', next: 'Ask an Admin if you need access.', retryable: false }
+  if (err.status === 403) return { message: serverText ?? 'Your account is not allowed to do this.', next: 'Ask the Super Admin if you need access.', retryable: false }
   if (err.status === 404) return { message: serverText ?? 'This item no longer exists. It may have been deleted.', next: 'Reload the page to see the latest list.', retryable: false }
   if (err.status === 409) return { message: serverText ?? 'This was changed by someone else in the meantime.', next: 'Reload the page and try again.', retryable: false }
+  if (err.status === 429) {
+    return { message: serverText ?? 'Too many attempts.', next: serverText ? null : 'Wait a few minutes and try again.', retryable: false }
+  }
   if (err.status === 413 || /too large/i.test(err.message)) {
     return { message: serverText ?? 'The file is too large to upload.', next: 'Choose a smaller file.', retryable: false }
   }

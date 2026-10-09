@@ -1,3 +1,4 @@
+
 # Push notifications: build the APK and turn them on
 
 The code is finished. What is left needs your accounts, so run these steps yourself. They take about 30–45 minutes, most of it waiting for the build.
@@ -35,7 +36,7 @@ Choose **Android** → **production** (or the profile you build) → **Google Se
 
 The APK is a normal installed app, so it cannot discover the PC the way Expo Go does. It uses the address in `eas.json`.
 
-I set it to **`http://10.80.88.185:4000`** (this PC's Wi-Fi address today). Check it still matches:
+I set it to **`http://10.192.193.14:4000`** (the plant server's address). Check it still matches:
 
 ```bash
 ipconfig    # look at "IPv4 Address" for your Wi-Fi adapter
@@ -51,9 +52,15 @@ New-NetFirewallRule -DisplayName "Quality backend 4000" -Direction Inbound -Loca
 
 ## Step 4 — Build the APK
 
-```bash
+Double-click **`build-apk.bat`** in the project folder, or run the same by hand:
+
+```powershell
+cd worker-mobile
+$env:EAS_NO_VCS = "1"   # Git is not installed on the server; without this EAS stops with "git command not found"
 npx eas-cli@latest build --profile preview --platform android
 ```
+
+`EAS_NO_VCS=1` makes EAS upload the `worker-mobile` folder as it is, minus what `.easignore` excludes (`node_modules`, `dist`, `.env` files, keys). Other EAS commands on this server (`login`, `credentials`, `update`) need the same variable.
 
 The build runs on Expo's servers (10–20 minutes). At the end you get a download link and a QR code. Open that link **on the phone** and install the APK. Android will warn about installing outside the Play Store; allow it.
 
@@ -64,7 +71,7 @@ Rebuild whenever you change `eas.json`, `app.json` or install a native package. 
 1. Open the app on the phone and sign in as the worker. Allow notifications when asked.
 2. Check **Profile → Alerts** says alerts are on, and **Profile → My machines** shows the assigned machine.
 3. In the Admin panel, open **Machine Assignment** and press **Test alert** on that worker. The phone should show a notification within a few seconds. The Admin toast tells you how many phones are registered; "No phone registered" means the worker has not signed in to the APK yet or notifications are blocked on the phone.
-4. Real test: **Quality Checks → Create Test Check** → status **Due now** for that worker's machine. Within a minute the phone gets "Quality check due — <machine>".
+4. Real test: **Quality Checks → Create Test Check** → status **Due now** for that worker's machine. Within a minute the phone gets "Quality check due — <machine></machine>".
 5. Close the app fully (swipe it away) and lock the phone, then create another test check. The notification still arrives; tapping it opens that check.
 
 ## How it works
@@ -89,12 +96,12 @@ Prit taps it → that check opens in the app
 
 ## If a notification does not arrive
 
-| Symptom | Cause |
-| --- | --- |
-| Admin says "No phone registered" | Worker has not signed in to the APK, or notifications are blocked. Check Profile → Alerts. |
-| Nothing arrives, no error | The Firebase key is missing or was uploaded to a different build profile. Re-run `npx eas-cli@latest credentials`. |
-| App cannot reach the server at all | Wrong `EXPO_PUBLIC_API_URL` in `eas.json`, PC's IP changed, firewall, or phone on a different Wi-Fi. |
-| Backend log shows "Push not delivered" | Expo's message explains it; `DeviceNotRegistered` means that phone removed the app. |
+| Symptom                                | Cause                                                                                                               |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Admin says "No phone registered"       | Worker has not signed in to the APK, or notifications are blocked. Check Profile → Alerts.                         |
+| Nothing arrives, no error              | The Firebase key is missing or was uploaded to a different build profile. Re-run`npx eas-cli@latest credentials`. |
+| App cannot reach the server at all     | Wrong`EXPO_PUBLIC_API_URL` in `eas.json`, PC's IP changed, firewall, or phone on a different Wi-Fi.             |
+| Backend log shows "Push not delivered" | Expo's message explains it;`DeviceNotRegistered` means that phone removed the app.                                |
 
 Backend log lines to watch for: `Notified N device(s) about M due check(s)`.
 Set `PUSH_DISABLED=1` in `backend/.env` to stop sending; `npm run notify:once` in `backend/` runs one pass by hand.

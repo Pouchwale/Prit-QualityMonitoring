@@ -17,12 +17,13 @@ export interface MonitoringFilters {
   activityId: string
   departmentId: string
   status: string
+  module?: 'IPQC' | 'QC' | ''
   /** Whole Item Code / PO No. (case-insensitive); only on pages that show these fields. */
   itemCode?: string
   jobNo?: string
 }
 
-export type FilterField = 'shift' | 'machine' | 'worker' | 'activity' | 'department' | 'status' | 'itemCode' | 'jobNo'
+export type FilterField = 'shift' | 'machine' | 'worker' | 'activity' | 'department' | 'status' | 'itemCode' | 'jobNo' | 'module'
 
 interface FilterBarProps {
   value: MonitoringFilters
@@ -74,29 +75,30 @@ export const FilterBar: React.FC<FilterBarProps> = ({ value, onChange, onReset, 
   ]
 
   return (
-    <div className="bg-white border border-line rounded-md p-3 shadow-2xs no-print">
+    <div className="card px-3 py-2.5 no-print">
       {/* Phones: two columns of full-width controls. From sm up: one wrapping row, as before. */}
       <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-end gap-2.5 text-xs">
         {showDates && (
           <>
             <label className="min-w-0">
-              <span className="block text-[11px] font-semibold text-ink-secondary mb-1">From</span>
+              <span className="block text-[11px] font-medium text-ink-muted mb-1">From</span>
               <DateInput value={value.from} max={value.to} onChange={(e) => setFrom(e.target.value)} className="sm:w-[160px] lg:w-[132px]" />
             </label>
             <label className="min-w-0">
-              <span className="block text-[11px] font-semibold text-ink-secondary mb-1">To</span>
+              <span className="block text-[11px] font-medium text-ink-muted mb-1">To</span>
               <DateInput value={value.to} min={value.from} onChange={(e) => setTo(e.target.value)} className="sm:w-[160px] lg:w-[132px]" />
             </label>
-            <div className="col-span-2 grid grid-cols-3 sm:flex items-center rounded border border-line-strong overflow-hidden h-[40px] lg:h-8">
+            <div className="col-span-2 grid grid-cols-3 sm:flex items-center gap-0.5 p-0.5 rounded-md bg-subtle border border-line h-[40px] lg:h-8" role="group" aria-label="Date presets">
               {presets.map((p) => {
                 const active = value.from === p.from && value.to === p.to
                 return (
                   <button
                     key={p.label}
                     type="button"
+                    aria-pressed={active}
                     onClick={() => set({ from: p.from, to: p.to })}
-                    className={`px-2.5 h-full text-[12px] lg:text-[11px] font-medium whitespace-nowrap border-r border-line last:border-r-0 transition-colors ${
-                      active ? 'bg-accent text-white' : 'bg-white text-ink-secondary hover:bg-slate-50'
+                    className={`px-2.5 h-full rounded text-[12px] lg:text-[12px] font-medium whitespace-nowrap transition-colors ${
+                      active ? 'bg-white text-ink shadow-[var(--shadow-card)] ring-1 ring-line' : 'text-ink-secondary hover:text-ink'
                     }`}
                   >
                     {p.label}
@@ -126,6 +128,12 @@ export const FilterBar: React.FC<FilterBarProps> = ({ value, onChange, onReset, 
           />
         )}
 
+        {has('module') && (
+          <FilterSelect label="Quality Type" value={value.module ?? ''} onChange={(module) => set({ module: module as 'IPQC' | 'QC' | '' })} allLabel="All (IPQC & QC)">
+            <option value="IPQC">IPQC</option>
+            <option value="QC">QC</option>
+          </FilterSelect>
+        )}
         {has('shift') && (
           <FilterSelect label="Shift" value={value.shiftId} onChange={(shiftId) => set({ shiftId })} allLabel="All shifts">
             {(shifts.data ?? []).map((s) => (
@@ -200,8 +208,8 @@ const FilterSelect: React.FC<{
   children: React.ReactNode
 }> = ({ label, value, allLabel, onChange, children }) => (
   <label className="min-w-0">
-    <span className="block text-[11px] font-semibold text-ink-secondary mb-1">{label}</span>
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={selectClass}>
+    <span className="block text-[11px] font-medium text-ink-muted mb-1">{label}</span>
+    <select value={value} onChange={(e) => onChange(e.target.value)} className={`${selectClass} ${value ? 'border-accent bg-accent-soft/40' : ''}`}>
       <option value="">{allLabel}</option>
       {children}
     </select>
@@ -233,7 +241,7 @@ const FilterText: React.FC<{
   }
   return (
     <label className="min-w-0">
-      <span className="block text-[11px] font-semibold text-ink-secondary mb-1">{label}</span>
+      <span className="block text-[11px] font-medium text-ink-muted mb-1">{label}</span>
       <span className="relative block">
         <input
           type="search"
@@ -254,7 +262,7 @@ const FilterText: React.FC<{
               commit(text)
             }
           }}
-          className={`${inputClass} sm:w-[150px] lg:w-[130px] ${value ? 'border-accent' : ''}`}
+          className={`${inputClass} sm:w-[150px] lg:w-[130px] ${value ? 'border-accent bg-accent-soft/40' : ''}`}
         />
         <datalist id={listId}>
           {suggestions.map((s) => (

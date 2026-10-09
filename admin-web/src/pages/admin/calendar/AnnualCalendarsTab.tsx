@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowLeft,
+  BriefcaseBusiness,
+  CalendarPlus,
   CheckCheck,
   CircleAlert,
   CircleCheck,
@@ -10,12 +12,13 @@ import {
   FileUp,
   ImageIcon,
   Info,
+  Loader2,
+  PartyPopper,
   Pencil,
   Plus,
+  RotateCw,
   ShieldCheck,
   Trash2
-,
-  RotateCw
 } from 'lucide-react'
 import type { CalendarIssue, CalendarYearDetail, CalendarYearItem, CalendarYearSummary, ClosureType } from '../../../types'
 import { api, download, errorText, fetchBlob, upload } from '../../../lib/api'
@@ -32,6 +35,8 @@ import { useToast } from '../../../components/common/Toast'
 import { DateInput } from '../../../components/common/DateTimeInputs'
 import { openDialog } from '../../../components/common/AppDialog'
 import { describeError } from '../../../lib/friendlyError'
+import { Card, CardHeader, EmptyState } from '../../../components/ui/Card'
+import { IconButton } from '../../../components/ui/Toolbar'
 
 /** Calendar documents the backend can read (routes/calendarYears.ts), and its 25 MB limit. */
 const ACCEPTED_FILE = /\.(xlsx|csv|pdf|png|jpe?g|webp|bmp)$/i
@@ -52,9 +57,21 @@ const METHOD_LABEL: Record<string, string> = {
 const ITEM_TYPES: ClosureType[] = ['HOLIDAY', 'WORKING', 'SHUTDOWN', 'CLOSED']
 
 function yearStatus(year: { status: string; pendingChanges: boolean }) {
-  if (year.status === 'APPROVED' && year.pendingChanges) return { label: 'Changes awaiting approval', className: 'bg-exception-bg text-exception border-exception-line' }
-  if (year.status === 'APPROVED') return { label: 'Approved · in use', className: 'bg-success-bg text-success border-success-line' }
-  return { label: 'Draft · not in use', className: 'bg-slate-50 text-ink-secondary border-line' }
+  if (year.status === 'APPROVED' && year.pendingChanges)
+    return { label: 'Changes awaiting approval', className: 'bg-exception-bg text-exception ring-exception-line', dot: 'bg-[var(--color-chart-exception)]' }
+  if (year.status === 'APPROVED') return { label: 'Approved · in use', className: 'bg-success-bg text-success ring-success-line', dot: 'bg-[var(--color-chart-completed)]' }
+  return { label: 'Draft · not in use', className: 'bg-subtle text-ink-secondary ring-line', dot: 'bg-ink-faint' }
+}
+
+/** A year's status as a soft pill with a dot and the label (never colour alone). */
+const YearStatusPill: React.FC<{ year: { status: string; pendingChanges: boolean } }> = ({ year }) => {
+  const s = yearStatus(year)
+  return (
+    <span className={`inline-flex items-center gap-1.5 h-[22px] px-2 rounded-full ring-1 ring-inset text-[11.5px] font-medium whitespace-nowrap ${s.className}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} aria-hidden />
+      {s.label}
+    </span>
+  )
 }
 
 /** Annual company calendars: create a year, import the company document, review every date, approve. */
@@ -107,56 +124,86 @@ const YearList: React.FC<{ onOpenYear: (id: string) => void }> = ({ onOpenYear }
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-base font-bold text-ink">Annual calendars</h2>
-          <p className="text-xs text-ink-muted">
-            One company calendar per year from {data?.firstYear ?? 2027}. Import the company document, check every date, then approve. Dates only affect checks
-            and alerts after approval.
-          </p>
-        </div>
-        {canEdit && (
-          <Button size="sm" variant="primary" onClick={openCreate} disabled={!data || choices.length === 0} icon={<Plus className="w-3.5 h-3.5" />}>
-            New calendar year
-          </Button>
-        )}
-      </div>
-
-      <DataState loading={loading} error={error} onRetry={reload} empty={data !== null && years.length === 0} emptyText="No annual calendars yet. Create the next year's calendar when the company holiday list is available.">
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          {years.map((year) => {
-            const status = yearStatus(year)
-            return (
-              <button
-                key={year.id}
-                type="button"
-                onClick={() => onOpenYear(year.id)}
-                className="text-left bg-white border border-line rounded-lg shadow-2xs p-4 hover:border-line-strong hover:shadow-xs transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                aria-label={`${year.year} calendar, ${status.label}`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-2xl font-bold text-ink tabular-nums">{year.year}</div>
-                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[11px] font-medium ${status.className}`}>{status.label}</span>
-                </div>
-                <div className="mt-2 text-xs text-ink-secondary">
-                  {year.holidays} holiday{year.holidays === 1 ? '' : 's'} · {year.workingDays} adjustment working day{year.workingDays === 1 ? '' : 's'}
-                </div>
-                <div className="mt-1 text-[11px] text-ink-muted truncate">
-                  {year.sourceFileName ? `${year.sourceFileName} · ${METHOD_LABEL[year.extractionMethod ?? ''] ?? ''}` : 'No document imported'}
-                </div>
-                <div className={`mt-2 text-[11px] font-medium ${year.openIssues ? 'text-exception' : 'text-success'}`}>
-                  {year.openIssues
-                    ? `${year.openIssues} item${year.openIssues === 1 ? '' : 's'} to check`
-                    : year.holidays + year.workingDays === 0
-                      ? 'No dates yet'
-                      : year.approvedAt && !year.pendingChanges
-                        ? `Approved ${formatDateTime(year.approvedAt)}`
-                        : 'Ready to approve'}
-                </div>
-              </button>
-            )
-          })}
-        </div>
+      <DataState loading={loading} error={error} onRetry={reload} empty={data === null ? undefined : false}>
+        <Card className="overflow-hidden">
+          <CardHeader
+            icon={<FileSpreadsheet className="w-4 h-4" />}
+            title="Annual calendars"
+            subtitle={`One company calendar per year from ${data?.firstYear ?? 2027}`}
+            info={`One company calendar per year from ${data?.firstYear ?? 2027}. Import the company document, check every date, then approve. Dates only affect checks and alerts after approval.`}
+            actions={
+              canEdit && (
+                <Button size="sm" variant="primary" onClick={openCreate} disabled={!data || choices.length === 0} icon={<Plus className="w-3.5 h-3.5" />}>
+                  New calendar year
+                </Button>
+              )
+            }
+          />
+          {years.length === 0 ? (
+            <EmptyState
+              icon={<CalendarPlus className="w-5 h-5" />}
+              title="No annual calendars yet"
+              hint="Create the next year's calendar when the company holiday list is available."
+            />
+          ) : (
+            <div className="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {years.map((year) => {
+                const status = yearStatus(year)
+                const ready = !year.openIssues && year.holidays + year.workingDays > 0
+                return (
+                  <button
+                    key={year.id}
+                    type="button"
+                    onClick={() => onOpenYear(year.id)}
+                    className="group text-left bg-white border border-line rounded-[10px] p-4 shadow-[var(--shadow-card)] hover:border-line-strong hover:shadow-[var(--shadow-pop)] transition-[box-shadow,border-color] duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    aria-label={`${year.year} calendar, ${status.label}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-[26px] leading-none font-semibold tracking-tight text-ink tabular-nums">{year.year}</div>
+                      <YearStatusPill year={year} />
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-1.5 text-[12px]">
+                      <span className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-success-bg text-success ring-1 ring-inset ring-success-line">
+                        <PartyPopper className="w-3 h-3" aria-hidden />
+                        <span className="font-semibold tabular-nums">{year.holidays}</span> holiday{year.holidays === 1 ? '' : 's'}
+                      </span>
+                      <span className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-due-bg text-due ring-1 ring-inset ring-due-line">
+                        <BriefcaseBusiness className="w-3 h-3" aria-hidden />
+                        <span className="font-semibold tabular-nums">{year.workingDays}</span> adjustment working day{year.workingDays === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <div className="mt-2.5 flex items-center gap-1.5 text-[11.5px] text-ink-muted min-w-0">
+                      <FileText className="w-3.5 h-3.5 shrink-0 text-ink-faint" aria-hidden />
+                      <span className="truncate">
+                        {year.sourceFileName ? `${year.sourceFileName} · ${METHOD_LABEL[year.extractionMethod ?? ''] ?? ''}` : 'No document imported'}
+                      </span>
+                    </div>
+                    <div
+                      className={`mt-2.5 pt-2.5 border-t border-line flex items-center gap-1.5 text-[12px] font-medium ${
+                        year.openIssues ? 'text-exception' : ready ? 'text-success' : 'text-ink-muted'
+                      }`}
+                    >
+                      {year.openIssues ? (
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                      ) : ready ? (
+                        <CircleCheck className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                      ) : (
+                        <Info className="w-3.5 h-3.5 shrink-0" aria-hidden />
+                      )}
+                      {year.openIssues
+                        ? `${year.openIssues} item${year.openIssues === 1 ? '' : 's'} to check`
+                        : year.holidays + year.workingDays === 0
+                          ? 'No dates yet'
+                          : year.approvedAt && !year.pendingChanges
+                            ? `Approved ${formatDateTime(year.approvedAt)}`
+                            : 'Ready to approve'}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </Card>
       </DataState>
 
       {creating && (
@@ -227,7 +274,6 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
   }
 
   const { year, items, issues } = data
-  const status = yearStatus(year)
   const holidays = items.filter((i) => i.type !== 'WORKING')
   const workingDays = items.filter((i) => i.type === 'WORKING')
   const blocking = issues.filter((i) => i.severity === 'BLOCKING')
@@ -347,17 +393,17 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div className="card px-3 sm:px-4 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <Button size="sm" variant="ghost" onClick={onBack} icon={<ArrowLeft className="w-3.5 h-3.5" />}>
-            <span className="hidden sm:inline">Annual calendars</span>
-          </Button>
+          <IconButton label="Back to annual calendars" size="md" onClick={onBack} className="border border-line-strong bg-white">
+            <ArrowLeft className="w-4 h-4" />
+          </IconButton>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-bold text-ink tabular-nums">{year.year} calendar</h2>
-              <span className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[11px] font-medium ${status.className}`}>{status.label}</span>
+              <h2 className="text-[17px] font-semibold tracking-tight text-ink tabular-nums">{year.year} calendar</h2>
+              <YearStatusPill year={year} />
             </div>
-            <p className="text-[11px] text-ink-muted">
+            <p className="text-[12px] text-ink-muted">
               {holidays.length} holiday{holidays.length === 1 ? '' : 's'} · {workingDays.length} adjustment working day{workingDays.length === 1 ? '' : 's'}
               {year.approvedAt ? ` · last approved ${formatDateTime(year.approvedAt)}` : ''}
             </p>
@@ -377,7 +423,7 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
               }}
             />
             {year.status === 'DRAFT' && (
-              <Button size="sm" variant="ghost" onClick={() => setDeletingYear(true)} icon={<Trash2 className="w-3.5 h-3.5" />} className="text-failed hover:text-failed">
+              <Button size="sm" variant="ghost" onClick={() => setDeletingYear(true)} icon={<Trash2 className="w-3.5 h-3.5" />} className="!text-missed hover:!bg-missed-bg">
                 Delete draft
               </Button>
             )}
@@ -402,8 +448,8 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
       </div>
 
       {importing && (
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-blue-200 bg-blue-50 text-xs text-blue-800" role="status">
-          <Info className="w-4 h-4 shrink-0" />
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-accent-line bg-accent-soft text-[12.5px] text-accent-strong" role="status">
+          <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden />
           Reading the document on the server. Photos and scans are read with offline OCR, which can take up to a minute.
         </div>
       )}
@@ -414,28 +460,30 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
       <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-4 items-start">
         <DocumentPreview yearId={yearId} year={data.year} version={docVersion} />
 
-        <section className="bg-white border border-line rounded-lg shadow-2xs overflow-hidden" aria-label="Calendar dates">
-          <div className="px-4 py-2.5 border-b border-line flex items-center justify-between gap-2">
-            <h3 className="text-sm font-bold text-ink">Dates ({items.length})</h3>
-            <span className="text-[11px] text-ink-muted hidden sm:inline">Check each row against the document</span>
-          </div>
+        <Card className="overflow-hidden" aria-label="Calendar dates">
+          <CardHeader
+            icon={<CalendarPlus className="w-4 h-4" />}
+            title={`Dates (${items.length})`}
+            subtitle="Check each row against the document"
+          />
           {items.length === 0 ? (
-            <p className="px-4 py-8 text-center text-xs text-ink-muted">
-              {year.hasDocument ? 'No dates were read from the document. Add them by hand.' : 'Import the company calendar document, or add the dates by hand.'}
-            </p>
+            <EmptyState
+              icon={<FileUp className="w-5 h-5" />}
+              title={year.hasDocument ? 'No dates were read from the document. Add them by hand.' : 'Import the company calendar document, or add the dates by hand.'}
+            />
           ) : (
             <div className="overflow-x-auto">
-              <table className="stack-sm w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-50 border-b border-line text-ink-secondary text-[11px] uppercase tracking-wider">
+              <table className="data-table stack-sm">
+                <thead>
                   <tr>
-                    <th className="py-2 px-3 font-semibold">Date</th>
-                    <th className="py-2 px-3 font-semibold">Type</th>
-                    <th className="py-2 px-3 font-semibold">Holiday / note · read from document</th>
-                    <th className="py-2 px-3 font-semibold">Review</th>
-                    {canEdit && <th className="py-2 px-3 font-semibold text-right">Action</th>}
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Holiday / note · read from document</th>
+                    <th>Review</th>
+                    {canEdit && <th className="text-right">Actions</th>}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-line">
+                <tbody>
                   {sorted.map((item) => (
                     <ItemRow
                       key={item.id}
@@ -454,7 +502,7 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
               </table>
             </div>
           )}
-        </section>
+        </Card>
       </div>
 
       {editing && (
@@ -544,30 +592,30 @@ const ReviewSummary: React.FC<{ year: CalendarYearDetail; blocking: number; chec
   return (
     <div className="space-y-2">
       {year.year.extractionNote && (
-        <div className="flex items-start gap-2 px-3 py-2.5 rounded-md border border-line bg-slate-50 text-xs text-ink-secondary">
-          <Info className="w-4 h-4 shrink-0 mt-px text-ink-muted" />
+        <div className="flex items-start gap-2 px-3 py-2.5 rounded-md border border-line bg-subtle/60 text-[12.5px] text-ink-secondary">
+          <Info className="w-4 h-4 shrink-0 mt-px text-ink-muted" aria-hidden />
           <span>{year.year.extractionNote}</span>
         </div>
       )}
       <div
-        className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 rounded-md border text-xs ${
+        className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 rounded-md border text-[12.5px] ${
           blocking ? 'border-failed-line bg-failed-bg' : checks ? 'border-exception-line bg-exception-bg' : 'border-success-line bg-success-bg'
         }`}
         role="status"
       >
         {blocking > 0 && (
-          <span className="inline-flex items-center gap-1.5 font-semibold text-failed">
-            <CircleAlert className="w-4 h-4" /> {blocking} problem{blocking === 1 ? '' : 's'} to fix
+          <span className="inline-flex items-center gap-1.5 font-semibold text-missed">
+            <CircleAlert className="w-4 h-4" aria-hidden /> {blocking} problem{blocking === 1 ? '' : 's'} to fix
           </span>
         )}
         {checks > 0 && (
           <span className="inline-flex items-center gap-1.5 font-semibold text-exception">
-            <AlertTriangle className="w-4 h-4" /> {checks} item{checks === 1 ? '' : 's'} to check against the document
+            <AlertTriangle className="w-4 h-4" aria-hidden /> {checks} item{checks === 1 ? '' : 's'} to check against the document
           </span>
         )}
         {ready && (
           <span className="inline-flex items-center gap-1.5 font-semibold text-success">
-            <CircleCheck className="w-4 h-4" />
+            <CircleCheck className="w-4 h-4" aria-hidden />
             {year.year.status === 'APPROVED' && !year.year.pendingChanges ? 'All dates checked and approved' : 'All dates checked · ready to approve'}
           </span>
         )}
@@ -577,8 +625,8 @@ const ReviewSummary: React.FC<{ year: CalendarYearDetail; blocking: number; chec
         )}
       </div>
       {general.map((issue, i) => (
-        <div key={i} className="flex items-start gap-2 px-3 py-2 rounded-md border border-failed-line bg-failed-bg text-xs text-failed">
-          <CircleAlert className="w-4 h-4 shrink-0 mt-px" />
+        <div key={i} className="flex items-start gap-2 px-3 py-2 rounded-md border border-failed-line bg-failed-bg text-[12.5px] text-missed" role="alert">
+          <CircleAlert className="w-4 h-4 shrink-0 mt-px" aria-hidden />
           {issue.message}
         </div>
       ))}
@@ -605,30 +653,35 @@ const ItemRow: React.FC<{
 
   return (
     <tr className={blocking.length ? 'bg-failed-bg/40' : checks.length ? 'bg-exception-bg/40' : undefined} data-item-id={item.id}>
-      <td className={`py-2 px-3 whitespace-nowrap ${dateUncertain ? 'text-exception' : ''}`}>
+      <td className="whitespace-nowrap">
         {item.date ? (
           <>
-            <div className="font-semibold text-ink tabular-nums">{fullDate(item.date)}</div>
-            <div className="text-[11px] text-ink-muted">{weekdayName(item.date)}</div>
+            <div className={`font-semibold tabular-nums ${dateUncertain ? 'text-exception' : 'text-ink'}`}>
+              {fullDate(item.date)}
+              {dateUncertain && <AlertTriangle className="inline w-3 h-3 ml-1 -mt-0.5" aria-label="Date uncertain" />}
+            </div>
+            <div className="text-[11.5px] text-ink-muted">{weekdayName(item.date)}</div>
           </>
         ) : (
-          <span className="font-semibold text-failed">Not readable</span>
+          <span className="font-semibold text-missed">Not readable</span>
         )}
       </td>
-      <td className="py-2 px-3 whitespace-nowrap">
-        <span className="inline-flex items-center gap-1.5">
-          <span className={`w-5 h-5 rounded-full flex items-center justify-center ${style.chip}`} aria-hidden>{style.icon}</span>
-          <span className="font-medium text-ink">{style.short}</span>
+      <td className="whitespace-nowrap">
+        <span className={`inline-flex items-center gap-1 h-[22px] px-2 rounded-md text-[11.5px] font-semibold ${style.chip}`}>
+          <span className="shrink-0 [&>svg]:w-3 [&>svg]:h-3" aria-hidden>
+            {style.icon}
+          </span>
+          {style.short}
         </span>
       </td>
-      <td className="py-2 px-3 min-w-[180px] max-w-[320px]">
+      <td className="min-w-[180px] max-w-[320px]">
         <div className={nameUncertain ? 'text-exception font-medium' : 'text-ink'}>{item.name || <span className="text-ink-faint">—</span>}</div>
         {item.type === 'WORKING' && (
-          <div className="text-[11px] text-ink-muted">
+          <div className="text-[11.5px] text-ink-muted">
             Replaces {replaces ? `${replaces.name ?? 'holiday'} (${fullDate(replaces.date!)})` : item.forHolidayDate ? fullDate(item.forHolidayDate) : '—'}
           </div>
         )}
-        <div className="mt-1 text-[11px] text-ink-faint break-words">
+        <div className="mt-1 text-[11.5px] text-ink-muted break-words">
           {item.sourceText ? (
             <>
               Document: {item.sourceText}
@@ -639,39 +692,43 @@ const ItemRow: React.FC<{
           )}
         </div>
       </td>
-      <td className="py-2 px-3 min-w-[200px] max-w-[360px]">
+      <td className="min-w-[200px] max-w-[360px]">
         {blocking.length === 0 && checks.length === 0 ? (
-          <span className="inline-flex items-center gap-1 text-success font-medium">
-            <CheckCheck className="w-3.5 h-3.5" /> Checked
+          <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-success-bg text-success ring-1 ring-inset ring-success-line text-[11px] font-medium">
+            <CheckCheck className="w-3 h-3" aria-hidden /> Checked
           </span>
         ) : (
           <ul className="space-y-1">
             {[...blocking, ...checks].map((issue, i) => (
-              <li key={i} className={`flex items-start gap-1 text-[11px] ${issue.severity === 'BLOCKING' ? 'text-failed' : 'text-exception'}`}>
-                {issue.severity === 'BLOCKING' ? <CircleAlert className="w-3.5 h-3.5 shrink-0 mt-px" /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />}
+              <li key={i} className={`flex items-start gap-1 text-[11.5px] ${issue.severity === 'BLOCKING' ? 'text-missed' : 'text-exception'}`}>
+                {issue.severity === 'BLOCKING' ? <CircleAlert className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden />}
                 <span>{issue.message}</span>
               </li>
             ))}
           </ul>
         )}
         {info.map((issue, i) => (
-          <div key={i} className="mt-1 flex items-start gap-1 text-[11px] text-ink-muted">
-            <Info className="w-3.5 h-3.5 shrink-0 mt-px" />
+          <div key={i} className="mt-1 flex items-start gap-1 text-[11.5px] text-ink-muted">
+            <Info className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden />
             <span>{issue.message}</span>
           </div>
         ))}
       </td>
       {canEdit && (
-        <td className="py-2 px-3 text-right whitespace-nowrap">
-          {checks.length > 0 && blocking.length === 0 && (
-            <Button size="sm" variant="outline" onClick={onConfirm} icon={<CheckCheck className="w-3.5 h-3.5" />} title="The row matches the document">
-              Confirm
-            </Button>
-          )}
-          <Button size="sm" variant="ghost" onClick={onEdit} icon={<Pencil className="w-3.5 h-3.5" />} aria-label={`Edit ${item.date ?? 'row'}`}>
-            <span className="lg:hidden xl:inline">Edit</span>
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onDelete} icon={<Trash2 className="w-3.5 h-3.5" />} className="text-failed hover:text-failed" aria-label={`Delete ${item.date ?? 'row'}`} />
+        <td className="text-right whitespace-nowrap" data-label="">
+          <div className="inline-flex items-center gap-0.5">
+            {checks.length > 0 && blocking.length === 0 && (
+              <Button size="sm" variant="outline" onClick={onConfirm} icon={<CheckCheck className="w-3.5 h-3.5" />} title="The row matches the document" className="mr-1">
+                Confirm
+              </Button>
+            )}
+            <IconButton label={`Edit ${item.date ?? 'row'}`} onClick={onEdit}>
+              <Pencil className="w-3.5 h-3.5" />
+            </IconButton>
+            <IconButton label={`Delete ${item.date ?? 'row'}`} tone="danger" onClick={onDelete}>
+              <Trash2 className="w-3.5 h-3.5" />
+            </IconButton>
+          </div>
         </td>
       )}
     </tr>
@@ -723,13 +780,13 @@ const ItemModal: React.FC<{
       <form id="calendar-item-form" onSubmit={submit} className="space-y-4">
         <FormError message={error} />
         {sourceText && (
-          <div className="px-3 py-2 rounded-md border border-line bg-slate-50 text-[11px] text-ink-secondary">
+          <div className="px-3 py-2 rounded-md border border-line bg-subtle/60 text-[12px] text-ink-secondary">
             <span className="font-semibold text-ink">Read from document:</span> {sourceText}
           </div>
         )}
         <fieldset>
-          <legend className="block text-[13px] lg:text-xs font-semibold text-slate-700 mb-1">
-            Type<span className="text-failed"> *</span>
+          <legend className="block text-[13px] lg:text-[12.5px] font-medium text-ink-secondary mb-1.5">
+            Type<span className="text-missed"> *</span>
           </legend>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="radiogroup" aria-label="Type">
             {ITEM_TYPES.map((t) => {
@@ -742,10 +799,10 @@ const ItemModal: React.FC<{
                   role="radio"
                   aria-checked={active}
                   onClick={() => set('type', t)}
-                  className={`flex items-center gap-2.5 text-left px-3 py-2 rounded-md border transition-colors ${active ? 'border-accent bg-blue-50/60 ring-1 ring-accent' : 'border-line-strong bg-white hover:bg-slate-50'}`}
+                  className={`flex items-center gap-2.5 text-left px-3 py-2 rounded-md border transition-colors ${active ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-line-strong bg-white hover:bg-subtle'}`}
                 >
-                  <span className={`w-6 h-6 shrink-0 rounded-full flex items-center justify-center ${style.chip}`} aria-hidden>{style.icon}</span>
-                  <span className="text-xs font-semibold text-ink">{style.label}</span>
+                  <span className={`w-6 h-6 shrink-0 rounded-md flex items-center justify-center ${style.chip}`} aria-hidden>{style.icon}</span>
+                  <span className="text-[12.5px] font-semibold text-ink">{style.label}</span>
                 </button>
               )
             })}
@@ -811,14 +868,18 @@ const DocumentPreview: React.FC<{ yearId: string; year: CalendarYearDetail['year
   }, [yearId, kind, version])
 
   return (
-    <section className="bg-white border border-line rounded-lg shadow-2xs overflow-hidden 2xl:sticky 2xl:top-4" aria-label="Company document">
-      <div className="px-4 py-2.5 border-b border-line flex items-center justify-between gap-2">
-        <h3 className="text-sm font-bold text-ink flex items-center gap-1.5 min-w-0">
-          {kind === 'image' ? <ImageIcon className="w-4 h-4 text-ink-muted" /> : kind === 'sheet' ? <FileSpreadsheet className="w-4 h-4 text-ink-muted" /> : <FileText className="w-4 h-4 text-ink-muted" />}
+    <Card className="overflow-hidden 2xl:sticky 2xl:top-4" aria-label="Company document">
+      <div className="px-4 pt-3.5 pb-3 border-b border-line flex items-center justify-between gap-2">
+        <h3 className="text-[13.5px] font-semibold text-ink flex items-center gap-2.5 min-w-0">
+          <span className="w-7 h-7 shrink-0 rounded-md bg-subtle text-ink-secondary flex items-center justify-center" aria-hidden>
+            {kind === 'image' ? <ImageIcon className="w-4 h-4" /> : kind === 'sheet' ? <FileSpreadsheet className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+          </span>
           <span className="truncate">{year.sourceFileName ?? 'Company document'}</span>
         </h3>
         <span className="flex items-center gap-2 shrink-0">
-          {year.extractionMethod && year.hasDocument && <span className="text-[11px] text-ink-muted whitespace-nowrap">{METHOD_LABEL[year.extractionMethod]}</span>}
+          {year.extractionMethod && year.hasDocument && (
+            <span className="inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[11px] text-ink-secondary whitespace-nowrap">{METHOD_LABEL[year.extractionMethod]}</span>
+          )}
           {kind && kind !== 'sheet' && (
             <Button size="sm" variant="ghost" onClick={() => setExpanded((v) => !v)} className="2xl:hidden" aria-expanded={expanded}>
               {expanded ? 'Show less' : 'Show full'}
@@ -827,25 +888,27 @@ const DocumentPreview: React.FC<{ yearId: string; year: CalendarYearDetail['year
         </span>
       </div>
       {!kind ? (
-        <p className="px-4 py-10 text-center text-xs text-ink-muted">No document imported. The company document is shown here for checking each date.</p>
+        <EmptyState icon={<FileText className="w-5 h-5" />} title="No document imported" hint="The company document is shown here for checking each date." />
       ) : kind === 'sheet' ? (
         <div className="px-4 py-8 text-center space-y-3">
-          <p className="text-xs text-ink-muted">Spreadsheets can't be previewed here. Open the file to compare.</p>
+          <p className="text-[12.5px] text-ink-muted">Spreadsheets can't be previewed here. Open the file to compare.</p>
           <Button size="sm" variant="outline" onClick={() => download(`/api/calendar-years/${yearId}/document`, undefined, year.sourceFileName ?? 'calendar')}>
             Download {year.sourceFileName}
           </Button>
         </div>
       ) : error ? (
-        <p className="px-4 py-6 text-xs text-failed">{error}</p>
+        <p className="px-4 py-6 text-[12.5px] text-missed" role="alert">
+          {error}
+        </p>
       ) : !url ? (
-        <p className="px-4 py-10 text-center text-xs text-ink-muted">Loading document…</p>
+        <p className="px-4 py-10 text-center text-[12.5px] text-ink-muted">Loading document…</p>
       ) : kind === 'image' ? (
-        <div className={`${expanded ? 'max-h-none' : 'max-h-[320px]'} 2xl:max-h-[75vh] overflow-auto bg-slate-100`}>
+        <div className={`${expanded ? 'max-h-none' : 'max-h-[320px]'} 2xl:max-h-[75vh] overflow-auto bg-subtle`}>
           <img src={url} alt={`${year.year} company calendar`} className="w-full h-auto" />
         </div>
       ) : (
-        <iframe src={url} title={`${year.year} company calendar`} className={`w-full ${expanded ? 'h-[80vh]' : 'h-[360px]'} 2xl:h-[70vh] bg-slate-100`} />
+        <iframe src={url} title={`${year.year} company calendar`} className={`w-full ${expanded ? 'h-[80vh]' : 'h-[360px]'} 2xl:h-[70vh] bg-subtle`} />
       )}
-    </section>
+    </Card>
   )
 }

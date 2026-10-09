@@ -1,102 +1,31 @@
-import { and, count, desc, eq, gte, lt, sql, type SQL } from 'drizzle-orm'
+import { and, eq, gte, lt, sql, type SQL } from 'drizzle-orm'
 import { db } from '../db/client'
-import { departments, jobs, machines, qualityChecks, scoreSettingHistory, scoreSettings, shifts, users } from '../db/schema'
+import { departments, jobs, machines, qualityChecks, shifts, users } from '../db/schema'
+import { UNRESTRICTED, type DepartmentScope } from './departmentScope'
 
 /**
- * Worker performance: how many checks a worker was given, how many were completed, and the score
- * that follows from the missed ones. The scoring rule lives in the database (score_settings), so an
- * Admin changes it in the admin panel without a new build.
+ * Worker performance: how many checks a worker was given, how many they did, and the score that
+ * follows. Nothing here changes how checks are created, assigned or submitted: it only reads them.
  *
- *   missed = assigned - completed
- *   score  = completion % - 100               (80 of 100 done = 80% complete, score -20)
+ *   counted  = checks whose time is over: submitted, an exception, Missed, or past their window
+ *   done     = completed + exceptions (an exception is a reasoned "could not do it", not a miss)
+ *   score    = done / counted as a percentage, minus 100   (8 of 10 done = 80%, score -20)
  *
- * Nothing here changes how checks are created, assigned or submitted: it only reads them.
+ * A check still open inside its window is not counted yet, so a worker is never marked down during
+ * a shift for a check that is not due or still has time left.
  *
- * Departments decide who may see whom: an Admin or the Super Admin sees every worker and can
- * filter by department; a Manager only ever sees the workers of their own department, whatever the
- * request asks for.
+ * Everyone who may see performance sees every worker of every department. The department filter
+ * is the department of the work, recorded on each check (quality_checks.department_id), not the
+ * department on the worker's account: a worker who does Label and Pouch work is counted under
+ * Label for their Label checks and under Pouch for their Pouch checks.
  */
 
-export interface PerformanceScope {
-  /** The department a Manager is limited to; null for an Admin (no limit). */
-  departmentId: string | null
-  departmentName: string | null
-  /** True when the caller only sees one department. */
-  restricted: boolean
-  /** A Manager whose account has no department sees nobody until an Admin sets one. */
-  missingDepartment: boolean
-}
+/** The `scope` field of the responses: always unrestricted, kept for older app builds that read it. */
+export type PerformanceScope = DepartmentScope
 
-/** What this user may see. Read from the database each time, so a change applies at once. */
-export async function performanceScope(user: { id: string; role: string }): Promise<PerformanceScope> {
-  if (user.role !== 'MANAGER') return { departmentId: null, departmentName: null, restricted: false, missingDepartment: false }
-  const [row] = await db
-    .select({ departmentId: users.departmentId, departmentName: departments.name })
-    .from(users)
-    .leftJoin(departments, eq(departments.id, users.departmentId))
-    .where(eq(users.id, user.id))
-  return {
-    departmentId: row?.departmentId ?? null,
-    departmentName: row?.departmentName ?? null,
-    restricted: true,
-    missingDepartment: !row?.departmentId
-  }
-}
-
-/** The department a worker belongs to, for checking a Manager may open them. */
-export async function departmentOfWorker(workerId: string): Promise<string | null> {
-  const [row] = await db.select({ departmentId: users.departmentId }).from(users).where(eq(users.id, workerId))
-  return row?.departmentId ?? null
-}
-
-export interface ScoreSetting {
-  penaltyPerMissed: number
-  updatedAt: Date
-  updatedById: string | null
-}
-
-/** The scoring rule in force. Created with the default penalty of -1 the first time it is needed. */
-export async function activeScoreSetting(): Promise<ScoreSetting> {
-  const [row] = await db.select().from(scoreSettings).where(eq(scoreSettings.isActive, true)).limit(1)
-  if (row) return { penaltyPerMissed: row.penaltyPerMissed, updatedAt: row.updatedAt, updatedById: row.updatedById }
-  const [created] = await db.insert(scoreSettings).values({}).onConflictDoNothing().returning()
-  if (created) return { penaltyPerMissed: created.penaltyPerMissed, updatedAt: created.updatedAt, updatedById: created.updatedById }
-  // Another request created it at the same moment.
-  const [existing] = await db.select().from(scoreSettings).where(eq(scoreSettings.isActive, true)).limit(1)
-  return { penaltyPerMissed: existing.penaltyPerMissed, updatedAt: existing.updatedAt, updatedById: existing.updatedById }
-}
-
-/** Changes the penalty and records what it was, what it became and who changed it. */
-export async function setPenaltyPerMissed(penaltyPerMissed: number, userId: string): Promise<{ previous: number; current: number }> {
-  const before = await activeScoreSetting()
-  if (before.penaltyPerMissed === penaltyPerMissed) return { previous: before.penaltyPerMissed, current: penaltyPerMissed }
-  await db.transaction(async (tx) => {
-    await tx
-      .update(scoreSettings)
-      .set({ penaltyPerMissed, updatedById: userId, updatedAt: new Date() })
-      .where(eq(scoreSettings.isActive, true))
-    await tx.insert(scoreSettingHistory).values({ previousPenalty: before.penaltyPerMissed, newPenalty: penaltyPerMissed, changedById: userId })
-  })
-  return { previous: before.penaltyPerMissed, current: penaltyPerMissed }
-}
-
-/** Every change of the scoring rule, newest first. */
-export async function penaltyHistory(limit = 50) {
-  const rows = await db
-    .select({
-      id: scoreSettingHistory.id,
-      previousPenalty: scoreSettingHistory.previousPenalty,
-      newPenalty: scoreSettingHistory.newPenalty,
-      changedAt: scoreSettingHistory.changedAt,
-      changedById: scoreSettingHistory.changedById,
-      changedByName: users.name,
-      changedByEmployeeId: users.employeeId
-    })
-    .from(scoreSettingHistory)
-    .leftJoin(users, eq(users.id, scoreSettingHistory.changedById))
-    .orderBy(desc(scoreSettingHistory.changedAt))
-    .limit(limit)
-  return rows
+/** What this user may see: every worker, whatever the role. */
+export async function performanceScope(_user: { id: string; role: string }): Promise<PerformanceScope> {
+  return UNRESTRICTED
 }
 
 export interface PerformanceFilters {
@@ -109,40 +38,38 @@ export interface PerformanceFilters {
   activityId?: string
   jobId?: string
   jobNo?: string
-  /** Only workers of this department (the worker's own department, not the machine's). */
+  /** Only checks of this department: the department of the work recorded on the check, not the worker's own. */
   departmentId?: string
-  /** Nobody may be seen (a Manager without a department). */
-  none?: boolean
 }
 
 export interface WorkerPerformance {
   workerId: string
   workerName: string
   employeeId: string
-  /** Every check given to this worker in the period. */
+  /** Checks given to this worker in the period whose time is over (see the comment at the top). */
   assigned: number
   completed: number
-  /** assigned - completed: what the score is based on. */
+  /** Missed checks: the only ones that lower the score. */
   missed: number
-  /** The breakdown of those missed: gone past their time, an exception, or still open. */
+  /** Same as `missed`, kept for older app builds that read it. */
   missedChecks: number
   exceptions: number
+  /** Checks still open inside their window: not counted yet. */
   open: number
-  /** Completion − 100: the percentage still pending, as a negative. 0 when everything is done. */
+  /** (completed + exceptions) / assigned as a percentage, minus 100. 0 when nothing was missed. */
   score: number
-  /** completed / assigned as a percentage. */
+  /** (completed + exceptions) / assigned as a percentage. */
   completionRate: number
 }
 
 function conditions(f: PerformanceFilters): SQL {
-  if (f.none) return sql`false`
   const where: SQL[] = [
     gte(qualityChecks.scheduledAt, f.from),
     lt(qualityChecks.scheduledAt, f.to),
     sql`${qualityChecks.workerId} is not null`
   ]
   if (f.workerId) where.push(eq(qualityChecks.workerId, f.workerId))
-  if (f.departmentId) where.push(eq(users.departmentId, f.departmentId))
+  if (f.departmentId) where.push(eq(qualityChecks.departmentId, f.departmentId))
   if (f.machineId) where.push(eq(qualityChecks.machineId, f.machineId))
   if (f.shiftId) where.push(eq(qualityChecks.shiftId, f.shiftId))
   if (f.activityId) where.push(eq(qualityChecks.activityId, f.activityId))
@@ -156,38 +83,29 @@ function conditions(f: PerformanceFilters): SQL {
   return and(...where)!
 }
 
-const rate = (completed: number, assigned: number) => (assigned ? Math.round((completed / assigned) * 100) : 100)
+const rate = (done: number, assigned: number) => (assigned ? Math.round((done / assigned) * 100) : 100)
 
 /**
- * The score is the share of the worker's checks still not done, as a negative percentage:
- *
- *   score = completion % − 100 = −(pending %)
- *
- * 80 of 100 done is 80% complete, 20% pending, score −20. Everything done is 0, nothing done is
- * −100, and a worker who was given no checks at all is 0 rather than −100.
+ * Completion % minus 100: 8 of 10 done is -20, everything done is 0, nothing done is -100, and a
+ * worker with no counted checks at all is 0 rather than -100.
  */
-const scoreOf = (completed: number, assigned: number) => rate(completed, assigned) - 100
+const scoreOf = (done: number, assigned: number) => rate(done, assigned) - 100
 
-/**
- * One row per worker who had checks in the period, worst score first. `penaltyPerMissed` is still
- * returned for the screens that read it, but the score no longer uses it: it is the pending
- * percentage (see `scoreOf`).
- */
+/** One row per worker who had checks in the period, worst score first. */
 export async function workerPerformance(filters: PerformanceFilters) {
-  const { penaltyPerMissed } = await activeScoreSetting()
-  if (filters.none) {
-    return { penaltyPerMissed, totals: { workers: 0, assigned: 0, completed: 0, missed: 0, score: 0, completionRate: 100 }, workers: [] as WorkerPerformance[] }
-  }
+  // A check counts once its time is over: finished, or past the end of its window.
+  const counted = sql`(${qualityChecks.status} in ('COMPLETED', 'MISSED', 'EXCEPTION') or ${qualityChecks.windowEndsAt} < now())`
   const rows = await db
     .select({
       workerId: qualityChecks.workerId,
       workerName: users.name,
       employeeId: users.employeeId,
-      assigned: count(),
+      assigned: sql<number>`count(*) filter (where ${counted})::int`,
       completed: sql<number>`count(*) filter (where ${qualityChecks.status} = 'COMPLETED')::int`,
-      missedChecks: sql<number>`count(*) filter (where ${qualityChecks.status} = 'MISSED')::int`,
       exceptions: sql<number>`count(*) filter (where ${qualityChecks.status} = 'EXCEPTION')::int`,
-      open: sql<number>`count(*) filter (where ${qualityChecks.status} in ('PENDING', 'DUE', 'IN_PROGRESS'))::int`
+      // Still open past its window: the scheduler marks it Missed within a minute, so it is missed now.
+      missed: sql<number>`count(*) filter (where ${qualityChecks.status} = 'MISSED' or (${qualityChecks.status} in ('PENDING', 'DUE', 'IN_PROGRESS') and ${qualityChecks.windowEndsAt} < now()))::int`,
+      open: sql<number>`count(*) filter (where not ${counted})::int`
     })
     .from(qualityChecks)
     .innerJoin(users, eq(users.id, qualityChecks.workerId))
@@ -195,45 +113,44 @@ export async function workerPerformance(filters: PerformanceFilters) {
     .groupBy(qualityChecks.workerId, users.name, users.employeeId)
 
   const workers: WorkerPerformance[] = rows
-    .map((r) => {
-      const missed = r.assigned - r.completed
-      return {
-        workerId: r.workerId!,
-        workerName: r.workerName,
-        employeeId: r.employeeId,
-        assigned: r.assigned,
-        completed: r.completed,
-        missed,
-        missedChecks: r.missedChecks,
-        exceptions: r.exceptions,
-        open: r.open,
-        score: scoreOf(r.completed, r.assigned),
-        completionRate: rate(r.completed, r.assigned)
-      }
-    })
+    .map((r) => ({
+      workerId: r.workerId!,
+      workerName: r.workerName,
+      employeeId: r.employeeId,
+      assigned: r.assigned,
+      completed: r.completed,
+      missed: r.missed,
+      missedChecks: r.missed,
+      exceptions: r.exceptions,
+      open: r.open,
+      score: scoreOf(r.completed + r.exceptions, r.assigned),
+      completionRate: rate(r.completed + r.exceptions, r.assigned)
+    }))
     .sort((a, b) => a.score - b.score || b.assigned - a.assigned || a.workerName.localeCompare(b.workerName))
 
-  const assigned = workers.reduce((n, w) => n + w.assigned, 0)
-  const completed = workers.reduce((n, w) => n + w.completed, 0)
+  const total = (key: 'assigned' | 'completed' | 'missed' | 'exceptions' | 'open') => workers.reduce((n, w) => n + w[key], 0)
+  const assigned = total('assigned')
+  const done = total('completed') + total('exceptions')
   return {
-    penaltyPerMissed,
     totals: {
       workers: workers.length,
       assigned,
-      completed,
-      missed: assigned - completed,
-      score: scoreOf(completed, assigned),
-      completionRate: rate(completed, assigned)
+      completed: total('completed'),
+      missed: total('missed'),
+      exceptions: total('exceptions'),
+      open: total('open'),
+      score: scoreOf(done, assigned),
+      completionRate: rate(done, assigned)
     },
     workers
   }
 }
 
 /** One worker's own figures; an empty period is reported as zeros, not as "no data". */
-export async function performanceOf(workerId: string, filters: Omit<PerformanceFilters, 'workerId'>): Promise<WorkerPerformance & { penaltyPerMissed: number }> {
+export async function performanceOf(workerId: string, filters: Omit<PerformanceFilters, 'workerId'>): Promise<WorkerPerformance> {
   const result = await workerPerformance({ ...filters, workerId })
   const found = result.workers.find((w) => w.workerId === workerId)
-  if (found) return { ...found, penaltyPerMissed: result.penaltyPerMissed }
+  if (found) return found
   const [user] = await db.select({ name: users.name, employeeId: users.employeeId }).from(users).where(eq(users.id, workerId))
   return {
     workerId,
@@ -246,34 +163,23 @@ export async function performanceOf(workerId: string, filters: Omit<PerformanceF
     exceptions: 0,
     open: 0,
     score: 0,
-    completionRate: 100,
-    penaltyPerMissed: result.penaltyPerMissed
+    completionRate: 100
   }
 }
 
 /**
- * Values for the filter dropdowns. A Manager only gets their own department and its workers, so
- * the page cannot even offer another department.
+ * Values for the filter dropdowns: the active machines and shifts, every department and every
+ * worker. `scope` is sent back for older app builds that still read it.
  */
 export async function performanceFilterValues(scope: PerformanceScope) {
   const [machineRows, shiftRows, departmentRows, workerRows] = await Promise.all([
     db.select({ id: machines.id, name: machines.name }).from(machines).where(eq(machines.isActive, true)).orderBy(machines.name),
     db.select({ id: shifts.id, name: shifts.name }).from(shifts).where(eq(shifts.isActive, true)).orderBy(shifts.name),
-    scope.restricted
-      ? scope.departmentId
-        ? db.select({ id: departments.id, name: departments.name }).from(departments).where(eq(departments.id, scope.departmentId))
-        : Promise.resolve([])
-      : db.select({ id: departments.id, name: departments.name }).from(departments).orderBy(departments.name),
+    db.select({ id: departments.id, name: departments.name }).from(departments).orderBy(departments.name),
     db
       .select({ id: users.id, name: users.name, employeeId: users.employeeId, departmentId: users.departmentId })
       .from(users)
-      .where(
-        scope.restricted
-          ? scope.departmentId
-            ? and(eq(users.role, 'WORKER'), eq(users.departmentId, scope.departmentId))!
-            : sql`false`
-          : eq(users.role, 'WORKER')
-      )
+      .where(eq(users.role, 'WORKER'))
       .orderBy(users.name)
   ])
   return { machines: machineRows, shifts: shiftRows, departments: departmentRows, workers: workerRows, scope }

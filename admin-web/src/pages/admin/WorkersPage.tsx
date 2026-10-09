@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react'
-import { Edit2, Info, KeyRound, Plus, Search, UserX } from 'lucide-react'
-import type { Department, Role, Shift, User } from '../../types'
+import React, { useCallback, useMemo, useState } from 'react'
+import { Clock3, HardHat, Info, KeyRound, Pencil, Plus, ShieldCheck, Smartphone, Trash2, UserCheck, Users, UserX } from 'lucide-react'
+import type { Department, Role, Shift, User, WorkerQualityRole } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { ROLE_LABEL, useAuth } from '../../lib/auth'
@@ -14,6 +14,16 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { RevealPasswordModal } from './RevealPasswordModal'
+import { DeleteRecordsModal } from '../../components/common/DeleteRecordsModal'
+import { BulkDeleteBar, RowCheckbox, useSelection } from '../../components/common/BulkSelection'
+import { useDeletePermissions } from '../../lib/deletePermissions'
+import { AdminDeletePermissions } from './AdminDeletePermissions'
+import { Pill, RoleBadge, UserAvatar } from '../../components/ui/Chips'
+import { Card, EmptyState } from '../../components/ui/Card'
+import { StatCard } from '../../components/ui/StatCard'
+import { IconButton, ResultCount, SearchInput, Segmented, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
+import { Pagination, usePagination } from '../../components/ui/Pagination'
+import { ShiftSignInStatusCard } from './ShiftSignIn'
 
 type RoleTab = 'ALL' | Role
 
@@ -25,11 +35,10 @@ const TABS: { value: RoleTab; label: string }[] = [
   { value: 'SUPER_ADMIN', label: 'Super Admins' }
 ]
 
-const ROLE_BADGE: Record<Role, string> = {
-  WORKER: 'bg-subtle text-ink-secondary border-line',
-  MANAGER: 'bg-due-bg text-due border-due-line',
-  ADMIN: 'bg-blue-50 text-accent border-blue-200',
-  SUPER_ADMIN: 'bg-ink text-white border-ink'
+const QUALITY_ROLE_LABEL: Record<WorkerQualityRole, string> = {
+  IPQC: 'IPQC',
+  QC: 'QC',
+  BOTH: 'IPQC + QC'
 }
 
 /**
@@ -44,19 +53,32 @@ function manageableRoles(role: Role | undefined): Role[] {
 
 const ROLE_HINT: Record<Role, string> = {
   WORKER: 'Uses the worker app on Android, iPhone or PC',
-  MANAGER: 'Sees only the modules an Admin gives them in Manager Access',
-  ADMIN: 'Full access, manages Managers, Workers and manager permissions',
-  SUPER_ADMIN: 'Full access, including Admin accounts'
+  MANAGER: 'Sees every department, with only the modules the Super Admin allows for Managers',
+  ADMIN: 'Full access, manages Manager and Worker accounts',
+  SUPER_ADMIN: 'Full access, including Admin accounts and Manager permissions'
 }
 
-const RoleBadge: React.FC<{ role: Role }> = ({ role }) => (
-  <span className={`inline-flex items-center px-1.5 py-0.5 rounded border text-[11px] font-medium ${ROLE_BADGE[role]}`}>{ROLE_LABEL[role]}</span>
+/** IPQC / QC / both: a neutral outline chip, the text carries the meaning. */
+const QualityRoleBadge: React.FC<{ role: WorkerQualityRole }> = ({ role }) => (
+  <Pill className="bg-white text-ink ring-line-strong font-semibold tracking-wide" title="Quality role">
+    {QUALITY_ROLE_LABEL[role]}
+  </Pill>
+)
+
+/** Mobile app sign-in: allowed or blocked, with an icon so it does not rely on colour. */
+const AppAccessBadge: React.FC<{ allowed: boolean }> = ({ allowed }) => (
+  <Pill className={allowed ? 'bg-white text-ink-secondary ring-line-strong' : 'bg-subtle text-ink-muted ring-line'} title={allowed ? 'Can sign in to the mobile app' : 'Mobile app blocked'}>
+    <Smartphone className="w-3 h-3" aria-hidden />
+    <span className="sr-only">Mobile app: </span>
+    {allowed ? 'App' : 'No app'}
+  </Pill>
 )
 
 interface FormState {
   employeeId: string
   name: string
   role: Role
+  workerQualityRole: WorkerQualityRole
   designation: string
   departmentId: string
   shiftId: string
@@ -70,6 +92,7 @@ const emptyForm: FormState = {
   employeeId: '',
   name: '',
   role: 'WORKER',
+  workerQualityRole: 'IPQC',
   designation: '',
   departmentId: '',
   shiftId: '',
@@ -99,6 +122,12 @@ export const WorkersPage: React.FC = () => {
   const [revealing, setRevealing] = useState<User | null>(null)
   // Only the Super Admin can view passwords.
   const canViewPasswords = me?.role === 'SUPER_ADMIN'
+  // Permanent delete of an account and its history: the Super Admin only (Delete Users is never
+  // granted to anyone else, and the server checks it again on every request).
+  const canDeleteUsers = useDeletePermissions().DELETE_USERS
+  const myId = me?.id
+  const canDeleteUser = useCallback((u: User) => canDeleteUsers && u.id !== myId, [canDeleteUsers, myId])
+  const [deleting, setDeleting] = useState<{ ids: string[]; bulk: boolean; user?: User } | null>(null)
 
   const users = useMemo(() => usersApi.data ?? [], [usersApi.data])
   const departments = departmentsApi.data ?? []
@@ -112,6 +141,22 @@ export const WorkersPage: React.FC = () => {
     return c
   }, [users])
 
+  // The KPI strip, worked out from the list already loaded.
+  const kpi = useMemo(() => {
+    const k = { active: 0, noApp: 0, ipqc: 0, qc: 0, both: 0 }
+    for (const u of users) {
+      if (u.isActive) k.active++
+      if (!u.appAccess) k.noApp++
+      if (u.role === 'WORKER') {
+        const q = u.workerQualityRole ?? 'IPQC'
+        if (q === 'IPQC') k.ipqc++
+        else if (q === 'QC') k.qc++
+        else k.both++
+      }
+    }
+    return k
+  }, [users])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return users.filter((u) => {
@@ -121,12 +166,16 @@ export const WorkersPage: React.FC = () => {
     })
   }, [users, tab, search])
 
+  const paging = usePagination(filtered, 25, `${tab}|${search}`)
+  // Only the rows on this page can be selected, so nothing out of sight is ever deleted.
+  const selection = useSelection(useMemo(() => paging.visible.filter(canDeleteUser).map((u) => u.id), [paging.visible, canDeleteUser]))
+
   const isSelf = editing !== null && editing !== 'new' && editing.id === me?.id
   // Only the Super Admin manages passwords: other users' here, their own in My Account.
   const canResetPassword = me?.role === 'SUPER_ADMIN' && !isSelf
 
   const openNew = () => {
-    setForm({ ...emptyForm, role: tab !== 'ALL' && allowedRoles.includes(tab) ? tab : 'WORKER' })
+    setForm({ ...emptyForm, role: tab !== 'ALL' && allowedRoles.includes(tab) ? tab : 'WORKER', workerQualityRole: 'IPQC' })
     setFormError(null)
     setEditing('new')
   }
@@ -136,6 +185,7 @@ export const WorkersPage: React.FC = () => {
       employeeId: u.employeeId,
       name: u.name,
       role: u.role,
+      workerQualityRole: u.workerQualityRole ?? 'IPQC',
       designation: u.designation ?? '',
       departmentId: u.departmentId ?? '',
       shiftId: u.shiftId ?? '',
@@ -164,6 +214,7 @@ export const WorkersPage: React.FC = () => {
         employeeId: form.employeeId.trim(),
         name: form.name.trim(),
         role: form.role,
+        workerQualityRole: form.workerQualityRole,
         designation: form.designation.trim() || null,
         departmentId: form.departmentId || null,
         shiftId: form.shiftId || null,
@@ -205,10 +256,12 @@ export const WorkersPage: React.FC = () => {
   const pickerError = departmentsApi.error || shiftsApi.error
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
+        icon={<Users className="w-4.5 h-4.5" />}
         title="Workers & Users"
-        description="Accounts for shop-floor workers, managers and administrators, and which machines each worker can check"
+        description={usersApi.data ? `${users.length} ${users.length === 1 ? 'account' : 'accounts'} · ${kpi.active} active` : 'Shop-floor workers, managers and administrators'}
+        info="Accounts for shop-floor workers, managers and administrators. Workers sign in to the mobile app with their employee ID; managers and admins use this web console."
         actions={
           canEdit && (
             <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
@@ -218,109 +271,213 @@ export const WorkersPage: React.FC = () => {
         }
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 border border-line rounded-md shadow-2xs text-xs">
-        <div className="inline-flex rounded border border-line-strong overflow-hidden">
-          {TABS.filter((t) => t.value === 'ALL' || counts[t.value] > 0 || allowedRoles.includes(t.value as Role)).map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              onClick={() => setTab(t.value)}
-              className={`h-[40px] lg:h-8 px-3 text-xs font-medium whitespace-nowrap border-r border-line-strong last:border-r-0 transition-colors ${
-                tab === t.value ? 'bg-accent text-white' : 'bg-white text-ink-secondary hover:bg-slate-50'
-              }`}
-            >
-              {t.label}
-              <span className={`ml-1.5 text-[11px] lg:text-[10px] ${tab === t.value ? 'text-white/80' : 'text-ink-faint'}`}>{counts[t.value]}</span>
-            </button>
-          ))}
-        </div>
-        <div className="relative min-w-[220px] flex-1 max-w-sm">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 lg:top-2.5 lg:translate-y-0 text-ink-faint pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search name, employee ID, department…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-[40px] lg:h-8 pl-8 pr-3 border border-line-strong rounded text-[16px] lg:text-xs bg-white placeholder:text-ink-faint focus:outline-none focus:ring-1 focus:ring-accent"
-          />
-        </div>
-      </div>
-
       <DataState
         loading={usersApi.loading}
         error={usersApi.error}
         onRetry={usersApi.reload}
-        empty={!usersApi.loading && filtered.length === 0}
-        emptyText={users.length === 0 ? 'No users yet' : 'No users match the filters'}
+        // Once loaded, the table stays on screen while it reloads (e.g. after a save).
+        empty={usersApi.data ? false : undefined}
       >
-        <div className="bg-white border border-line rounded-md shadow-2xs overflow-x-auto">
-          <table className="stack-sm w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50 border-b border-line text-ink-secondary font-mono text-[11px] uppercase tracking-wider">
-              <tr>
-                <th className="py-2.5 px-3.5">Name</th>
-                <th className="py-2.5 px-3.5">Employee ID</th>
-                <th className="py-2.5 px-3.5">Role</th>
-                <th className="py-2.5 px-3.5">Department</th>
-                <th className="py-2.5 px-3.5">Shift</th>
-                <th className="py-2.5 px-3.5">Mobile app</th>
-                <th className="py-2.5 px-3.5">Status</th>
-                <th className="py-2.5 px-3.5">Last login</th>
-                {canEdit && <th className="py-2.5 px-3.5 text-right">Action</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {filtered.map((u) => {
-                const self = u.id === me?.id
-                return (
-                  <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-2.5 px-3.5 whitespace-nowrap">
-                      <span className={`font-semibold ${u.isActive ? 'text-ink' : 'text-ink-muted'}`}>{u.name}</span>
-                      {self && <span className="ml-1.5 text-[11px] lg:text-[10px] text-ink-muted">(you)</span>}
-                      {u.designation && <span className="block text-[11px] text-ink-muted">{u.designation}</span>}
-                    </td>
-                    <td className="py-2.5 px-3.5 font-mono text-ink-secondary whitespace-nowrap">{u.employeeId}</td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap">
-                      <RoleBadge role={u.role} />
-                    </td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap text-slate-700">{u.departmentName ?? <span className="text-ink-faint">—</span>}</td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap text-slate-700">{u.shiftName ?? <span className="text-ink-faint">—</span>}</td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap">
-                      {u.appAccess ? (
-                        <span className="text-success font-medium">Allowed</span>
-                      ) : (
-                        <span className="text-ink-muted">Blocked</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap">
-                      <StatusBadge status={u.isActive ? 'ACTIVE' : 'DISABLED'} size="sm" />
-                    </td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap text-ink-secondary">
-                      {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : <span className="text-ink-faint">Never</span>}
-                    </td>
-                    {canEdit && (
-                      <td className="py-2 px-3.5 text-right whitespace-nowrap">
-                        <div className="inline-flex gap-1.5">
-                          {canEditUser(u) && (
-                            <Button size="sm" variant="outline" onClick={() => openEdit(u)} icon={<Edit2 className="w-3 h-3 text-ink-muted" />}>
-                              Edit
-                            </Button>
-                          )}
-                          {canViewPasswords && (
-                            <Button size="sm" variant="ghost" onClick={() => setRevealing(u)} title="View password" aria-label={`View password of ${u.name}`} icon={<KeyRound className="w-3.5 h-3.5 text-ink-muted" />} />
-                          )}
-                          {u.isActive && !self && canEditUser(u) && (
-                            <Button size="sm" variant="ghost" onClick={() => setDisabling(u)} title="Disable" aria-label={`Disable ${u.name}`} icon={<UserX className="w-3.5 h-3.5 text-failed" />} />
-                          )}
-                        </div>
-                      </td>
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+          <StatCard
+            label="Accounts"
+            value={users.length}
+            icon={<Users className="w-4 h-4" />}
+            meta={`${counts.WORKER} ${counts.WORKER === 1 ? 'worker' : 'workers'} · ${users.length - counts.WORKER} staff`}
+          />
+          <StatCard
+            label="Active"
+            value={kpi.active}
+            icon={<UserCheck className="w-4 h-4" />}
+            tone="success"
+            meta={users.length - kpi.active > 0 ? `${users.length - kpi.active} disabled` : 'None disabled'}
+          />
+          <StatCard label="Workers" value={counts.WORKER} icon={<HardHat className="w-4 h-4" />} tone="accent" meta={`${kpi.ipqc} IPQC · ${kpi.qc} QC · ${kpi.both} both`} />
+          <StatCard
+            label="Managers & admins"
+            value={counts.MANAGER + counts.ADMIN + counts.SUPER_ADMIN}
+            icon={<ShieldCheck className="w-4 h-4" />}
+            meta={`${counts.MANAGER} ${counts.MANAGER === 1 ? 'manager' : 'managers'} · ${counts.ADMIN + counts.SUPER_ADMIN} ${counts.ADMIN + counts.SUPER_ADMIN === 1 ? 'admin' : 'admins'}`}
+          />
+          <StatCard
+            label="No app access"
+            value={kpi.noApp}
+            icon={<Smartphone className="w-4 h-4" />}
+            tone={kpi.noApp > 0 ? 'exception' : 'neutral'}
+            meta="Blocked from the mobile app"
+          />
+        </div>
+
+        <Card className="overflow-hidden">
+          <Toolbar>
+            <SearchInput value={search} onChange={setSearch} label="Search workers and users" placeholder="Name, ID, department…" />
+            <Segmented<RoleTab>
+              label="Filter by role"
+              value={tab}
+              onChange={setTab}
+              options={TABS.filter((t) => t.value === 'ALL' || counts[t.value] > 0 || allowedRoles.includes(t.value as Role)).map((t) => ({
+                value: t.value,
+                label: t.label,
+                count: counts[t.value]
+              }))}
+            />
+            <ToolbarSpacer />
+            <ResultCount shown={filtered.length} total={users.length} noun={users.length === 1 ? 'user' : 'users'} />
+          </Toolbar>
+
+          {canDeleteUsers && selection.selected.length > 0 && (
+            <div className="px-3 py-2.5 border-b border-line">
+              <BulkDeleteBar
+                count={selection.selected.length}
+                noun={selection.selected.length === 1 ? 'user' : 'users'}
+                onClear={selection.clear}
+                onDelete={() => setDeleting({ ids: selection.selected, bulk: true })}
+              />
+            </div>
+          )}
+
+          {filtered.length === 0 ? (
+            <EmptyState
+              icon={<Users className="w-5 h-5" />}
+              title={users.length === 0 ? 'No users yet' : 'No users match the filters'}
+              hint={users.length === 0 ? undefined : 'Try another role or search term'}
+              action={
+                users.length > 0 ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      setSearch('')
+                      setTab('ALL')
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="data-table stack-sm">
+                <thead>
+                  <tr>
+                    {canDeleteUsers && (
+                      <th className="w-8 !pr-0">
+                        <RowCheckbox checked={selection.allChecked} indeterminate={selection.partial} onChange={selection.toggleAll} label="Select all users shown" />
+                      </th>
+                    )}
+                    <th>User</th>
+                    <th>Role</th>
+                    <th className="hidden xl:table-cell">Department</th>
+                    <th>Access</th>
+                    <th className="hidden xl:table-cell">Last login</th>
+                    {(canEdit || canDeleteUsers) && (
+                      <th className="text-right">
+                        <span className="sr-only">Actions</span>
+                      </th>
                     )}
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {paging.visible.map((u) => {
+                    const self = u.id === me?.id
+                    return (
+                      <tr key={u.id}>
+                        {canDeleteUsers && (
+                          <td className="w-8 !pr-0" data-label="Select">
+                            {canDeleteUser(u) && <RowCheckbox checked={selection.isSelected(u.id)} onChange={() => selection.toggle(u.id)} label={`Select ${u.name}`} />}
+                          </td>
+                        )}
+                        <td>
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <UserAvatar name={u.name} muted={!u.isActive} />
+                            <div className="min-w-0 text-left">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className={`font-semibold truncate ${u.isActive ? 'text-ink' : 'text-ink-muted'}`}>{u.name}</span>
+                                {self && <Pill className="bg-accent-soft text-accent-strong ring-accent-line">You</Pill>}
+                              </div>
+                              <div className="text-[11.5px] text-ink-muted truncate">
+                                <span className="font-mono">{u.employeeId}</span>
+                                {u.designation ? ` · ${u.designation}` : ''}
+                              </div>
+                              {/* Tablets and small laptops: the Department column is folded in here. */}
+                              {(u.departmentName || u.shiftName) && (
+                                <div className="hidden md:block xl:hidden text-[11.5px] text-ink-muted truncate">
+                                  {[u.departmentName, u.shiftName].filter(Boolean).join(' · ')}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap">
+                          {/* Stacked on tablets so the row actions stay in view. */}
+                          <div className="inline-flex flex-col items-end md:items-start lg:flex-row lg:items-center gap-1 lg:gap-1.5">
+                            <RoleBadge role={u.role} />
+                            {u.role === 'WORKER' && <QualityRoleBadge role={u.workerQualityRole ?? 'IPQC'} />}
+                          </div>
+                        </td>
+                        <td className="hidden xl:table-cell whitespace-nowrap" data-empty={!u.departmentName && !u.shiftName ? '' : undefined}>
+                          <div className={u.departmentName ? 'text-ink' : 'text-ink-faint'}>{u.departmentName ?? '—'}</div>
+                          {u.shiftName && (
+                            <div className="flex items-center gap-1 text-[11.5px] text-ink-muted">
+                              <Clock3 className="w-3 h-3 shrink-0" aria-hidden />
+                              {u.shiftName}
+                            </div>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1.5">
+                            <StatusBadge status={u.isActive ? 'ACTIVE' : 'DISABLED'} size="sm" />
+                            <AppAccessBadge allowed={u.appAccess} />
+                          </div>
+                          {/* Tablets and small laptops: the Last login column is folded in here. */}
+                          <div className="hidden md:block xl:hidden mt-0.5 text-[11.5px] text-ink-muted tabular-nums">
+                            Last login {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : 'never'}
+                          </div>
+                        </td>
+                        <td className="hidden xl:table-cell whitespace-nowrap text-ink-secondary tabular-nums">
+                          {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : <span className="text-ink-faint">Never</span>}
+                        </td>
+                        {(canEdit || canDeleteUsers) && (
+                          <td className="text-right whitespace-nowrap" data-label="">
+                            <div className="inline-flex items-center gap-0.5">
+                              {canEditUser(u) && (
+                                <IconButton label={`Edit ${u.name}`} onClick={() => openEdit(u)}>
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </IconButton>
+                              )}
+                              {canViewPasswords && (
+                                <IconButton label={`View password of ${u.name}`} onClick={() => setRevealing(u)}>
+                                  <KeyRound className="w-3.5 h-3.5" />
+                                </IconButton>
+                              )}
+                              {u.isActive && !self && canEditUser(u) && (
+                                <IconButton label={`Disable ${u.name}`} tone="danger" onClick={() => setDisabling(u)}>
+                                  <UserX className="w-3.5 h-3.5" />
+                                </IconButton>
+                              )}
+                              {canDeleteUser(u) && (
+                                <IconButton label={`Delete ${u.name} permanently`} tone="danger" onClick={() => setDeleting({ ids: [u.id], bulk: false, user: u })}>
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </IconButton>
+                              )}
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Pagination page={paging.page} pages={paging.pages} total={paging.total} pageSize={paging.pageSize} onPage={paging.setPage} noun="users" />
+        </Card>
       </DataState>
+
+      <ShiftSignInStatusCard />
+
+      {me?.role === 'SUPER_ADMIN' && <AdminDeletePermissions key={usersApi.data?.filter((u) => u.role === 'ADMIN').map((u) => u.id).join()} />}
 
       <Modal
         isOpen={editing !== null}
@@ -358,6 +515,15 @@ export const WorkersPage: React.FC = () => {
                 ))}
               </Select>
             </Field>
+            {form.role === 'WORKER' && (
+              <Field label="Quality Role" required hint="Determines IPQC, QC, or both IPQC + QC check schedules, parameters, and notifications">
+                <Select value={form.workerQualityRole} onChange={(e) => set('workerQualityRole', e.target.value as WorkerQualityRole)}>
+                  <option value="IPQC">IPQC</option>
+                  <option value="QC">QC</option>
+                  <option value="BOTH">IPQC + QC (Both)</option>
+                </Select>
+              </Field>
+            )}
             <Field label="Designation" hint="Shown as “Role” on the worker's mobile profile">
               <TextInput value={form.designation} onChange={(e) => set('designation', e.target.value)} placeholder="e.g. Quality Inspector" maxLength={100} />
             </Field>
@@ -421,8 +587,7 @@ export const WorkersPage: React.FC = () => {
             <div className="flex items-start gap-1.5 text-[11px] text-ink-muted">
               <Info className="w-3.5 h-3.5 shrink-0 mt-px" />
               <span>
-                Workers are not tied to machines. In the app a worker picks any running machine, starts a job on it, and the checks of that job are
-                theirs until the job ends or they hand it over.
+                Workers receive schedule-based quality check notifications and perform checks for IPQC, QC, or both according to their assigned Quality Role.
               </span>
             </div>
           )}
@@ -437,13 +602,24 @@ export const WorkersPage: React.FC = () => {
         message={
           <>
             Disable <span className="font-semibold text-ink">{disabling?.name}</span> ({disabling?.employeeId})? They are signed out and can no
-            longer sign in. Users are never deleted, so their check history is kept; you can re-enable them later from Edit.
+            longer sign in. Their check history and name stay on every record; you can re-enable them later from Edit.
           </>
         }
         onConfirm={disable}
         onClose={() => setDisabling(null)}
       />
       <RevealPasswordModal user={revealing} onClose={() => setRevealing(null)} />
+      <DeleteRecordsModal
+        type={deleting ? 'users' : null}
+        ids={deleting?.ids ?? []}
+        bulk={deleting?.bulk}
+        onClose={() => setDeleting(null)}
+        onDeleted={(r) => {
+          notify('success', r.deleted === 1 ? 'User deleted' : `${r.deleted} users deleted`, 'The deletion is recorded in the audit log.')
+          selection.clear()
+          usersApi.reload()
+        }}
+      />
     </div>
   )
 }

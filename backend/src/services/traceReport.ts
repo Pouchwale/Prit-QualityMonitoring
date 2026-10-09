@@ -161,8 +161,8 @@ export function findChanges(context: CheckDto[]): TraceChange[] {
           at: whenOf(c),
           checkId: c.id,
           checkCode: c.code,
-          machineName: c.machineName,
-          machineCode: c.machineCode,
+          machineName: c.machineName ?? '—',
+          machineCode: c.machineCode ?? '—',
           itemCode: item,
           jobNo: job,
           parameterName: v.parameterName,
@@ -207,7 +207,7 @@ function groupChecks(checks: CheckDto[], changes: TraceChange[], keyOf: (c: Chec
     g.sets.items.add(itemCodeOf(c))
     g.sets.jobs.add(jobNoOf(c))
     g.sets.workers.add(doerOf(c).name)
-    g.sets.machines.add(c.machineName)
+    if (c.machineName) g.sets.machines.add(c.machineName)
     const at = whenOf(c)
     if (!g.firstAt || at < g.firstAt) g.firstAt = at
     if (!g.lastAt || at > g.lastAt) g.lastAt = at

@@ -12,13 +12,17 @@ import { ServerSettingsSheet } from '../components/ServerSettingsSheet'
 
 interface Props {
   onSignedIn: (profile: Profile) => void
+  /** Why the worker is here, e.g. their shift ended (App.tsx). */
+  notice?: string | null
 }
 
-export const LoginScreen: React.FC<Props> = ({ onSignedIn }) => {
+export const LoginScreen: React.FC<Props> = ({ onSignedIn, notice: sessionNotice }) => {
   const insets = useSafeAreaInsets()
   const [employeeId, setEmployeeId] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  /** Information rather than a mistake: the shift ended, or it has not started yet. */
+  const [info, setInfo] = useState<string | null>(sessionNotice ?? null)
   const [loading, setLoading] = useState(false)
   const [serverOpen, setServerOpen] = useState(false)
   /** "Connected to …" after the server address was changed. */
@@ -33,11 +37,14 @@ export const LoginScreen: React.FC<Props> = ({ onSignedIn }) => {
     }
     setLoading(true)
     setError(null)
+    setInfo(null)
     setNotice(null)
     try {
       onSignedIn(await login(employeeId.trim(), password))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not sign in. Please try again.')
+      // Outside the worker's shift: the server says when they can sign in.
+      if (err instanceof ApiError && err.code === 'SHIFT_NOT_STARTED') setInfo(err.message)
+      else setError(err instanceof ApiError ? err.message : 'Could not sign in. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -60,6 +67,13 @@ export const LoginScreen: React.FC<Props> = ({ onSignedIn }) => {
           <Text className="mt-2 text-[17px] leading-[22px] text-ink-secondary">
             Use the employee ID and password given by your supervisor.
           </Text>
+
+          {info ? (
+            <View className="mt-6 flex-row items-start rounded-xl bg-accent-soft px-3 py-2.5" accessibilityLiveRegion="polite">
+              <Icon name="time-outline" size={18} color="accent" />
+              <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink">{info}</Text>
+            </View>
+          ) : null}
 
           <View className="mt-9 gap-5">
             <View>

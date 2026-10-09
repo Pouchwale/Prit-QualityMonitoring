@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Check, Minus, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Ban, Check, ListX, Minus, Pencil, Plus } from 'lucide-react'
 import type { MonitoringReason } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
@@ -11,6 +11,8 @@ import { Field, FormError, TextInput, Toggle, inputClass } from '../../component
 import { Modal } from '../../components/common/Modal'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
+import { Card, CardHeader, EmptyState } from '../../components/ui/Card'
+import { IconButton } from '../../components/ui/Toolbar'
 
 /**
  * A list of reasons a worker may pick, managed on the Check Types page. Two lists use it, each
@@ -28,7 +30,10 @@ import { useToast } from '../../components/common/Toast'
 interface ReasonsSectionProps {
   /** Heading, e.g. "N/A reasons". */
   title: string
+  /** Explanation of the list, shown on the heading's info icon. */
   description: string
+  /** Icon tile beside the heading. */
+  icon?: React.ReactNode
   /** The API this list is stored in, e.g. "/api/monitoring-reasons". */
   endpoint: string
   /** Named in the dialog, e.g. "N/A Reason" → "Add N/A Reason". */
@@ -49,18 +54,18 @@ const emptyReasonForm: ReasonForm = { label: '', requiresRemark: false, isActive
 /** Yes / no cell. The phone card shows the column name in front of it. */
 const Flag: React.FC<{ on: boolean }> = ({ on }) =>
   on ? (
-    <span className="inline-flex items-center gap-1 text-success font-medium">
-      <Check className="w-3.5 h-3.5" />
+    <span className="inline-flex items-center gap-1 text-[12px] text-success font-medium">
+      <Check className="w-3.5 h-3.5" aria-hidden />
       Yes
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 text-ink-faint">
-      <Minus className="w-3.5 h-3.5" />
+    <span className="inline-flex items-center gap-1 text-[12px] text-ink-muted">
+      <Minus className="w-3.5 h-3.5" aria-hidden />
       No
     </span>
   )
 
-export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, description, endpoint, noun, dialogSubtitle, placeholder }) => {
+export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, description, icon, endpoint, noun, dialogSubtitle, placeholder }) => {
   const { can } = useAuth()
   const canEdit = useCanManage('activities')
   const notify = useToast()
@@ -130,72 +135,69 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
 
   return (
     <>
-      <section className="bg-white border border-line rounded-md shadow-2xs overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-line bg-slate-50 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-bold text-ink">{title}</h2>
-            <p className="text-[11px] text-ink-muted">{description}</p>
-          </div>
-          {canEdit && (
-            <Button size="sm" variant="primary" onClick={openAdd} icon={<Plus className="w-3.5 h-3.5" />}>
-              Add Reason
-            </Button>
-          )}
+      <Card className="overflow-hidden flex flex-col">
+        <CardHeader
+          icon={icon}
+          title={title}
+          info={description}
+          subtitle={reasons.data ? `${reasons.data.filter((r) => r.isActive).length} active · ${reasons.data.length} total` : undefined}
+          actions={
+            canEdit && (
+              <Button size="sm" variant="outline" onClick={openAdd} icon={<Plus className="w-3.5 h-3.5" />}>
+                Add Reason
+              </Button>
+            )
+          }
+        />
+        {/* The loading / error states draw their own card; inside this card they lose the frame. */}
+        <div className="[&>.card]:border-0 [&>.card]:shadow-none [&>.card]:rounded-none">
+          <DataState loading={reasons.loading} error={reasons.error} onRetry={reasons.reload} empty={reasons.data === null ? undefined : false}>
+            {(reasons.data ?? []).length === 0 ? (
+              <EmptyState icon={<ListX className="w-5 h-5" />} title="No reasons yet. Add the first one." compact />
+            ) : (
+              <div className="overflow-x-auto lg:max-h-[420px] lg:overflow-y-auto">
+                <table className="data-table stack-sm">
+                  <thead>
+                    <tr>
+                      <th className="num w-12">Order</th>
+                      <th>Reason</th>
+                      <th>Requires remark</th>
+                      <th>Status</th>
+                      {canEdit && <th className="text-right">Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(reasons.data ?? []).map((r) => (
+                      <tr key={r.id}>
+                        <td className="num font-mono text-[11.5px] text-ink-muted">{r.sortOrder}</td>
+                        <td className={`font-medium ${r.isActive ? 'text-ink' : 'text-ink-muted'}`}>{r.label}</td>
+                        <td>
+                          <Flag on={r.requiresRemark} />
+                        </td>
+                        <td>
+                          <StatusBadge status={r.isActive ? 'ACTIVE' : 'DISABLED'} size="sm" />
+                        </td>
+                        {canEdit && (
+                          <td className="text-right whitespace-nowrap" data-label="">
+                            <div className="inline-flex items-center gap-0.5">
+                              <IconButton label={`Edit ${r.label}`} onClick={() => openEdit(r)}>
+                                <Pencil className="w-3.5 h-3.5" />
+                              </IconButton>
+                              <IconButton label={`Deactivate ${r.label}`} tone="danger" onClick={() => setDeleting(r)} disabled={!r.isActive}>
+                                <Ban className="w-3.5 h-3.5" />
+                              </IconButton>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </DataState>
         </div>
-        <DataState
-          loading={reasons.loading}
-          error={reasons.error}
-          onRetry={reasons.reload}
-          empty={reasons.data === null ? undefined : reasons.data.length === 0}
-          emptyText="No reasons yet. Add the first one."
-        >
-          <div className="overflow-x-auto">
-            <table className="stack-sm w-full text-left text-xs border-collapse">
-              <thead className="bg-slate-50 border-b border-line text-ink-secondary text-[11px] uppercase tracking-wider">
-                <tr>
-                  <th className="py-2 px-3 font-semibold">Reason</th>
-                  <th className="py-2 px-3 font-semibold">Requires remark</th>
-                  <th className="py-2 px-3 font-semibold">Order</th>
-                  <th className="py-2 px-3 font-semibold">Status</th>
-                  {canEdit && <th className="py-2 px-3 font-semibold text-right">Actions</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {(reasons.data ?? []).map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-2 px-3 font-medium text-ink">{r.label}</td>
-                    <td className="py-2 px-3">
-                      <Flag on={r.requiresRemark} />
-                    </td>
-                    <td className="py-2 px-3 font-mono text-ink-secondary">{r.sortOrder}</td>
-                    <td className="py-2 px-3">
-                      <StatusBadge status={r.isActive ? 'ACTIVE' : 'DISABLED'} size="sm" />
-                    </td>
-                    {canEdit && (
-                      <td className="py-2 px-3 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center gap-1">
-                          <Button size="sm" variant="outline" onClick={() => openEdit(r)} icon={<Pencil className="w-3 h-3" />}>
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setDeleting(r)}
-                            disabled={!r.isActive}
-                            icon={<Trash2 className="w-3 h-3 text-failed" />}
-                            title="Deactivate reason"
-                            aria-label={`Deactivate ${r.label}`}
-                          />
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </DataState>
-      </section>
+      </Card>
 
       {/* Add / edit an N/A reason */}
       <Modal

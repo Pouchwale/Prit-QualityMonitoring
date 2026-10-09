@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react'
-import { AlertTriangle, Edit2, Plus, Search, Trash2 } from 'lucide-react'
-import type { Activity, Department, Machine, MachineStatus } from '../../types'
+import { Activity, AlertTriangle, ClipboardList, Cpu, PauseCircle, Pencil, Plus, Search, Trash2, Wrench } from 'lucide-react'
+import type { Activity as CheckType, Department, Machine, MachineStatus } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
@@ -12,6 +12,10 @@ import { Modal } from '../../components/common/Modal'
 import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
+import { Card, EmptyState } from '../../components/ui/Card'
+import { StatCard } from '../../components/ui/StatCard'
+import { IconButton, ResultCount, SearchInput, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
+import { Pagination, usePagination } from '../../components/ui/Pagination'
 
 interface FormState {
   name: string
@@ -43,12 +47,15 @@ const STATUS_OPTIONS: { value: MachineStatus; label: string }[] = [
   { value: 'IDLE', label: 'Idle' }
 ]
 
+/** A small neutral chip, e.g. a machine code or a check type name. */
+const chip = 'inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[11px] text-ink-secondary whitespace-nowrap'
+
 export const MachinesPage: React.FC = () => {
   const canEdit = useCanManage('machines')
   const notify = useToast()
   const machinesApi = useApi<Machine[]>('/api/machines')
   const departmentsApi = useApi<Department[]>('/api/departments')
-  const activitiesApi = useApi<Activity[]>('/api/activities')
+  const activitiesApi = useApi<CheckType[]>('/api/activities')
 
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('ALL')
@@ -74,6 +81,15 @@ export const MachinesPage: React.FC = () => {
       return [m.name, m.code, m.line, m.model, m.departmentName].some((v) => v?.toLowerCase().includes(q))
     })
   }, [machines, search, deptFilter])
+  const page = usePagination(filtered, 25, `${search}|${deptFilter}`)
+
+  // KPI strip: machine statuses counted from the list already loaded.
+  const counts = useMemo(() => {
+    const c: Record<MachineStatus, number> = { ACTIVE: 0, MAINTENANCE: 0, IDLE: 0 }
+    for (const m of machines) c[m.status] = (c[m.status] ?? 0) + 1
+    return c
+  }, [machines])
+  const disabledCount = machines.filter((m) => !m.isActive).length
 
   const openNew = () => {
     setForm(emptyForm)
@@ -163,10 +179,16 @@ export const MachinesPage: React.FC = () => {
   const pickerError = departmentsApi.error || activitiesApi.error
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
+        icon={<Cpu className="w-4.5 h-4.5" />}
         title="Machines"
-        description="Production machines and the quality check types performed on each"
+        description={
+          machinesApi.data
+            ? `${machines.length} ${machines.length === 1 ? 'machine' : 'machines'} · ${counts.MAINTENANCE} in maintenance`
+            : 'Production machines and their check types'
+        }
+        info="Production machines and the quality check types performed on each. Set how often each check runs on the Schedules page."
         actions={
           canEdit && (
             <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
@@ -176,97 +198,129 @@ export const MachinesPage: React.FC = () => {
         }
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 border border-line rounded-md shadow-2xs text-xs">
-        <div className="relative min-w-[220px] flex-1 max-w-sm">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 lg:top-2.5 lg:translate-y-0 text-ink-faint pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search name, code, line or model…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-[40px] lg:h-8 pl-8 pr-3 border border-line-strong rounded text-[16px] lg:text-xs bg-white placeholder:text-ink-faint focus:outline-none focus:ring-1 focus:ring-accent"
+      {machines.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <StatCard label="Total" value={machines.length} icon={<Cpu className="w-4 h-4" />} meta={disabledCount ? `${disabledCount} disabled` : 'All enabled'} />
+          <StatCard label="Active" value={counts.ACTIVE} icon={<Activity className="w-4 h-4" />} tone="success" meta="Running" />
+          <StatCard
+            label="Maintenance"
+            value={counts.MAINTENANCE}
+            icon={<Wrench className="w-4 h-4" />}
+            tone={counts.MAINTENANCE ? 'exception' : 'neutral'}
+            meta="No scheduled checks"
           />
+          <StatCard label="Idle" value={counts.IDLE} icon={<PauseCircle className="w-4 h-4" />} meta="No scheduled checks" />
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-ink-muted">Department:</span>
-          <Select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="w-auto min-w-[160px]">
-            <option value="ALL">All departments</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-            <option value="NONE">No department</option>
-          </Select>
-        </div>
-      </div>
+      )}
 
       <DataState
         loading={machinesApi.loading}
         error={machinesApi.error}
         onRetry={machinesApi.reload}
-        empty={!machinesApi.loading && filtered.length === 0}
-        emptyText={machines.length === 0 ? 'No machines yet' : 'No machines match the filters'}
+        empty={!machinesApi.loading && machines.length === 0}
+        emptyText="No machines yet"
       >
-        <div className="bg-white border border-line rounded-md shadow-2xs overflow-x-auto">
-          <table className="stack-sm w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50 border-b border-line text-ink-secondary font-mono text-[11px] uppercase tracking-wider">
-              <tr>
-                <th className="py-2.5 px-3.5">Machine</th>
-                <th className="py-2.5 px-3.5">Code</th>
-                <th className="py-2.5 px-3.5">Department</th>
-                <th className="py-2.5 px-3.5">Line</th>
-                <th className="py-2.5 px-3.5">Model</th>
-                <th className="py-2.5 px-3.5">Status</th>
-                <th className="py-2.5 px-3.5">Check types</th>
-                <th className="py-2.5 px-3.5">Enabled</th>
-                {canEdit && <th className="py-2.5 px-3.5 text-right">Action</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {filtered.map((m) => {
-                const names = m.activityIds.map((id) => activityName.get(id)).filter(Boolean)
-                return (
-                  <tr key={m.id} className={`hover:bg-slate-50 transition-colors ${m.isActive ? '' : 'text-ink-muted'}`}>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap">
-                      <span className={`font-semibold ${m.isActive ? 'text-ink' : 'text-ink-muted'}`}>{m.name}</span>
-                      {m.notes && <span className="block text-[11px] lg:text-[10px] text-ink-muted truncate max-w-xs">{m.notes}</span>}
-                    </td>
-                    <td className="py-2.5 px-3.5 font-mono text-ink-secondary whitespace-nowrap">{m.code}</td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap text-slate-700">{m.departmentName ?? <span className="text-ink-faint">—</span>}</td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap text-ink-secondary">{m.line ?? <span className="text-ink-faint">—</span>}</td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap text-ink-secondary">{m.model ?? <span className="text-ink-faint">—</span>}</td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap">
-                      <StatusBadge status={m.status} size="sm" />
-                    </td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap" title={names.join(', ')}>
-                      {m.activityIds.length === 0 ? (
-                        <span className="text-ink-faint">None</span>
-                      ) : (
-                        <span className="text-ink">
-                          {m.activityIds.length} {m.activityIds.length === 1 ? 'type' : 'types'}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3.5 whitespace-nowrap">
-                      {m.isActive ? <span className="text-success font-medium">Enabled</span> : <StatusBadge status="DISABLED" size="sm" />}
-                    </td>
-                    {canEdit && (
-                      <td className="py-2 px-3.5 text-right whitespace-nowrap">
-                        <div className="inline-flex gap-1.5">
-                          <Button size="sm" variant="outline" onClick={() => openEdit(m)} icon={<Edit2 className="w-3 h-3 text-ink-muted" />}>
-                            Edit
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setDeleting(m)} title="Delete" aria-label={`Delete ${m.name}`} icon={<Trash2 className="w-3.5 h-3.5 text-failed" />} />
-                        </div>
-                      </td>
-                    )}
+        <Card className="overflow-hidden">
+          <Toolbar>
+            <SearchInput value={search} onChange={setSearch} label="Search machines" placeholder="Search machines…" />
+            <Select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="sm:w-auto sm:min-w-[180px]" aria-label="Department">
+              <option value="ALL">All departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+              <option value="NONE">No department</option>
+            </Select>
+            <ToolbarSpacer />
+            <ResultCount shown={filtered.length} total={machines.length} noun="machines" />
+          </Toolbar>
+          {filtered.length === 0 ? (
+            <EmptyState icon={<Search className="w-5 h-5" />} title="No machines match the filters" compact />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="data-table stack-sm">
+                <thead>
+                  <tr>
+                    <th>Machine</th>
+                    <th>Department</th>
+                    <th>Status</th>
+                    <th>Check types</th>
+                    <th>Enabled</th>
+                    {canEdit && <th className="text-right">Actions</th>}
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {page.visible.map((m) => {
+                    const names = m.activityIds.map((id) => activityName.get(id)).filter((n): n is string => Boolean(n))
+                    return (
+                      <tr key={m.id}>
+                        <td>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`font-semibold whitespace-nowrap ${m.isActive ? 'text-ink' : 'text-ink-muted'}`}>{m.name}</span>
+                            <span className={`${chip} font-mono`} title="Machine code">
+                              {m.code}
+                            </span>
+                          </div>
+                          {m.notes && <span className="block text-[11.5px] text-ink-muted truncate max-w-xs">{m.notes}</span>}
+                        </td>
+                        <td>
+                          <span className="whitespace-nowrap text-ink-secondary">{m.departmentName ?? <span className="text-ink-faint">—</span>}</span>
+                          {(m.line || m.model) && (
+                            <span className="block text-[11.5px] text-ink-muted whitespace-nowrap">
+                              {[m.line && `Line: ${m.line}`, m.model && `Model: ${m.model}`].filter(Boolean).join(' · ')}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <StatusBadge status={m.status} size="sm" />
+                        </td>
+                        <td title={names.join(', ')}>
+                          {m.activityIds.length === 0 ? (
+                            <span className="text-ink-faint">None</span>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-1">
+                              <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line text-[11px] font-semibold tabular-nums whitespace-nowrap">
+                                <ClipboardList className="w-3 h-3" aria-hidden />
+                                {m.activityIds.length} {m.activityIds.length === 1 ? 'type' : 'types'}
+                              </span>
+                              {names.slice(0, 2).map((n) => (
+                                <span key={n} className={`${chip} hidden xl:inline-flex max-w-[150px] truncate rounded-full`}>
+                                  <span className="truncate">{n}</span>
+                                </span>
+                              ))}
+                              {names.length > 2 && <span className="hidden xl:inline text-[11px] text-ink-muted tabular-nums">+{names.length - 2}</span>}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          {m.isActive ? (
+                            <span className="text-[12px] font-medium text-success whitespace-nowrap">Enabled</span>
+                          ) : (
+                            <StatusBadge status="DISABLED" size="sm" />
+                          )}
+                        </td>
+                        {canEdit && (
+                          <td className="text-right whitespace-nowrap" data-label="">
+                            <div className="inline-flex gap-0.5">
+                              <IconButton label={`Edit ${m.name}`} onClick={() => openEdit(m)}>
+                                <Pencil className="w-3.5 h-3.5" />
+                              </IconButton>
+                              <IconButton label={`Delete ${m.name}`} tone="danger" onClick={() => setDeleting(m)}>
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </IconButton>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Pagination page={page.page} pages={page.pages} total={page.total} pageSize={page.pageSize} onPage={page.setPage} noun="machines" />
+        </Card>
       </DataState>
 
       <Modal
@@ -324,8 +378,8 @@ export const MachinesPage: React.FC = () => {
           </div>
 
           {(form.status !== 'ACTIVE' || !form.isActive) && (
-            <div className="flex items-start gap-2 px-3 py-2 rounded border border-exception-line bg-exception-bg text-[11px] text-exception">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+            <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-exception-line bg-exception-bg text-[12px] text-exception" role="note">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden />
               <span>
                 {form.isActive
                   ? `Machines in ${form.status === 'MAINTENANCE' ? 'Maintenance' : 'Idle'} get no scheduled checks.`
@@ -340,9 +394,9 @@ export const MachinesPage: React.FC = () => {
           </Field>
 
           <div>
-            <div className="flex items-baseline justify-between mb-1">
-              <span className="text-xs font-semibold text-slate-700">Check types on this machine</span>
-              <span className="text-[11px] text-ink-muted">{form.activityIds.length} selected</span>
+            <div className="flex items-baseline justify-between mb-1.5">
+              <span className="text-[12.5px] font-medium text-ink-secondary">Check types on this machine</span>
+              <span className="text-[11px] text-ink-muted tabular-nums">{form.activityIds.length} selected</span>
             </div>
             <MultiSelectList
               items={activityItems}

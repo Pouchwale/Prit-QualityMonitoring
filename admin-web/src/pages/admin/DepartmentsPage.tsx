@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
-import { Edit2, Plus, Trash2 } from 'lucide-react'
+import React, { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { ArrowRight, Building2, Pencil, Plus, Tags, Trash2 } from 'lucide-react'
 import type { Department } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
@@ -12,6 +13,10 @@ import { Modal } from '../../components/common/Modal'
 import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
+import { NAV_PATH } from '../../lib/routes'
+import { Card, EmptyState } from '../../components/ui/Card'
+import { IconButton, ResultCount, SearchInput, Segmented, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
+import { CodeChip, matchesStatus, type StatusTab } from '../../components/ui/Chips'
 
 interface FormState {
   name: string
@@ -21,6 +26,10 @@ interface FormState {
 
 const emptyForm: FormState = { name: '', code: '', isActive: true }
 
+/**
+ * Departments. The Item Code prefixes that decide which department a job belongs to are shown here
+ * read only; they are set on the Department Configuration page.
+ */
 export const DepartmentsPage: React.FC = () => {
   const canEdit = useCanManage('departments')
   const notify = useToast()
@@ -32,7 +41,16 @@ export const DepartmentsPage: React.FC = () => {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState<Department | null>(null)
 
-  const departments = data ?? []
+  const departments = useMemo(() => data ?? [], [data])
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState<StatusTab>('ALL')
+  const activeCount = departments.filter((d) => d.isActive).length
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return departments.filter(
+      (d) => matchesStatus(status, d.isActive) && (!q || [d.name, d.code, ...(d.itemCodePrefixes ?? [])].some((v) => v.toLowerCase().includes(q)))
+    )
+  }, [departments, search, status])
 
   const openNew = () => {
     setForm(emptyForm)
@@ -90,53 +108,126 @@ export const DepartmentsPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
+        icon={<Building2 className="w-4.5 h-4.5" />}
         title="Departments"
-        description="Plant departments used to group machines, check types and workers"
+        description={data ? `${departments.length} ${departments.length === 1 ? 'department' : 'departments'} · ${activeCount} active` : 'Plant departments'}
+        info="Plant departments used to group machines, check types and workers. The Item Code prefixes that decide a job's department are set in Department Configuration."
         actions={
-          canEdit && (
-            <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
-              Add Department
-            </Button>
-          )
+          <>
+            <Link
+              to={NAV_PATH['department-config']}
+              className="inline-flex items-center gap-1.5 h-[36px] lg:h-[30px] px-3 lg:px-2.5 rounded-md text-[13px] lg:text-[12.5px] font-medium text-ink-secondary hover:bg-subtle hover:text-ink"
+            >
+              <Tags className="w-3.5 h-3.5" aria-hidden />
+              Item Code prefixes
+              <ArrowRight className="w-3.5 h-3.5" aria-hidden />
+            </Link>
+            {canEdit && (
+              <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
+                Add Department
+              </Button>
+            )}
+          </>
         }
       />
 
-      <DataState loading={loading} error={error} onRetry={reload} empty={!loading && departments.length === 0} emptyText="No departments yet">
-        <div className="bg-white border border-line rounded-md shadow-2xs overflow-x-auto">
-          <table className="stack-sm w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50 border-b border-line text-ink-secondary font-mono text-[11px] uppercase tracking-wider">
-              <tr>
-                <th className="py-2.5 px-3.5">Department</th>
-                <th className="py-2.5 px-3.5">Code</th>
-                <th className="py-2.5 px-3.5">Status</th>
-                {canEdit && <th className="py-2.5 px-3.5 text-right">Action</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {departments.map((d) => (
-                <tr key={d.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="py-2.5 px-3.5 font-semibold text-ink whitespace-nowrap">{d.name}</td>
-                  <td className="py-2.5 px-3.5 font-mono text-ink-secondary whitespace-nowrap">{d.code}</td>
-                  <td className="py-2.5 px-3.5 whitespace-nowrap">
-                    <StatusBadge status={d.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" />
-                  </td>
-                  {canEdit && (
-                    <td className="py-2 px-3.5 text-right whitespace-nowrap">
-                      <div className="inline-flex gap-1.5">
-                        <Button size="sm" variant="outline" onClick={() => openEdit(d)} icon={<Edit2 className="w-3 h-3 text-ink-muted" />}>
-                          Edit
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setDeleting(d)} title="Delete" aria-label={`Delete ${d.name}`} icon={<Trash2 className="w-3.5 h-3.5 text-failed" />} />
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <DataState loading={loading} error={error} onRetry={reload} empty={data ? false : undefined}>
+        <Card className="overflow-hidden">
+          <Toolbar>
+            <SearchInput value={search} onChange={setSearch} label="Search departments" placeholder="Name, code or prefix…" />
+            <Segmented<StatusTab>
+              label="Filter by status"
+              value={status}
+              onChange={setStatus}
+              options={[
+                { value: 'ALL', label: 'All', count: departments.length },
+                { value: 'ACTIVE', label: 'Active', count: activeCount },
+                { value: 'INACTIVE', label: 'Inactive', count: departments.length - activeCount }
+              ]}
+            />
+            <ToolbarSpacer />
+            <ResultCount shown={filtered.length} total={departments.length} noun={departments.length === 1 ? 'department' : 'departments'} />
+          </Toolbar>
+
+          {filtered.length === 0 ? (
+            <EmptyState
+              icon={<Building2 className="w-5 h-5" />}
+              title={departments.length === 0 ? 'No departments yet' : 'No departments match the filters'}
+              action={
+                departments.length === 0 && canEdit ? (
+                  <Button size="sm" variant="outline" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
+                    Add Department
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="data-table stack-sm">
+                <thead>
+                  <tr>
+                    <th>Department</th>
+                    <th>Code</th>
+                    <th>Active Item Code prefixes</th>
+                    <th>Status</th>
+                    {canEdit && (
+                      <th className="text-right">
+                        <span className="sr-only">Actions</span>
+                      </th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((d) => (
+                    <tr key={d.id}>
+                      <td className="whitespace-nowrap">
+                        <div className="flex items-center gap-2.5">
+                          <span className="hidden md:flex w-7 h-7 shrink-0 rounded-md bg-subtle text-ink-secondary items-center justify-center" aria-hidden>
+                            <Building2 className="w-3.5 h-3.5" />
+                          </span>
+                          <span className={`font-semibold ${d.isActive ? 'text-ink' : 'text-ink-muted'}`}>{d.name}</span>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap">
+                        <CodeChip>{d.code}</CodeChip>
+                      </td>
+                      <td data-empty={d.itemCodePrefixes?.length ? undefined : ''}>
+                        {d.itemCodePrefixes?.length ? (
+                          <div className="flex flex-wrap gap-1">
+                            {d.itemCodePrefixes.map((p) => (
+                              <CodeChip key={p} tone="accent">
+                                {p}
+                              </CodeChip>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-ink-faint">—</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap">
+                        <StatusBadge status={d.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" />
+                      </td>
+                      {canEdit && (
+                        <td className="text-right whitespace-nowrap" data-label="">
+                          <div className="inline-flex items-center gap-0.5">
+                            <IconButton label={`Edit ${d.name}`} onClick={() => openEdit(d)}>
+                              <Pencil className="w-3.5 h-3.5" />
+                            </IconButton>
+                            <IconButton label={`Delete ${d.name}`} tone="danger" onClick={() => setDeleting(d)}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </IconButton>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
       </DataState>
 
       <Modal
@@ -163,7 +254,12 @@ export const DepartmentsPage: React.FC = () => {
           <Field label="Code" required>
             <TextInput value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="e.g. PRT" maxLength={30} className="font-mono" />
           </Field>
-          <Toggle checked={form.isActive} onChange={(isActive) => setForm({ ...form, isActive })} label="Active" description="Inactive departments are hidden from selection lists." />
+          <Toggle
+            checked={form.isActive}
+            onChange={(isActive) => setForm({ ...form, isActive })}
+            label="Active"
+            description="Inactive departments are hidden from selection lists, and jobs whose Item Code maps to them cannot be planned or started."
+          />
         </form>
       </Modal>
 
@@ -174,8 +270,8 @@ export const DepartmentsPage: React.FC = () => {
         confirmLabel="Delete"
         message={
           <>
-            Delete <span className="font-semibold text-ink">{deleting?.name}</span>? If machines, check types or users still belong to it, it
-            will be marked inactive instead.
+            Delete <span className="font-semibold text-ink">{deleting?.name}</span>? If machines, check types, users or Item Code mappings
+            still belong to it, it will be marked inactive instead.
           </>
         }
         onConfirm={remove}

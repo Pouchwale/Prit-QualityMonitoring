@@ -71,7 +71,6 @@ function groupBy(checks: QualityCheck[], pick: (c: QualityCheck) => { key: strin
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-const formatReading = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, ''))
 
 /** A list card that shows the first rows and a "Show all" / "Show less" toggle. */
 function TopList<T>({ items, render, noun }: { items: T[]; render: (item: T) => React.ReactNode; noun: string }) {
@@ -103,8 +102,10 @@ const groupDetail = (r: Totals & { detail: string | null }) =>
 
 /** Reports: the same summaries, CSV and PDF report as the web panel, for any period and filters. */
 export const ReportsScreen: React.FC = () => {
-  const { push } = useStaff()
+  const { can, push } = useStaff()
   const notify = useToast()
+  // The PDF and CSV need the Export Reports module (the server checks the PDF as well).
+  const canExport = can('export')
   const [filters, setFilters] = useState<MonitoringFilters>(() => todayFilters())
   const [downloading, setDownloading] = useState(false)
   const { data, error, loading, reload } = useQuery<QualityCheck[]>('/api/quality-checks', { ...filterQuery(filters), result: filters.status })
@@ -128,34 +129,6 @@ export const ReportsScreen: React.FC = () => {
   }, [checks])
   const byMachine = useMemo(() => groupBy(checks, (c) => ({ key: c.machineId, name: c.machineName, detail: c.machineCode })), [checks])
   const byWorker = useMemo(() => groupBy(checks, (c) => ({ key: c.submittedById ?? c.workerId ?? '—', name: workerOf(c), detail: c.submittedByEmployeeId ?? c.workerEmployeeId })), [checks])
-  const parameters = useMemo(() => {
-    const map = new Map<
-      string,
-      { id: string; name: string; unit: string | null; readings: number; within: number; outside: number; notApplicable: number; reasons: Map<string, number>; numbers: number[] }
-    >()
-    for (const c of checks) {
-      if (c.result !== 'COMPLETED') continue
-      for (const v of c.values) {
-        const key = v.parameterId ?? v.parameterName
-        const row =
-          map.get(key) ?? { id: key, name: v.parameterName, unit: v.unit, readings: 0, within: 0, outside: 0, notApplicable: 0, reasons: new Map<string, number>(), numbers: [] }
-        map.set(key, row)
-        // Not-applicable parameters carry no reading, but their reasons belong in the report.
-        if (v.notApplicable) {
-          row.notApplicable++
-          const reason = v.naReason ?? 'No reason'
-          row.reasons.set(reason, (row.reasons.get(reason) ?? 0) + 1)
-          continue
-        }
-        if (v.value === null || v.value === '') continue
-        row.readings++
-        if (v.result === 'PASS') row.within++
-        if (v.result === 'FAIL') row.outside++
-        if (v.parameterType === 'NUMBER' && Number.isFinite(Number(v.value))) row.numbers.push(Number(v.value))
-      }
-    }
-    return [...map.values()].filter((r) => r.readings || r.notApplicable).sort((a, b) => a.name.localeCompare(b.name))
-  }, [checks])
 
   // Manual checks are started by the worker; notification checks come from the scheduler.
   const submissions = useMemo(() => {
@@ -221,7 +194,7 @@ export const ReportsScreen: React.FC = () => {
     if (traced) trace.reload()
   }
   const actions: HeaderAction[] = [{ label: 'Refresh', icon: 'refresh-outline', onPress: refresh }]
-  if (checks.length) actions.push({ label: 'CSV', icon: 'download-outline', onPress: exportCsv })
+  if (canExport && checks.length) actions.push({ label: 'CSV', icon: 'download-outline', onPress: exportCsv })
 
   return (
     <Screen
@@ -230,7 +203,7 @@ export const ReportsScreen: React.FC = () => {
       right={actions}
       onRefresh={refresh}
       refreshing={loading && !!data}
-      footer={<PrimaryButton label="Download Report (PDF)" icon="document-text-outline" onPress={downloadPdf} loading={downloading} />}
+      footer={canExport ? <PrimaryButton label="Download Report (PDF)" icon="document-text-outline" onPress={downloadPdf} loading={downloading} /> : undefined}
     >
       <View className="-mt-2">
       <FilterPanel
@@ -329,45 +302,6 @@ export const ReportsScreen: React.FC = () => {
           />
         </Section>
 
-        <Section title="Quality parameter readings" detail="Recorded in completed checks; readings outside limits do not change the Result">
-          {parameters.length === 0 ? (
-            <Notice title="No parameter readings in this period." />
-          ) : (
-            <TopList
-              items={parameters}
-              noun="parameters"
-              render={(p) => {
-                const has = p.numbers.length > 0
-                const avg = has ? p.numbers.reduce((a, b) => a + b, 0) / p.numbers.length : 0
-                const reasons = [...p.reasons.entries()].map(([reason, n]) => `${reason} ${n}`).join(' · ')
-                return (
-                  <Row
-                    key={p.id}
-                    title={`${p.name}${p.unit ? ` · ${p.unit}` : ''}`}
-                    subtitle={`${p.readings} readings · ${p.within} within · ${p.outside} outside limits${p.notApplicable ? ` · ${p.notApplicable} not applicable` : ''}`}
-                    detail={
-                      [
-                        has ? `Lowest ${formatReading(Math.min(...p.numbers))} · Highest ${formatReading(Math.max(...p.numbers))} · Average ${formatReading(avg)}` : null,
-                        reasons ? `N/A: ${reasons}` : null
-                      ]
-                        .filter(Boolean)
-                        .join('\n') || null
-                    }
-                    subtitleLines={2}
-                    detailLines={3}
-                    right={
-                      p.outside ? (
-                        <Badge label={`${p.outside} outside`} tone="missed" />
-                      ) : p.notApplicable ? (
-                        <Badge label={`${p.notApplicable} N/A`} tone="exception" />
-                      ) : null
-                    }
-                  />
-                )
-              }}
-            />
-          )}
-        </Section>
 
         <Section title="Missed and exception checks" detail={`${nonConformances.length} in ${period}`}>
           {nonConformances.length === 0 ? (

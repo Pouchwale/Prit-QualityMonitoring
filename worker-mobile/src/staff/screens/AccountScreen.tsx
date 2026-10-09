@@ -52,9 +52,17 @@ export const AccountScreen: React.FC = () => {
         </List>
       </Section>
 
-      <Section title="Your access" small detail={isAdmin ? 'Admins have full access to every module' : 'Set by an Admin'}>
+      <Section title="Your access" small detail={isAdmin ? 'Admins have full access to every module' : 'The same for every Manager, set by the Super Admin'}>
         {isAdmin ? (
-          <Notice tone="success" icon="shield-checkmark-outline" message="You can view and manage every module, user accounts and manager permissions." />
+          <Notice
+            tone="success"
+            icon="shield-checkmark-outline"
+            message={
+              isSuperAdmin
+                ? 'You can view and manage every module, user accounts and manager permissions.'
+                : 'You can view and manage every module and user accounts. Manager permissions are set by the Super Admin.'
+            }
+          />
         ) : (
           <DataState loading={modules.loading} error={modules.error} onRetry={modules.reload} hasData={!!modules.data} empty={!!modules.data && modules.data.length === 0} emptyIcon="lock-closed-outline" emptyText="No modules listed.">
             <List>
@@ -64,7 +72,8 @@ export const AccountScreen: React.FC = () => {
                   <Row
                     key={m.key}
                     title={m.label}
-                    right={<Badge label={access === 'manage' ? 'View & manage' : access === 'view' ? 'View only' : 'No access'} tone={access === 'manage' ? 'success' : 'neutral'} dot />}
+                    // A module with nothing to manage (e.g. Export Reports) is fully allowed with "view".
+                    right={<Badge label={access === 'manage' ? 'View & manage' : access === 'view' ? (m.viewOnly ? 'Allowed' : 'View only') : 'No access'} tone={access === 'manage' ? 'success' : 'neutral'} dot />}
                   />
                 )
               })}

@@ -1,14 +1,41 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { eq, sql } from 'drizzle-orm'
+import { eq, lt, sql } from 'drizzle-orm'
 import { db } from '../db/client'
-import { departments, shifts, users } from '../db/schema'
-import { MOBILE_ACCESS_OFF, authenticate, passwordColumns, signTokens, verifyPassword, verifyRefreshToken, type ClientApp } from '../lib/auth'
+import { departments, revokedTokens, shifts, users } from '../db/schema'
+import {
+  MOBILE_ACCESS_OFF,
+  authenticate,
+  shiftEndedError,
+  hashPassword,
+  passwordColumns,
+  signTokens,
+  verifyPassword,
+  verifyRefreshToken,
+  type ClientApp
+} from '../lib/auth'
+import { assertLoginAllowed, recordLoginFailure, recordLoginSuccess } from '../lib/loginLimiter'
+import { offShiftMessage, recordShiftLogin, recordShiftLogout, signInWindow } from '../services/workerShifts'
 import { HttpError, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
 import { loadPermissions } from '../lib/permissions'
 
 export const authRouter = Router()
+
+/** A bcrypt hash compared against when the employee ID does not exist (see /login). */
+const dummyHash = hashPassword('not-a-real-password')
+
+/** True when this refresh token was ended by signing out. */
+async function isRevoked(jti: string | undefined) {
+  if (!jti) return false
+  const [row] = await db.select({ jti: revokedTokens.jti }).from(revokedTokens).where(eq(revokedTokens.jti, jti))
+  return !!row
+}
+
+/** Removes revoked tokens that have expired anyway (called by the scheduler). */
+export async function purgeExpiredRevokedTokens() {
+  await db.delete(revokedTokens).where(lt(revokedTokens.expiresAt, new Date()))
+}
 
 export async function loadProfile(userId: string) {
   const [row] = await db
@@ -21,7 +48,9 @@ export async function loadProfile(userId: string) {
       departmentName: departments.name,
       shiftName: shifts.name,
       shiftStartTime: shifts.startTime,
-      shiftEndTime: shifts.endTime
+      shiftEndTime: shifts.endTime,
+      voiceNotificationLanguage: users.voiceNotificationLanguage,
+      workerQualityRole: users.workerQualityRole
     })
     .from(users)
     .leftJoin(departments, eq(users.departmentId, departments.id))
@@ -42,14 +71,22 @@ authRouter.post('/login', async (req, res) => {
     })
     .parse(req.body)
 
+  const ip = req.ip ?? ''
+  assertLoginAllowed(ip, body.employeeId)
+
   const [user] = await db
     .select()
     .from(users)
     .where(sql`lower(${users.employeeId}) = lower(${body.employeeId})`)
 
-  if (!user || !(await verifyPassword(body.password, user.passwordHash))) {
+  // An unknown employee ID takes as long as a wrong password, so the answer time does not tell
+  // which employee IDs exist.
+  const passwordOk = await verifyPassword(body.password, user?.passwordHash ?? (await dummyHash))
+  if (!user || !passwordOk) {
+    recordLoginFailure(ip, body.employeeId)
     throw new HttpError(401, 'Wrong employee ID or password')
   }
+  recordLoginSuccess(ip, body.employeeId)
   if (!user.isActive) {
     throw new HttpError(403, 'Your account is disabled. Please contact your supervisor.')
   }
@@ -63,8 +100,16 @@ authRouter.post('/login', async (req, res) => {
     throw new HttpError(403, 'This account cannot use the admin panel')
   }
 
-  await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id))
   const app: ClientApp = body.app === 'admin' ? 'web' : 'mobile'
+
+  // A worker's app sign-in belongs to their shift (services/workerShifts.ts): between shifts it
+  // waits for the next one; on shift it lasts until the shift ends.
+  const now = new Date()
+  const shiftWindow = user.role === 'WORKER' && app === 'mobile' ? await signInWindow(user.id, now) : ({ kind: 'none' } as const)
+  if (shiftWindow.kind === 'off') throw new HttpError(403, offShiftMessage(shiftWindow), 'SHIFT_NOT_STARTED')
+  const shiftBlock = shiftWindow.kind === 'on' ? shiftWindow.block : null
+
+  await db.update(users).set({ lastLoginAt: now }).where(eq(users.id, user.id))
   req.user = {
     id: user.id,
     name: user.name,
@@ -73,14 +118,25 @@ authRouter.post('/login', async (req, res) => {
     app,
     permissions: await loadPermissions(user.id, user.role)
   }
-  await audit(req, 'LOGIN', 'User', user.id, { newValue: { app: body.app } })
+  const shiftLogin = shiftBlock ? await recordShiftLogin(user.id, shiftBlock, now) : null
+  await audit(req, 'LOGIN', 'User', user.id, {
+    newValue: {
+      app: body.app,
+      ...(shiftBlock ? { shift: shiftBlock.shiftName, shiftStart: shiftBlock.start, autoLogoutAt: shiftBlock.end } : {})
+    }
+  })
+  if (shiftLogin?.afterReminder) {
+    await audit(req, 'LOGIN_AFTER_REMINDER', 'User', user.id, { newValue: { shift: shiftBlock!.shiftName, remindersSent: shiftLogin.remindersSent } })
+  }
 
-  res.json({ ...signTokens(user, app), user: await loadProfile(user.id) })
+  const tokens = signTokens(user, app, shiftBlock?.end ?? null)
+  res.json({ ...tokens, user: { ...(await loadProfile(user.id)), sessionEndsAt: tokens.sessionEndsAt } })
 })
 
 authRouter.post('/refresh', async (req, res) => {
   const { refreshToken } = z.object({ refreshToken: z.string().min(1) }).parse(req.body)
   const payload = verifyRefreshToken(refreshToken)
+  if (await isRevoked(payload.jti)) throw new HttpError(401, 'Session expired. Please sign in again.')
 
   const [user] = await db.select().from(users).where(eq(users.id, payload.sub))
   if (!user || !user.isActive || user.tokenVersion !== payload.ver) {
@@ -88,15 +144,54 @@ authRouter.post('/refresh', async (req, res) => {
   }
   const app: ClientApp = payload.app ?? (user.role === 'WORKER' ? 'mobile' : 'web')
   if (app === 'mobile' && !user.appAccess) throw new HttpError(401, MOBILE_ACCESS_OFF)
-  res.json(signTokens(user, app))
+
+  // A sign-in tied to a shift ends with it; a refresh never extends it.
+  if (payload.sx && Date.now() >= payload.sx * 1000) throw shiftEndedError()
+  let sessionEndsAt = payload.sx ? new Date(payload.sx * 1000) : null
+  // A worker's sign-in from before shift sign-in existed is tied to the shift now, or ends.
+  if (!payload.sx && user.role === 'WORKER' && app === 'mobile') {
+    const window = await signInWindow(user.id)
+    if (window.kind === 'off') throw shiftEndedError()
+    if (window.kind === 'on') {
+      sessionEndsAt = window.block.end
+      await recordShiftLogin(user.id, window.block)
+    }
+  }
+  res.json(signTokens(user, app, sessionEndsAt))
 })
 
 authRouter.get('/me', authenticate, async (req, res) => {
-  res.json(await loadProfile(req.user!.id))
+  // sessionEndsAt: when a worker's shift (and so this sign-in) ends; the app logs out then.
+  res.json({ ...(await loadProfile(req.user!.id)), sessionEndsAt: req.user!.sessionEndsAt ?? null })
 })
 
-authRouter.post('/logout', authenticate, async (req, res) => {
-  await audit(req, 'LOGOUT', 'User', req.user!.id)
+/**
+ * Signing out ends this device's session: the app sends its refresh token, which is revoked, so a
+ * copy of it can no longer be used. It works with an expired access token too (the refresh token
+ * itself proves who is signing out); the short-lived access token runs out on its own.
+ */
+authRouter.post('/logout', async (req, res) => {
+  const { refreshToken } = z.object({ refreshToken: z.string().min(1).optional() }).parse(req.body ?? {})
+  if (refreshToken) {
+    let payload: ReturnType<typeof verifyRefreshToken> | null = null
+    try {
+      payload = verifyRefreshToken(refreshToken)
+    } catch {
+      // Already expired or not a token: nothing to revoke.
+    }
+    if (payload?.jti && payload.exp) {
+      await db
+        .insert(revokedTokens)
+        .values({ jti: payload.jti, userId: payload.sub, expiresAt: new Date(payload.exp * 1000) })
+        .onConflictDoNothing()
+      const [user] = await db.select().from(users).where(eq(users.id, payload.sub))
+      if (user) {
+        if (user.role === 'WORKER') await recordShiftLogout(user.id)
+        req.user = { id: user.id, name: user.name, employeeId: user.employeeId, role: user.role, app: payload.app ?? 'web', permissions: await loadPermissions(user.id, user.role) }
+        await audit(req, 'LOGOUT', 'User', user.id)
+      }
+    }
+  }
   res.status(204).end()
 })
 

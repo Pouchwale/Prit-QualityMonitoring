@@ -2,12 +2,17 @@
 
 export type Role = 'WORKER' | 'MANAGER' | 'ADMIN' | 'SUPER_ADMIN'
 
-/** Admin-panel modules a Manager can be given access to (backend/src/lib/permissions.ts). */
+/**
+ * Admin-panel modules the Super Admin can give the Manager role (backend/src/lib/permissions.ts).
+ * Export (PDF, CSV and print) is view-only; Score Settings is the worker score rule.
+ */
 export type ModuleKey =
   | 'dashboard'
   | 'checks'
+  | 'jobs'
   | 'exceptions'
   | 'reports'
+  | 'export'
   | 'machines'
   | 'parameters'
   | 'activities'
@@ -30,14 +35,23 @@ export interface ModuleInfo {
   viewOnly?: boolean
 }
 
-export interface ManagerAccess {
+/** A Manager account, as listed on Manager Access. */
+export interface ManagerAccount {
   id: string
   employeeId: string
   name: string
   designation: string | null
   isActive: boolean
   lastLoginAt: string | null
+}
+
+/**
+ * The Manager role's permissions (GET /api/access/roles/manager): one set for every Manager, set
+ * by the Super Admin only, with the Manager accounts it applies to.
+ */
+export interface ManagerRoleAccess {
   permissions: Permissions
+  managers: ManagerAccount[]
 }
 export type ParameterType = 'NUMBER' | 'TEXT' | 'DROPDOWN' | 'YES_NO' | 'PASS_FAIL' | 'PHOTO'
 export type MachineStatus = 'ACTIVE' | 'MAINTENANCE' | 'IDLE'
@@ -71,7 +85,7 @@ export interface CurrentUser {
   shiftName: string | null
   shiftStartTime: string | null
   shiftEndTime: string | null
-  /** What this user may use; Admins and Super Admins have manage on everything. */
+  /** What this user may use; Admins and Super Admins have manage on everything, every Manager the Manager role's set. */
   permissions: Permissions
 }
 
@@ -80,6 +94,28 @@ export interface Department {
   name: string
   code: string
   isActive: boolean
+  /**
+   * The active Item Code prefixes of this department (upper case), from Department Configuration.
+   * A job whose Item Code starts with one of them belongs to this department: the server works it out.
+   */
+  itemCodePrefixes?: string[]
+}
+
+/** Department Configuration: one Item Code prefix and the department it stands for. */
+export interface DepartmentMapping {
+  id: string
+  prefix: string
+  departmentId: string
+  departmentName: string
+  departmentCode: string
+  departmentActive: boolean
+  isActive: boolean
+  /** Jobs (any status) whose Item Code starts with this prefix; a used mapping cannot be deleted. */
+  jobCount: number
+  createdAt: string
+  createdByName: string | null
+  updatedAt: string
+  updatedByName: string | null
 }
 
 export interface Shift {
@@ -159,11 +195,15 @@ export interface ActivityParameter {
   parameterActive: boolean
 }
 
+export type QualityModule = 'IPQC' | 'QC'
+export type WorkerQualityRole = 'IPQC' | 'QC' | 'BOTH'
+
 /** A quality check type (process): its parameters, evidence rules and machines. */
 export interface Activity {
   id: string
   name: string
   code: string
+  module: QualityModule
   departmentId: string | null
   departmentName: string | null
   description: string | null
@@ -183,25 +223,45 @@ export interface Activity {
   parameters: ActivityParameter[]
 }
 
+export interface ModuleDeviceAssignment {
+  module: QualityModule
+  userId: string | null
+  userName: string | null
+  userPhone: string | null
+  employeeId: string | null
+  updatedAt?: string
+}
+
+export interface ModuleDevicesResponse {
+  ipqc: ModuleDeviceAssignment
+  qc: ModuleDeviceAssignment
+  workers: { id: string; name: string; employeeId: string; phone: string | null }[]
+}
+
 export interface Schedule {
   id: string
-  machineId: string
+  machineId?: string | null
   activityId: string
-  shiftId: string
+  shiftId?: string | null
   workerId: string | null
+  departmentId?: string | null
+  departmentName?: string | null
+  module?: QualityModule
+  activityModule?: QualityModule | null
   intervalMinutes: number
   /** INTERVAL: a check every `intervalMinutes`. JOB: only while a job runs on the machine. */
   mode: ScheduleMode
   startTime: string | null
   endTime: string | null
   isActive: boolean
-  machineName: string
+  machineName?: string | null
   activityName: string
-  shiftName: string
-  shiftStartTime: string
-  shiftEndTime: string
+  shiftName?: string | null
+  shiftStartTime?: string | null
+  shiftEndTime?: string | null
   workerName: string | null
   workerEmployeeId: string | null
+  workerQualityRole?: WorkerQualityRole | null
   /** Workers who get this schedule's checks. Empty: no worker on this machine and shift, so no checks. */
   /** Stored monitoring timer (schedule_timers), when the server sends it. */
   nextDueAt?: string | null
@@ -221,6 +281,7 @@ export interface User {
   employeeId: string
   name: string
   role: Role
+  workerQualityRole?: WorkerQualityRole
   designation: string | null
   departmentId: string | null
   departmentName: string | null
@@ -285,13 +346,14 @@ export interface QualityCheck {
   id: string
   code: string
   scheduleId: string | null
-  machineId: string
-  machineName: string
-  machineCode: string
+  machineId?: string | null
+  machineName?: string | null
+  machineCode?: string | null
   departmentId: string | null
   departmentName: string | null
   activityId: string
   activityName: string
+  module?: QualityModule
   workerId: string | null
   workerName: string | null
   workerEmployeeId: string | null
@@ -374,8 +436,12 @@ export interface JobRow extends Job {
   plannedFor: string | null
   note: string | null
   forceClosed: boolean
-  /** The department doing this job, fixed when a worker started it. */
+  /**
+   * The department doing this job. Nobody picks it: the server works it out from the Item Code
+   * prefix (set on Departments) when the job is planned, and again when a worker starts it.
+   */
   departmentId: string | null
+  departmentName: string | null
   /** NONE: no Job Start / Job End parameters. PENDING: open. DONE: submitted. */
   startCheck: 'NONE' | 'PENDING' | 'DONE'
   endCheck: 'NONE' | 'PENDING' | 'DONE'
@@ -444,7 +510,7 @@ export interface MachineSummary {
 export interface DashboardData {
   from: string
   to: string
-  /** Which department this dashboard covers; a Manager sees only their own. */
+  /** Which departments this dashboard covers: always all of them now, for Managers too. */
   scope?: PerformanceScope
   kpi: KPISummary
   byMachine: MachineSummary[]
@@ -619,23 +685,30 @@ export interface WorkerPerformance {
   workerId: string
   workerName: string
   employeeId: string
+  /** Checks whose time window has ended, or that are finished. */
   assigned: number
   completed: number
-  /** assigned − completed: what the score is based on. */
-  missed: number
-  missedChecks: number
+  /** Exceptions count as done for the score. */
   exceptions: number
+  /** Checks marked Missed. */
+  missed: number
+  /** Still open: shown, but not counted in assigned or the score. */
   open: number
+  /** completionRate − 100, where exceptions count as done; 0 means everything was done. */
   score: number
   completionRate: number
 }
 
+/**
+ * Which departments the figures cover. Managers are no longer limited to one department, so the
+ * server always sends restricted: false; the other fields are kept for older servers.
+ */
 export interface PerformanceScope {
-  /** The department a Manager is limited to; null for an Admin. */
+  /** Older servers: the department a Manager was limited to; null otherwise. */
   departmentId: string | null
   departmentName: string | null
   restricted: boolean
-  /** A Manager whose account has no department sees nobody. */
+  /** Older servers: a Manager whose account had no department saw nobody. */
   missingDepartment: boolean
 }
 
@@ -651,23 +724,72 @@ export interface PerformanceResult {
   from: string
   to: string
   scope: PerformanceScope
-  /** The scoring rule that produced these scores. */
-  penaltyPerMissed: number
-  totals: { workers: number; assigned: number; completed: number; missed: number; score: number; completionRate: number }
+  totals: { workers: number; assigned: number; completed: number; exceptions: number; missed: number; open: number; score: number; completionRate: number }
   workers: WorkerPerformance[]
 }
 
-export interface ScoreSetting {
-  penaltyPerMissed: number
-  updatedAt: string
-  updatedById: string | null
+export interface ReportSharingSettings {
+  id?: string
+  isEnabled: boolean
+  frequencyHours: number
+  frequencyMinutes: number
+  frequencyMode: 'INTERVAL' | 'DAILY_AT'
+  scheduledTime: string | null
+  percentage: number
+  recipients: string[]
+  lastRunAt: string | null
+  nextRunAt: string | null
+  smtpHost: string | null
+  smtpPort: number | null
+  smtpSecure: boolean
+  smtpUser: string | null
+  smtpPass: string | null
+  smtpFrom: string | null
+  updatedAt?: string
 }
 
-export interface PenaltyChange {
+export interface ReportEmailLog {
   id: string
-  previousPenalty: number | null
-  newPenalty: number
-  changedAt: string
-  changedByName: string | null
-  changedByEmployeeId: string | null
+  trigger: 'AUTO' | 'MANUAL'
+  status: 'SUCCESS' | 'FAILED'
+  recipients: string[]
+  subject: string
+  checkIds: string[]
+  checksCount: number
+  periodFrom: string | null
+  periodTo: string | null
+  percentage: number | null
+  pdfSizeBytes: number | null
+  videoCount: number
+  errorMessage: string | null
+  sentAt: string
+  sentById: string | null
+  sentByName: string | null
 }
+
+export interface SamplePreviewResult {
+  periodFrom: string
+  periodTo: string
+  percentage: number
+  eligibleTotal: number
+  sampleCount: number
+  sampledCheckIds: string[]
+  checks: {
+    id: string
+    code: string
+    submittedAt: string | null
+    scheduledAt: string
+    itemCode: string | null
+    jobNo: string | null
+    machineName: string
+    machineCode: string
+    workerName: string
+    status: string
+    result: string | null
+    photoCount: number
+    videoCount: number
+    hasException: boolean
+    outsideLimitsCount: number
+  }[]
+}
+

@@ -20,6 +20,7 @@ import {
   Row,
   Screen,
   Section,
+  StatusBadge,
   SkeletonRows
 } from '../ui'
 import { formatLongDate } from '../../utils/datetime'
@@ -337,6 +338,30 @@ export const HomeScreen: React.FC = () => {
         </Section>
       ) : null}
 
+      {/* Recent submissions, like the web dashboard: the latest checks workers submitted on this day. */}
+      {monitoring && data ? (
+        <Section
+          title="Recent submissions"
+          seeAll={checksTab && data.recent.length ? { label: 'See all', onPress: () => openChecks({ result: 'COMPLETED' }) } : null}
+        >
+          <List>
+            {data.recent.length === 0 ? (
+              <Row title="Nothing submitted yet" subtitle={`No checks were submitted ${isToday ? 'today' : `on ${formatKey(date)}`}.`} />
+            ) : (
+              data.recent.slice(0, TOP_ROWS).map((c) => (
+                <Row
+                  key={c.id}
+                  title={`${c.machineName} · ${c.activityName}`}
+                  subtitle={[c.submittedAt ? formatTime(c.submittedAt) : null, workerOf(c), c.jobNo ? `PO ${c.jobNo}` : null, c.code].filter(Boolean).join(' · ')}
+                  right={<StatusBadge status={c.result ?? c.status} />}
+                  onPress={checksTab ? () => push('checkDetail', { id: c.id }) : undefined}
+                />
+              ))
+            )}
+          </List>
+        </Section>
+      ) : null}
+
       {/* Manager: the team's day */}
       {!isAdmin && canList ? (
         <Section title="Team" seeAll={team.length > TOP_ROWS ? { label: showAllTeam ? 'Show less' : 'See all', onPress: () => setShowAllTeam((v) => !v) } : null}>
@@ -396,7 +421,7 @@ export const HomeScreen: React.FC = () => {
       {/* No monitoring access: welcome card and what this account can open */}
       {!monitoring && !canList ? (
         <>
-          <Notice title="No monitoring access" message="Your account has no access to the dashboard or quality checks. Open More to see what you can use, or ask an Admin." />
+          <Notice title="No monitoring access" message="Your account has no access to the dashboard or quality checks. Open More to see what you can use, or ask the Super Admin." />
           {modules.data && modules.data.some((m) => (profile.permissions?.[m.key] ?? 'none') !== 'none') ? (
             <Section title="You can use" seeAll={{ label: 'All modules', onPress: () => switchTab('more') }}>
               <List>

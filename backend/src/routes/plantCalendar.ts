@@ -28,6 +28,20 @@ const dateString = (label: string) =>
 
 const closureType = z.enum(['CLOSED', 'HOLIDAY', 'SHUTDOWN', 'WORKING'], 'Choose Plant Closed, Holiday, Shutdown or Adjustment Working Day')
 
+/** How many dates `from` to `to` covers, inclusive, worked out without listing them. */
+function daySpan(from: string, to: string) {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1
+}
+
+/**
+ * Dates before today cannot be marked, changed or removed: closing a past date would delete its
+ * Missed checks (services/plantCalendar.ts) and rewrite history and worker scores.
+ */
+function assertNotPast(...dates: string[]) {
+  const today = dateKey(new Date())
+  if (dates.some((d) => d < today)) throw conflict('Past dates cannot be changed: their checks and scores are already recorded.')
+}
+
 /** Every date from `from` to `to`, inclusive. */
 function datesBetween(from: string, to: string) {
   const keys: string[] = []
@@ -42,7 +56,7 @@ const MANAGED_BY_YEAR = `Dates from ${CALENDAR_V2_START.slice(0, 4)} onwards are
 plantCalendarRouter.get('/days', requireAnyView('calendar', 'dashboard', 'schedules'), async (req, res) => {
   const q = z.object({ from: dateString('From date'), to: dateString('To date') }).parse(req.query)
   if (q.to < q.from) throw badRequest('"to" date must be on or after "from" date')
-  if (datesBetween(q.from, q.to).length > 800) throw badRequest('Choose a shorter date range')
+  if (daySpan(q.from, q.to) > 800) throw badRequest('Choose a shorter date range')
   const [states, plans] = await Promise.all([dayStates(parseDateKey(q.from), parseDateKey(q.to)), plansBetween(q.from, q.to)])
   // Machine day plans: on a planned date exactly these machines run, whatever the plant calendar says.
   res.json(
@@ -56,7 +70,7 @@ plantCalendarRouter.get('/days', requireAnyView('calendar', 'dashboard', 'schedu
 plantCalendarRouter.get('/', requireAnyView('calendar', 'dashboard', 'schedules'), async (req, res) => {
   const q = z.object({ from: dateString('From date'), to: dateString('To date') }).parse(req.query)
   if (q.to < q.from) throw badRequest('"to" date must be on or after "from" date')
-  if (datesBetween(q.from, q.to).length > 800) throw badRequest('Choose a shorter date range')
+  if (daySpan(q.from, q.to) > 800) throw badRequest('Choose a shorter date range')
   res.json(await listClosures(q.from, q.to))
 })
 
@@ -85,8 +99,9 @@ plantCalendarRouter.post('/', requireModule('calendar', 'manage'), async (req, r
   const to = body.to ?? body.from
   if (to < body.from) throw badRequest('End date must be on or after the start date')
   if (to >= CALENDAR_V2_START) throw conflict(MANAGED_BY_YEAR)
+  assertNotPast(body.from)
+  if (daySpan(body.from, to) > MAX_DAYS) throw badRequest(`Mark at most ${MAX_DAYS} days at a time`)
   const keys = datesBetween(body.from, to)
-  if (keys.length > MAX_DAYS) throw badRequest(`Mark at most ${MAX_DAYS} days at a time`)
 
   const existing = await db.select().from(plantClosures).where(inArray(plantClosures.date, keys))
   const byDate = new Map(existing.map((r) => [r.date, r]))
@@ -124,6 +139,7 @@ plantCalendarRouter.put('/:id', requireModule('calendar', 'manage'), async (req,
   const [before] = await db.select().from(plantClosures).where(eq(plantClosures.id, id))
   if (before && (before.date >= CALENDAR_V2_START || body.date >= CALENDAR_V2_START)) throw conflict(MANAGED_BY_YEAR)
   if (!before) throw notFound('Calendar date')
+  assertNotPast(before.date, body.date)
 
   if (body.date !== before.date) {
     const [clash] = await db
@@ -157,6 +173,7 @@ plantCalendarRouter.delete('/:id', requireModule('calendar', 'manage'), async (r
   const id = idParam(req)
   const [existing] = await db.select({ date: plantClosures.date }).from(plantClosures).where(eq(plantClosures.id, id))
   if (existing && existing.date >= CALENDAR_V2_START) throw conflict(MANAGED_BY_YEAR)
+  if (existing) assertNotPast(existing.date)
   const [row] = await db.delete(plantClosures).where(eq(plantClosures.id, id)).returning()
   if (!row) throw notFound('Calendar date')
   invalidateCheckGeneration()

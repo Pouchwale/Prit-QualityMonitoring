@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "voice_notification_language" text DEFAULT 'en' NOT NULL;

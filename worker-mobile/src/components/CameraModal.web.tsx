@@ -19,8 +19,11 @@ interface Props {
   onDone: (capture: Capture) => void
 }
 
-/** A file picked in the fallback must be this fresh; older ones are gallery/PC files, not live captures. */
-const FALLBACK_MAX_AGE_MS = 10 * 60 * 1000
+/**
+ * A file picked in the fallback must be this fresh; older ones are gallery/PC files, not live captures.
+ * The phone's file chooser can also offer the gallery, so only a photo or video taken just now passes.
+ */
+const FALLBACK_MAX_AGE_MS = 2 * 60 * 1000
 
 type Stage = 'starting' | 'live' | 'fallback' | 'review'
 
@@ -73,7 +76,11 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
     setResult(null)
     const canLive = typeof window !== 'undefined' && window.isSecureContext && !!navigator.mediaDevices?.getUserMedia
     if (!canLive) {
-      setFallbackReason('Live camera preview needs a secure (HTTPS) connection.')
+      setFallbackReason(
+        typeof window !== 'undefined' && !window.isSecureContext
+          ? 'The live camera needs the app to be opened with an https:// address. Ask your supervisor for it. Until then, take a new photo or video with the button below.'
+          : 'This browser has no live camera. Take a new photo or video with the button below.'
+      )
       setStage('fallback')
       return
     }
@@ -200,7 +207,9 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
     if (!file.type.startsWith(expected)) return setError(isPhoto ? 'Please take a photo.' : 'Please record a video.')
     const age = Date.now() - file.lastModified
     if (age > FALLBACK_MAX_AGE_MS) {
-      return setError(`This is an older ${isPhoto ? 'photo' : 'video'}, not a new one. Take a new ${isPhoto ? 'photo' : 'video'} with the camera.`)
+      return setError(
+        `This is an older ${isPhoto ? 'photo' : 'video'}, not a new one. Take a new ${isPhoto ? 'photo' : 'video'} with the camera and use it within 2 minutes.`
+      )
     }
     const uri = URL.createObjectURL(file)
     const capturedAt = new Date(Math.min(file.lastModified || Date.now(), Date.now())).toISOString()

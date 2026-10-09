@@ -52,7 +52,7 @@ export async function resetScheduleTimer(
  * is really due (the shift may have ended, or the plant may be closed that day) on the timer and
  * on the submitted check. Returns that time, or null when there is no next check.
  */
-export async function settleNextDue(check: { id: string; scheduleId: string | null; machineId: string; activityId: string }) {
+export async function settleNextDue(check: { id: string; scheduleId: string | null; machineId?: string | null; activityId: string }) {
   invalidateCheckGeneration()
   try {
     await generateNextChecks(true)
@@ -64,7 +64,9 @@ export async function settleNextDue(check: { id: string; scheduleId: string | nu
 
   const where = check.scheduleId
     ? eq(qualityChecks.scheduleId, check.scheduleId)
-    : and(eq(qualityChecks.machineId, check.machineId), eq(qualityChecks.activityId, check.activityId))!
+    : check.machineId
+      ? and(eq(qualityChecks.machineId, check.machineId), eq(qualityChecks.activityId, check.activityId))!
+      : eq(qualityChecks.activityId, check.activityId)
   const [next] = await db
     .select({ id: qualityChecks.id, scheduledAt: qualityChecks.scheduledAt })
     .from(qualityChecks)

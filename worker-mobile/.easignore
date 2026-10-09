@@ -1,0 +1,22 @@
+# Files EAS Build must not upload. The app is built from this folder alone (EAS_NO_VCS=1), so
+# nothing outside it (backend, database backups, secrets) is ever sent to the build servers.
+node_modules/
+dist/
+web-build/
+.expo/
+.expo-shared/
+*.tsbuildinfo
+
+# Secrets: never upload
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.p8
+*.jks
+*.keystore
+*.mobileprovision
+fcm-key.json
+*service-account*.json

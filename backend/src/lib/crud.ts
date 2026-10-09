@@ -9,23 +9,34 @@ function isForeignKeyError(err: unknown) {
   return code === '23503' || code === '23001'
 }
 
+/** Disables a record instead of deleting it. */
+async function disable(table: PgTable & { id: PgColumn; isActive: PgColumn }, id: string) {
+  await db
+    .update(table)
+    .set({ isActive: false } as never)
+    .where(eq(table.id, id))
+}
+
 /**
- * Deletes a record. If other records still reference it (for example check history),
- * the record is disabled instead so history stays intact.
+ * Deletes a record. If other records still reference it (for example check history), the record is
+ * disabled instead so history stays intact. Some references are "set null" in the database, which
+ * would silently blank them on delete: `inUse` names those, and a record in use is disabled too.
  */
 export async function deleteOrDisable(
   table: PgTable & { id: PgColumn; isActive: PgColumn },
-  id: string
+  id: string,
+  inUse?: () => Promise<boolean>
 ): Promise<'deleted' | 'disabled'> {
+  if (inUse && (await inUse())) {
+    await disable(table, id)
+    return 'disabled'
+  }
   try {
     await db.delete(table).where(eq(table.id, id))
     return 'deleted'
   } catch (err) {
     if (!isForeignKeyError(err)) throw err
-    await db
-      .update(table)
-      .set({ isActive: false } as never)
-      .where(eq(table.id, id))
+    await disable(table, id)
     return 'disabled'
   }
 }

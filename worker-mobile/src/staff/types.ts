@@ -1,13 +1,20 @@
 // Shapes returned by the backend API (backend/src/routes).
 
 export type Role = 'WORKER' | 'MANAGER' | 'ADMIN' | 'SUPER_ADMIN'
+/** A worker's checks: in-process (IPQC), final (QC) or both. */
+export type WorkerQualityRole = 'IPQC' | 'QC' | 'BOTH'
 
-/** Admin-panel modules a Manager can be given access to (backend/src/lib/permissions.ts). */
+/**
+ * Admin-panel modules the Super Admin can give the Manager role (backend/src/lib/permissions.ts).
+ * Export (PDF, CSV and print) is view-only.
+ */
 export type ModuleKey =
   | 'dashboard'
   | 'checks'
+  | 'jobs'
   | 'exceptions'
   | 'reports'
+  | 'export'
   | 'machines'
   | 'parameters'
   | 'activities'
@@ -30,14 +37,23 @@ export interface ModuleInfo {
   viewOnly?: boolean
 }
 
-export interface ManagerAccess {
+/** A Manager account, as listed on Manager Access. */
+export interface ManagerAccount {
   id: string
   employeeId: string
   name: string
   designation: string | null
   isActive: boolean
   lastLoginAt: string | null
+}
+
+/**
+ * The Manager role's permissions (GET /api/access/roles/manager): one set for every Manager, set
+ * by the Super Admin only, with the Manager accounts it applies to.
+ */
+export interface ManagerRoleAccess {
   permissions: Permissions
+  managers: ManagerAccount[]
 }
 export type ParameterType = 'NUMBER' | 'TEXT' | 'DROPDOWN' | 'YES_NO' | 'PASS_FAIL' | 'PHOTO'
 export type MachineStatus = 'ACTIVE' | 'MAINTENANCE' | 'IDLE'
@@ -74,7 +90,7 @@ export interface CurrentUser {
   shiftName: string | null
   shiftStartTime: string | null
   shiftEndTime: string | null
-  /** What this user may use; Admins and Super Admins have manage on everything. */
+  /** What this user may use; Admins and Super Admins have manage on everything, every Manager the Manager role's set. */
   permissions: Permissions
 }
 
@@ -83,6 +99,11 @@ export interface Department {
   name: string
   code: string
   isActive: boolean
+  /**
+   * The active Item Code prefixes of this department (upper case), set in the admin panel's
+   * Department Configuration. A job whose Item Code starts with one belongs to this department.
+   */
+  itemCodePrefixes?: string[]
 }
 
 export interface Shift {
@@ -118,6 +139,11 @@ export interface Parameter {
   minValue: number | null
   maxValue: number | null
   options: string[]
+  /**
+   * Dropdown only: an optional first choice asked before the options (e.g. the material for
+   * Corona Treatment). Both are recorded together, e.g. "BOPP 38, 40 Dyne". Empty for most.
+   */
+  materialOptions: string[]
   /** Dropdown only: the worker may choose several options instead of one. */
   multiSelect: boolean
   /** Default "required" value when the parameter is added to a quality check type. */
@@ -220,6 +246,8 @@ export interface User {
   shiftId: string | null
   shiftName: string | null
   phone: string | null
+  /** Workers: which checks they do (IPQC, QC or both). Older servers leave it out. */
+  workerQualityRole?: WorkerQualityRole
   isActive: boolean
   /** May sign in to the worker mobile app. */
   appAccess: boolean
@@ -358,7 +386,10 @@ export interface MachineSummary {
   open: number
 }
 
-/** Which department a dashboard covers; a Manager sees only their own. */
+/**
+ * Which department a dashboard covers. Managers see every department now, so `restricted` is
+ * false for everyone (older servers still limited a Manager to their own department).
+ */
 export interface DepartmentScope {
   departmentId: string | null
   departmentName: string | null
@@ -523,6 +554,12 @@ export type CheckKind = 'SCHEDULED' | 'JOB_START' | 'JOB_INTERVAL' | 'JOB_END'
 /** A job in the Jobs list (GET /api/jobs), the same as the web panel. */
 export interface JobRow extends Job {
   status: JobStatus
+  /**
+   * The department doing this job. Nobody picks it: the server works it out from the Item Code
+   * prefix (set on Departments) when the job is planned, and again when a worker starts it.
+   */
+  departmentId: string | null
+  departmentName: string | null
   activatedAt: string | null
   endRequestedAt: string | null
   assignedWorkerId: string | null

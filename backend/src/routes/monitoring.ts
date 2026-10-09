@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express'
 import { z } from 'zod'
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
 import { db } from '../db/client'
 import {
   activities,
@@ -17,14 +17,15 @@ import {
   settings,
   shifts,
   users,
+  moduleNotificationAssignments
 } from '../db/schema'
 import { idParam, optionalUuid } from '../lib/validate'
-import { badRequest, notFound } from '../lib/http'
+import { badRequest, forbidden, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
-import { requireAnyView, requireModule } from '../lib/permissions'
+import { canView, requireAnyView, requireModule } from '../lib/permissions'
 import { CHECK_RESULTS, RESULT_LABEL, RESULT_STATUSES, resultOf } from '../lib/result'
 import { addDays, dateKey, formatLocalDate, parseDateKey, startOfDay } from '../lib/time'
-import { listChecks } from '../services/checks'
+import { countChecks, listChecks } from '../services/checks'
 import { blockAll, departmentScope, scopedDepartmentId, seesNothing } from '../services/departmentScope'
 import { buildQualityReport } from '../services/reportData'
 import { buildTraceReport } from '../services/traceReport'
@@ -34,7 +35,8 @@ import { shiftAt } from '../services/shiftTime'
 import { RUNNING_STATUSES } from '../services/jobMonitoring'
 import { closureOn, plansBetween } from '../services/plantCalendar'
 import { machineClosureOn } from '../services/machineDays'
-import { makeCheckCode, prepareChecks } from '../services/checkGenerator'
+import { makeCheckCode, prepareChecksForRead } from '../services/checkGenerator'
+import { sendTestNotification } from '../services/notifications'
 import {
   exceptionReasonById,
   exceptionReasonDto,
@@ -48,10 +50,10 @@ import {
 export const monitoringRouter = Router()
 
 /**
- * Department scope of this request: an Admin sees the whole plant, a Manager only their own
- * department. `departmentId` from the request is refused when it is not the Manager's own, and a
- * Manager with no department set sees nothing. Everything the dashboards, lists and reports read
- * goes through this.
+ * Department scope of this request. Everything the dashboards, lists and reports read goes
+ * through this. No role is limited to a department any more (services/departmentScope.ts), so
+ * everyone sees the whole plant: `departmentId` is just the department the request filters by,
+ * and `where` adds nothing.
  */
 async function scopeFor(req: Request, requested?: string) {
   const scope = await departmentScope(req.user!)
@@ -61,8 +63,14 @@ async function scopeFor(req: Request, requested?: string) {
 
 const formatDay = (d: Date) => formatLocalDate(d)
 
+/** At most this many checks are returned by one list request. */
+const LIST_LIMIT = 5000
+
 /** The only statuses that can be filtered on or shown. Unfinished checks have no status yet. */
 const CHECK_STATUSES = ['COMPLETED', 'MISSED', 'EXCEPTION'] as const
+
+/** The longest period one list, dashboard or report may cover. */
+const MAX_RANGE_DAYS = 366
 
 /** Reads ?date=YYYY-MM-DD or ?from=&to= (inclusive dates). Defaults to today. */
 function dateRange(req: Request) {
@@ -73,6 +81,9 @@ function dateRange(req: Request) {
     const from = q.from ? parseDateKey(q.from) : q.date ? parseDateKey(q.date) : startOfDay(new Date())
     const toInclusive = q.to ? parseDateKey(q.to) : q.date ? parseDateKey(q.date) : from
     if (toInclusive < from) throw badRequest('"to" date must be on or after "from" date')
+    if (toInclusive.getTime() - from.getTime() > MAX_RANGE_DAYS * 24 * 60 * 60_000) {
+      throw badRequest(`Choose a period of at most ${MAX_RANGE_DAYS} days`)
+    }
     return { from, to: addDays(toInclusive, 1) }
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('Invalid date')) throw badRequest(err.message)
@@ -80,12 +91,12 @@ function dateRange(req: Request) {
   }
 }
 
-/** Makes sure scheduled checks exist for the requested days (up to one week ahead). */
-async function prepareRange(from: Date, to: Date) {
-  const limit = addDays(startOfDay(new Date()), 8)
-  const days: Date[] = []
-  for (let d = from; d < to && d < limit && days.length < 62; d = addDays(d, 1)) days.push(d)
-  await prepareChecks(days.length ? days : [new Date()])
+/**
+ * Brings checks up to date (statuses, the next check of every schedule) before a page reads them.
+ * The checks are rolling, one open check per schedule, so the requested days do not matter.
+ */
+async function prepareRange(_from: Date, _to: Date) {
+  await prepareChecksForRead()
 }
 
 const checkFilters = z.object({
@@ -105,6 +116,7 @@ const checkFilters = z.object({
   shiftId: z.uuid().optional(),
   activityId: z.uuid().optional(),
   departmentId: z.uuid().optional(),
+  module: z.enum(['IPQC', 'QC']).optional(),
   /** Whole Item Code / PO No., case-insensitive (the check's own, or its job's). */
   itemCode: z.string().trim().max(60).optional(),
   jobNo: z.string().trim().max(60).optional()
@@ -127,7 +139,13 @@ monitoringRouter.get('/quality-checks', requireAnyView('checks', 'dashboard', 'r
   const f = checkFilters.parse(req.query)
   await prepareRange(from, to)
   const { departmentId, where } = await scopeFor(req, f.departmentId)
-  res.json(await listChecks({ ...f, from, to, departmentId, where, ...statusScope(f) }))
+  const filters = { ...f, from, to, departmentId, where, ...statusScope(f) }
+  const [rows, total] = await Promise.all([listChecks(filters, { limit: LIST_LIMIT }), countChecks(filters)])
+  // The list stops at LIST_LIMIT checks; the pages warn when there are more, so totals are never
+  // silently computed from part of the period.
+  res.setHeader('X-Total-Count', String(total))
+  if (total > rows.length) res.setHeader('X-Truncated', '1')
+  res.json(rows)
 })
 
 /**
@@ -173,32 +191,40 @@ monitoringRouter.post('/quality-checks', requireModule('checks', 'manage'), asyn
   if (!activity) throw notFound('Check type')
   if (!activity.isActive) throw badRequest('This check type is disabled')
 
+  // A test check is only created for a check type set up on the machine (Machines or Check Types page).
+  const [link] = await db
+    .select({ machineId: machineActivities.machineId })
+    .from(machineActivities)
+    .where(and(eq(machineActivities.machineId, machine.id), eq(machineActivities.activityId, activity.id)))
+  if (!link) throw badRequest(`${activity.name} is not set up on ${machine.name}. Add it on the Machines page first.`)
+
   let shiftId: string | null = null
   let workerId = body.workerId
-  // The department of the work: the job running on the machine, else the check type's.
-  let departmentId: string | null = activity.departmentId
+  const [running] = await db
+    .select({ assignedWorkerId: jobs.assignedWorkerId, departmentId: jobs.departmentId })
+    .from(jobs)
+    .where(and(eq(jobs.machineId, machine.id), inArray(jobs.status, [...RUNNING_STATUSES])))
+  // The department of the work: the job running on the machine (from its Item Code), else the
+  // check type's. Never the worker's own account: workers work for any department.
+  const departmentId: string | null = running?.departmentId ?? activity.departmentId
   if (body.workerId) {
     const [worker] = await db.select().from(users).where(eq(users.id, body.workerId))
     if (!worker || worker.role !== 'WORKER') throw badRequest('Choose a worker account')
     if (!worker.isActive || !worker.appAccess) throw badRequest('This worker cannot sign in to the app')
+    const roleModules: Record<string, string[]> = { IPQC: ['IPQC'], QC: ['QC'], BOTH: ['IPQC', 'QC'] }
+    if (!(roleModules[worker.workerQualityRole] ?? ['IPQC']).includes(activity.module)) {
+      throw badRequest(`${worker.name} does ${worker.workerQualityRole} checks; ${activity.name} is a ${activity.module} check.`)
+    }
     shiftId = worker.shiftId
-    departmentId = departmentId ?? worker.departmentId
   } else {
     // "Any worker": the check goes to whoever is running the job on this machine, as usual.
     const shift = await shiftAt(scheduledAt)
     shiftId = shift?.id ?? null
-    const [running] = await db
-      .select({ assignedWorkerId: jobs.assignedWorkerId, departmentId: jobs.departmentId })
-      .from(jobs)
-      .where(and(eq(jobs.machineId, machine.id), inArray(jobs.status, [...RUNNING_STATUSES])))
     if (!running?.assignedWorkerId) {
       throw badRequest(`No job is running on ${machine.name}, so no worker is responsible for it. Start a job on the machine, or choose a worker.`)
     }
     workerId = running.assignedWorkerId
-    departmentId = running.departmentId ?? departmentId
   }
-
-  await db.insert(machineActivities).values({ machineId: machine.id, activityId: activity.id }).onConflictDoNothing()
 
   const [row] = await db
     .insert(qualityChecks)
@@ -206,6 +232,7 @@ monitoringRouter.post('/quality-checks', requireModule('checks', 'manage'), asyn
       code: makeCheckCode(scheduledAt),
       machineId: machine.id,
       activityId: activity.id,
+      module: activity.module,
       workerId,
       departmentId,
       shiftId,
@@ -223,12 +250,11 @@ monitoringRouter.post('/quality-checks', requireModule('checks', 'manage'), asyn
   res.status(201).json(check)
 })
 
-// The detail page opens from the check list, the dashboard, exceptions and reports.
-monitoringRouter.get('/quality-checks/:id', requireAnyView('checks', 'dashboard', 'exceptions', 'reports'), async (req, res) => {
+// The detail page opens from the check list, the dashboard, exceptions, reports and a job's checks.
+monitoringRouter.get('/quality-checks/:id', requireAnyView('checks', 'jobs', 'dashboard', 'exceptions', 'reports'), async (req, res) => {
   const id = idParam(req)
   const { departmentId, where } = await scopeFor(req)
   const [check] = await listChecks({ ids: [id], departmentId, where })
-  // A check of another department is "not found" rather than a hint that it exists.
   if (!check) throw notFound('Quality check')
   res.json(check)
 })
@@ -285,38 +311,53 @@ monitoringRouter.patch('/exceptions/:id', requireModule('exceptions', 'manage'),
 monitoringRouter.get('/dashboard', requireAnyView('dashboard', 'checks', 'exceptions'), async (req, res) => {
   const { from, to } = dateRange(req)
   await prepareRange(from, to)
-  // A Manager's dashboard is their own department's dashboard; an Admin sees the whole plant.
+  // Everyone sees the whole plant; `scope` stays in the response for older app builds that read it.
   const { scope, departmentId, where } = await scopeFor(req)
-  const checks = await listChecks({ from, to, departmentId, where })
 
+  // Counted in the database, so the figures are exact for any number of checks.
   // Status: Completed, Missed, Exception. Checks not finished yet have no status and count as open.
-  const count = (status: string) => checks.filter((c) => resultOf(c.status) === status).length
-  const completed = count('COMPLETED')
+  const period = and(gte(qualityChecks.scheduledAt, from), lt(qualityChecks.scheduledAt, to), departmentId ? eq(qualityChecks.departmentId, departmentId) : undefined, where)
+  const counts = await db
+    .select({
+      machineId: qualityChecks.machineId,
+      machineName: machines.name,
+      total: count(),
+      completed: sql<number>`count(*) filter (where ${qualityChecks.status} = 'COMPLETED')::int`,
+      missed: sql<number>`count(*) filter (where ${qualityChecks.status} = 'MISSED')::int`,
+      exceptions: sql<number>`count(*) filter (where ${qualityChecks.status} = 'EXCEPTION')::int`
+    })
+    .from(qualityChecks)
+    .leftJoin(machines, eq(qualityChecks.machineId, machines.id))
+    .where(period)
+    .groupBy(qualityChecks.machineId, machines.name)
+  const byMachine = counts
+    .filter((c) => c.machineId)
+    .map((c) => ({
+      machineId: c.machineId!,
+      machineName: c.machineName ?? 'Unassigned',
+      total: c.total,
+      completed: c.completed,
+      missed: c.missed,
+      exceptions: c.exceptions,
+      open: c.total - c.completed - c.missed - c.exceptions
+    }))
+    .sort((a, b) => a.machineName.localeCompare(b.machineName))
+  const sum = (key: 'total' | 'completed' | 'missed' | 'exceptions') => counts.reduce((n, c) => n + c[key], 0)
+  const scheduled = sum('total')
+  const completed = sum('completed')
   const kpi = {
-    scheduled: checks.length,
+    scheduled,
     completed,
-    missed: count('MISSED'),
-    exceptions: count('EXCEPTION'),
-    open: checks.filter((c) => resultOf(c.status) === null).length,
-    completionRate: checks.length ? Math.round((completed / checks.length) * 100) : 0
+    missed: sum('missed'),
+    exceptions: sum('exceptions'),
+    open: scheduled - completed - sum('missed') - sum('exceptions'),
+    completionRate: scheduled ? Math.round((completed / scheduled) * 100) : 0
   }
 
-  const byMachine = new Map<string, { machineId: string; machineName: string; total: number; completed: number; missed: number; exceptions: number; open: number }>()
-  for (const c of checks) {
-    const m = byMachine.get(c.machineId) ?? { machineId: c.machineId, machineName: c.machineName, total: 0, completed: 0, missed: 0, exceptions: 0, open: 0 }
-    m.total++
-    const result = resultOf(c.status)
-    if (result === 'COMPLETED') m.completed++
-    else if (result === 'MISSED') m.missed++
-    else if (result === 'EXCEPTION') m.exceptions++
-    else m.open++
-    byMachine.set(c.machineId, m)
-  }
-
-  const recent = checks
-    .filter((c) => c.submittedAt)
-    .sort((a, b) => +new Date(b.submittedAt!) - +new Date(a.submittedAt!))
-    .slice(0, 10)
+  const recent = await listChecks(
+    { from, to, departmentId, where: and(where, isNotNull(qualityChecks.submittedAt)) },
+    { order: 'desc', orderBy: 'submittedAt', limit: 10 }
+  )
 
   // Plant Calendar: tells the dashboard when the chosen day is a closed day.
   const closure = await closureOn(from)
@@ -358,27 +399,21 @@ monitoringRouter.get('/reports/trace', requireModule('reports', 'view'), async (
 
 /**
  * Item Codes and PO Nos. recorded in a period, for the report filters' suggestion lists: from
- * the checks (submitted values) and from the jobs that ran in the period.
+ * the checks (submitted values) and from the jobs that ran in the period. Every department's
+ * values are suggested, since nobody is limited to a department.
  */
 monitoringRouter.get('/reports/filter-values', requireModule('reports', 'view'), async (req, res) => {
   const { from, to } = dateRange(req)
-  const { departmentId, where } = await scopeFor(req)
-  // A Manager is only suggested the Item Codes and PO Nos. of their own department.
-  const ofDepartment = departmentId
-    ? eq(qualityChecks.departmentId, departmentId)
-    : undefined
-  const jobsOfDepartment = departmentId
-    ? eq(jobs.departmentId, departmentId)
-    : undefined
+  const { where } = await scopeFor(req)
   const [fromChecks, fromJobs] = await Promise.all([
     db
       .selectDistinct({ itemCode: qualityChecks.itemCode, jobNo: qualityChecks.jobNo })
       .from(qualityChecks)
-      .where(and(gte(qualityChecks.scheduledAt, from), lt(qualityChecks.scheduledAt, to), ofDepartment, where)),
+      .where(and(gte(qualityChecks.scheduledAt, from), lt(qualityChecks.scheduledAt, to), where)),
     db
       .selectDistinct({ itemCode: jobs.itemCode, jobNo: jobs.jobNo })
       .from(jobs)
-      .where(and(lt(jobs.startedAt, to), or(isNull(jobs.endedAt), gte(jobs.endedAt, from)), jobsOfDepartment, where))
+      .where(and(lt(jobs.startedAt, to), or(isNull(jobs.endedAt), gte(jobs.endedAt, from)), where))
   ])
   const rows = [...fromChecks, ...fromJobs]
   // Distinct ignoring case and spaces; the first spelling seen is kept.
@@ -395,9 +430,10 @@ monitoringRouter.get('/reports/filter-values', requireModule('reports', 'view'),
 
 /**
  * The Quality Monitoring Report as a PDF. Same filters as the checks list, so the
- * report always matches what the admin sees on screen.
+ * report always matches what the admin sees on screen. Downloading it needs Export Reports as
+ * well as Reports.
  */
-monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports', 'view'), async (req, res) => {
+monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports', 'view'), requireModule('export', 'view'), async (req, res) => {
   const { from, to } = dateRange(req)
   const f = checkFilters.parse(req.query)
   await prepareRange(from, to)
@@ -448,6 +484,11 @@ monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports',
           jobNo: f.jobNo
         })
       : undefined
+  // The PDF lists every check; above LIST_LIMIT it would be cut off, so the period must be narrowed.
+  const reportCount = await countChecks({ from, to, ...statusScope(f), machineId: f.machineId, workerId: f.workerId, shiftId: f.shiftId, activityId: f.activityId, departmentId: scopedDepartment, where: scopeWhere, itemCode: f.itemCode, jobNo: f.jobNo })
+  if (reportCount > LIST_LIMIT) {
+    throw badRequest(`This report would have ${reportCount} checks; one PDF holds at most ${LIST_LIMIT}. Choose a shorter period or more filters.`)
+  }
   const report = await buildQualityReport(
     {
       from,
@@ -615,8 +656,10 @@ monitoringRouter.delete('/exception-reasons/:id', requireModule('activities', 'm
  * Machine-wise monitoring configuration for the admin Monitoring Setup screen: the check types on
  * each machine with their mode, schedules (including the live rolling timer) and parameters.
  */
-monitoringRouter.get('/monitoring-overview', requireAnyView('activities', 'schedules'), async (_req, res) => {
-  res.json({ machines: await monitoringOverview() })
+monitoringRouter.get('/monitoring-overview', requireAnyView('activities', 'schedules'), async (req, res) => {
+  // The running job on each machine is Jobs data: only for users who may view Jobs.
+  const seesJobs = canView(req.user!.permissions, 'jobs')
+  res.json({ machines: (await monitoringOverview()).map((m) => (seesJobs ? m : { ...m, runningJob: null })) })
 })
 
 /**
@@ -642,8 +685,12 @@ monitoringRouter.get('/audit-logs', requireModule('audit_logs', 'view'), async (
     const term = `%${q.q}%`
     where.push(or(ilike(auditLogs.action, term), ilike(auditLogs.userName, term), ilike(auditLogs.entityId, term), ilike(auditLogs.entity, term))!)
   }
-  if (q.from) where.push(gte(auditLogs.createdAt, parseDateKey(q.from)))
-  if (q.to) where.push(lt(auditLogs.createdAt, addDays(parseDateKey(q.to), 1)))
+  try {
+    if (q.from) where.push(gte(auditLogs.createdAt, parseDateKey(q.from)))
+    if (q.to) where.push(lt(auditLogs.createdAt, addDays(parseDateKey(q.to), 1)))
+  } catch {
+    throw badRequest('Invalid date')
+  }
 
   const filter = where.length ? and(...where) : undefined
   const [rows, [totals]] = await Promise.all([
@@ -662,15 +709,28 @@ monitoringRouter.get('/audit-logs', requireModule('audit_logs', 'view'), async (
 })
 
 // Readable by every admin-panel user: the header shows the plant name.
+/**
+ * The plant settings pages may read and change: the plant name and the company details on reports.
+ * The settings table also holds internal values (the web push key pair, the weekly off, one-time
+ * markers), which are never sent out and cannot be changed here: the Plant Calendar has its own,
+ * locked, endpoint for the weekly off.
+ */
+const PUBLIC_SETTINGS = ['plant', 'company'] as const
+
 monitoringRouter.get('/settings', async (_req, res) => {
-  const rows = await db.select().from(settings)
+  const rows = await db.select().from(settings).where(inArray(settings.key, [...PUBLIC_SETTINGS]))
   res.json(Object.fromEntries(rows.map((r) => [r.key, r.value])))
 })
 
 monitoringRouter.put('/settings', requireModule('settings', 'manage'), async (req, res) => {
   const body = z.record(z.string().min(1).max(60), z.unknown()).parse(req.body)
-  const before = await db.select().from(settings)
-  for (const [key, value] of Object.entries(body)) {
+  if (Object.keys(body).some((key) => !(PUBLIC_SETTINGS as readonly string[]).includes(key))) {
+    throw badRequest('Only the plant and company settings can be changed here')
+  }
+  const keys = Object.keys(body) as (typeof PUBLIC_SETTINGS)[number][]
+  const before = keys.length ? await db.select().from(settings).where(inArray(settings.key, keys)) : []
+  for (const key of keys) {
+    const value = body[key]
     if (value === null || value === undefined) {
       await db.delete(settings).where(eq(settings.key, key))
       continue
@@ -686,3 +746,118 @@ monitoringRouter.put('/settings', requireModule('settings', 'manage'), async (re
   })
   res.json(body)
 })
+
+/**
+ * Module Notification Devices: IPQC and QC dedicated phones/users.
+ * Admin can view and assign which worker receives IPQC push notifications
+ * and which worker receives QC push notifications.
+ */
+monitoringRouter.get('/notifications/module-devices', requireAnyView('settings', 'activities', 'machines', 'workers'), async (_req, res) => {
+  const [assignments, workers] = await Promise.all([
+    db
+      .select({
+        module: moduleNotificationAssignments.module,
+        userId: moduleNotificationAssignments.userId,
+        updatedAt: moduleNotificationAssignments.updatedAt,
+        userName: users.name,
+        userPhone: users.phone,
+        employeeId: users.employeeId
+      })
+      .from(moduleNotificationAssignments)
+      .leftJoin(users, eq(moduleNotificationAssignments.userId, users.id)),
+    db
+      .select({
+        id: users.id,
+        name: users.name,
+        employeeId: users.employeeId,
+        phone: users.phone
+      })
+      .from(users)
+      .where(and(eq(users.isActive, true), eq(users.appAccess, true)))
+      .orderBy(asc(users.name))
+  ])
+
+  const map = new Map(assignments.map((a) => [a.module, a]))
+  res.json({
+    ipqc: map.get('IPQC') ?? { module: 'IPQC', userId: null, userName: null, userPhone: null, employeeId: null },
+    qc: map.get('QC') ?? { module: 'QC', userId: null, userName: null, userPhone: null, employeeId: null },
+    workers
+  })
+})
+
+const updateModuleDevicesSchema = z.object({
+  ipqcUserId: z.string().uuid().nullable().optional(),
+  qcUserId: z.string().uuid().nullable().optional()
+})
+
+// Choosing who receives every IPQC / QC alert is a plant setting: Settings manage only.
+monitoringRouter.put('/notifications/module-devices', requireModule('settings', 'manage'), async (req, res) => {
+  const body = updateModuleDevicesSchema.parse(req.body)
+  const now = new Date()
+
+  const setAssignment = async (moduleName: 'IPQC' | 'QC', userId: string | null | undefined) => {
+    if (userId === undefined) return
+    if (userId !== null) {
+      const [user] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, userId), eq(users.isActive, true)))
+      if (!user) throw badRequest(`Selected user for ${moduleName} does not exist or is inactive`)
+    }
+    await db
+      .insert(moduleNotificationAssignments)
+      .values({ module: moduleName, userId, updatedAt: now, updatedById: req.user!.id })
+      .onConflictDoUpdate({
+        target: moduleNotificationAssignments.module,
+        set: { userId, updatedAt: now, updatedById: req.user!.id }
+      })
+  }
+
+  if (body.ipqcUserId !== undefined) await setAssignment('IPQC', body.ipqcUserId)
+  if (body.qcUserId !== undefined) await setAssignment('QC', body.qcUserId)
+
+  await audit(req, 'UPDATE_MODULE_NOTIFICATION_DEVICES', 'ModuleNotificationAssignments', null, { newValue: body })
+
+  const assignments = await db
+    .select({
+      module: moduleNotificationAssignments.module,
+      userId: moduleNotificationAssignments.userId,
+      updatedAt: moduleNotificationAssignments.updatedAt,
+      userName: users.name,
+      userPhone: users.phone,
+      employeeId: users.employeeId
+    })
+    .from(moduleNotificationAssignments)
+    .leftJoin(users, eq(moduleNotificationAssignments.userId, users.id))
+
+  const map = new Map(assignments.map((a) => [a.module, a]))
+  res.json({
+    ipqc: map.get('IPQC') ?? { module: 'IPQC', userId: null, userName: null, userPhone: null, employeeId: null },
+    qc: map.get('QC') ?? { module: 'QC', userId: null, userName: null, userPhone: null, employeeId: null }
+  })
+})
+
+const testModuleNotificationSchema = z.object({
+  module: z.enum(['IPQC', 'QC'])
+})
+
+monitoringRouter.post('/notifications/module-devices/test', requireModule('settings', 'manage'), async (req, res) => {
+  const { module: moduleName } = testModuleNotificationSchema.parse(req.body)
+
+  const [assignment] = await db
+    .select({ userId: moduleNotificationAssignments.userId })
+    .from(moduleNotificationAssignments)
+    .where(eq(moduleNotificationAssignments.module, moduleName))
+    .limit(1)
+
+  if (!assignment?.userId) {
+    throw badRequest(`No dedicated phone/user configured for ${moduleName} yet. Please assign a user first.`)
+  }
+
+  const result = await sendTestNotification(assignment.userId, `${moduleName} Module`)
+  await audit(req, 'TEST_MODULE_NOTIFICATION', 'ModuleNotificationAssignments', moduleName, { newValue: result })
+  res.json({
+    ok: true,
+    module: moduleName,
+    userId: assignment.userId,
+    ...result
+  })
+})
+

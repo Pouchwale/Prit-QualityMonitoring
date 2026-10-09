@@ -3,20 +3,30 @@ import { Text, View } from 'react-native'
 import { useStaff } from '../nav'
 import { useQuery } from '../useQuery'
 import { addDaysKey, dateKey, formatKey } from '../format'
-import { DataState, List, MiniStat, Notice, Row, Screen, Section, Segmented } from '../ui'
+import { Chips, DataState, DateField, Input, List, MiniStat, Notice, Row, Screen, Section, SelectField, SmallButton } from '../ui'
 
-/** Worker performance for Managers and Admins. The backend calculates every score. */
+/**
+ * Worker performance for Managers and Admins: the same filters and figures as the web panel's
+ * Worker Performance page (admin-web/src/pages/admin/PerformancePage.tsx). The backend calculates
+ * every score (GET /api/performance/workers); the filter lists come from
+ * GET /api/performance/filter-values: every department and worker, for Managers too. The Department
+ * filter counts the checks done for that department (the department on each check).
+ */
 
 interface WorkerPerformance {
   workerId: string
   workerName: string
   employeeId: string
+  /** Checks whose time is over: finished, or past the end of their window. */
   assigned: number
   completed: number
+  /** Missed checks only: the ones that lower the score. */
   missed: number
-  missedChecks: number
+  /** Exceptions count as done. */
   exceptions: number
+  /** Still open inside their window: not counted yet. */
   open: number
+  /** Completion % minus 100, with exceptions counted as done. */
   score: number
   completionRate: number
 }
@@ -30,55 +40,163 @@ interface PerformanceScope {
 
 interface PerformanceResult {
   scope: PerformanceScope
-  penaltyPerMissed: number
-  totals: { workers: number; assigned: number; completed: number; missed: number; score: number; completionRate: number }
+  totals: {
+    workers: number
+    assigned: number
+    completed: number
+    missed: number
+    /** Older servers leave these two out. */
+    exceptions?: number
+    open?: number
+    score: number
+    completionRate: number
+  }
   workers: WorkerPerformance[]
 }
 
-const PERIODS = [
-  { label: 'Today', range: () => ({ from: dateKey(), to: dateKey() }) },
-  { label: '7 days', range: () => ({ from: addDaysKey(dateKey(), -6), to: dateKey() }) },
-  { label: '30 days', range: () => ({ from: addDaysKey(dateKey(), -29), to: dateKey() }) }
+interface PerformanceFilterValues {
+  machines: { id: string; name: string }[]
+  shifts: { id: string; name: string }[]
+  departments: { id: string; name: string }[]
+  workers: { id: string; name: string; employeeId: string; departmentId: string | null }[]
+  scope: PerformanceScope
+}
+
+const PRESETS = [
+  { label: 'Today', from: () => dateKey(), to: () => dateKey() },
+  { label: 'Last 7 days', from: () => addDaysKey(dateKey(), -6), to: () => dateKey() },
+  { label: 'Last 30 days', from: () => addDaysKey(dateKey(), -29), to: () => dateKey() }
 ]
 
 export const PerformanceScreen: React.FC = () => {
   useStaff()
-  const [periodIndex, setPeriodIndex] = useState(1)
-  const range = PERIODS[periodIndex].range()
-  const api = useQuery<PerformanceResult>('/api/performance/workers', range)
+  const [from, setFrom] = useState(() => addDaysKey(dateKey(), -6))
+  const [to, setTo] = useState(dateKey)
+  const [workerId, setWorkerId] = useState('')
+  const [machineId, setMachineId] = useState('')
+  const [shiftId, setShiftId] = useState('')
+  const [departmentId, setDepartmentId] = useState('')
+  const [jobNo, setJobNo] = useState('')
+  const [jobSearch, setJobSearch] = useState('')
+
+  const api = useQuery<PerformanceResult>('/api/performance/workers', { from, to, workerId, machineId, shiftId, jobNo, departmentId })
+  const filters = useQuery<PerformanceFilterValues>('/api/performance/filter-values')
   const data = api.data
+  const scope = data?.scope ?? filters.data?.scope
+  const preset = PRESETS.findIndex((p) => p.from() === from && p.to() === to)
+
+  const reset = () => {
+    setFrom(addDaysKey(dateKey(), -6))
+    setTo(dateKey())
+    setWorkerId('')
+    setMachineId('')
+    setShiftId('')
+    setDepartmentId('')
+    setJobNo('')
+    setJobSearch('')
+  }
 
   return (
     <Screen
       title="Worker Performance"
-      subtitle={`${formatKey(range.from)} – ${formatKey(range.to)}${data?.scope?.restricted && data.scope.departmentName ? ` · ${data.scope.departmentName}` : ''}`}
+      subtitle={`${formatKey(from)} – ${formatKey(to)}${scope?.restricted && scope.departmentName ? ` · ${scope.departmentName}` : ''}`}
       back
       onRefresh={api.reload}
       refreshing={api.loading}
     >
-      <Segmented
-        options={PERIODS.map((p, i) => ({ label: p.label, value: String(i) }))}
-        value={String(periodIndex)}
-        onChange={(v) => setPeriodIndex(Number(v))}
-      />
+      {scope?.missingDepartment ? (
+        <Notice message="Your account has no department yet, so no workers are shown. Ask an Admin to set your department." />
+      ) : scope?.restricted ? (
+        <Notice message={`You see the ${scope.departmentName} department only. Workers of other departments are not included.`} />
+      ) : null}
+
+      <Section title="Filters">
+        <View className="gap-3">
+          <Chips
+            options={PRESETS.map((p, i) => ({ value: String(i), label: p.label }))}
+            value={preset >= 0 ? String(preset) : ''}
+            onChange={(v) => {
+              const p = PRESETS[Number(v)]
+              setFrom(p.from())
+              setTo(p.to())
+            }}
+          />
+          <View className="flex-row gap-3">
+            <View className="flex-1">
+              <DateField
+                label="From"
+                value={from}
+                onChange={(v) => {
+                  if (!v) return
+                  setFrom(v)
+                  if (v > to) setTo(v)
+                }}
+              />
+            </View>
+            <View className="flex-1">
+              <DateField
+                label="To"
+                value={to}
+                onChange={(v) => {
+                  if (!v) return
+                  setTo(v)
+                  if (v < from) setFrom(v)
+                }}
+              />
+            </View>
+          </View>
+          <SelectField
+            label="Department"
+            value={scope?.restricted ? (scope.departmentId ?? '') : departmentId}
+            emptyLabel={scope?.restricted ? undefined : 'All departments'}
+            disabled={scope?.restricted}
+            hint={scope?.restricted ? 'You see your own department only' : 'Counts only the checks done for this department'}
+            options={(filters.data?.departments ?? []).map((d) => ({ value: d.id, label: d.name }))}
+            onChange={setDepartmentId}
+          />
+          <SelectField
+            label="Worker"
+            value={workerId}
+            emptyLabel="All workers"
+            options={(filters.data?.workers ?? []).map((w) => ({ value: w.id, label: w.name, detail: w.employeeId }))}
+            onChange={setWorkerId}
+          />
+          <SelectField label="Machine" value={machineId} emptyLabel="All machines" options={(filters.data?.machines ?? []).map((m) => ({ value: m.id, label: m.name }))} onChange={setMachineId} />
+          <SelectField label="Shift" value={shiftId} emptyLabel="All shifts" options={(filters.data?.shifts ?? []).map((s) => ({ value: s.id, label: s.name }))} onChange={setShiftId} />
+          <View className="flex-row items-end gap-2">
+            <View className="flex-1">
+              <Input label="PO No." value={jobSearch} onChangeText={setJobSearch} placeholder="e.g. J-4417" autoCapitalize="characters" maxLength={60} />
+            </View>
+            <SmallButton label="Search" icon="search-outline" onPress={() => setJobNo(jobSearch.trim())} />
+          </View>
+          <SmallButton label="Reset filters" onPress={reset} className="self-start" />
+        </View>
+      </Section>
 
       <DataState loading={api.loading} error={api.error} onRetry={api.reload} empty={data ? data.workers.length === 0 : false} emptyText="No checks were assigned in this period.">
         {data ? (
           <>
-            <View className="flex-row gap-3">
+            <View className="flex-row flex-wrap gap-3">
+              <MiniStat label="Workers" value={data.totals.workers} />
               <MiniStat label="Assigned" value={data.totals.assigned} />
               <MiniStat label="Completed" value={data.totals.completed} tone="success" />
+              {data.totals.exceptions !== undefined ? <MiniStat label="Exceptions" value={data.totals.exceptions} /> : null}
               <MiniStat label="Missed" value={data.totals.missed} tone={data.totals.missed ? 'missed' : 'neutral'} />
+              <MiniStat label="Total score" value={`${data.totals.score}%`} tone={data.totals.score < 0 ? 'missed' : 'success'} />
             </View>
 
-            <Section title="By worker" detail={`Score = missed × ${data.penaltyPerMissed}`}>
+            <Section
+              title="By worker"
+              detail="Assigned = checks whose time is over (finished, or past their window); checks still open are not counted yet. Score = completion − 100, with exceptions counted as done: everything done is 0%; 80 of 100 done is −20%. Only missed checks lower it."
+            >
               <List>
                 {data.workers.map((w) => (
                   <Row
                     key={w.workerId}
                     title={w.workerName}
-                    subtitle={`${w.assigned} assigned · ${w.completed} completed · ${w.missed} missed`}
-                    detail={`${w.completionRate}% completed`}
+                    subtitle={`${w.employeeId} · ${w.assigned} assigned · ${w.completed} completed · ${w.exceptions} exception${w.exceptions === 1 ? '' : 's'} · ${w.missed} missed`}
+                    detail={`${w.completionRate}% done${w.open ? ` · ${w.open} still open (not counted yet)` : ''}`}
+                    detailLines={2}
                     right={
                       <Text className={`text-[20px] font-semibold ${w.score < 0 ? 'text-missed' : 'text-success'}`} accessibilityLabel={`Score ${w.score} percent`}>
                         {w.score}%
@@ -88,13 +206,6 @@ export const PerformanceScreen: React.FC = () => {
                 ))}
               </List>
             </Section>
-
-            {data.scope?.missingDepartment ? (
-              <Notice message="Your account has no department yet, so no workers are shown. Ask an Admin to set your department." />
-            ) : data.scope?.restricted ? (
-              <Notice message={`You see the ${data.scope.departmentName} department only. Workers of other departments are not included.`} />
-            ) : null}
-            <Notice message="The penalty per missed check is set by an Admin in the admin panel (Worker Performance → Score settings)." />
           </>
         ) : null}
       </DataState>

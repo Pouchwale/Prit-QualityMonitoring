@@ -11,6 +11,8 @@ import { decryptPassword } from '../lib/passwordVault'
 import { canManage, isAdminRole, requireAnyView, requireModule, type Role } from '../lib/permissions'
 import { invalidateCheckGeneration } from '../services/checkGenerator'
 import { sendTestNotification } from '../services/notifications'
+import { clearDeletePermissions } from '../lib/deletePermissions'
+import { workerShiftStatuses } from '../services/workerShifts'
 
 export const usersRouter = Router()
 
@@ -56,13 +58,28 @@ const base = {
   departmentId: optionalUuid,
   shiftId: optionalUuid,
   phone: optionalText(30),
+  workerQualityRole: z.enum(['IPQC', 'QC', 'BOTH']).default('IPQC'),
   isActive: z.boolean().default(true),
   appAccess: z.boolean().default(true),
 }
 
 const createInput = z.object({ ...base, password: z.string().min(6, 'Password must be at least 6 characters') })
+/**
+ * An update changes only the fields it sends: a field left out keeps its stored value, so a screen
+ * or app version that does not know a field (e.g. the worker's quality role) can never reset it, and
+ * never re-enables a disabled account by leaving out isActive.
+ */
 const updateInput = z.object({
-  ...base,
+  employeeId: base.employeeId.optional(),
+  name: base.name.optional(),
+  role: z.enum(ROLES).optional(),
+  designation: optionalText(100).optional(),
+  departmentId: z.union([z.uuid(), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : v || null)),
+  shiftId: z.union([z.uuid(), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : v || null)),
+  phone: optionalText(30).optional(),
+  workerQualityRole: z.enum(['IPQC', 'QC', 'BOTH']).optional(),
+  isActive: z.boolean().optional(),
+  appAccess: z.boolean().optional(),
   password: z
     .string()
     .optional()
@@ -75,6 +92,7 @@ const publicColumns = {
   employeeId: users.employeeId,
   name: users.name,
   role: users.role,
+  workerQualityRole: users.workerQualityRole,
   designation: users.designation,
   departmentId: users.departmentId,
   shiftId: users.shiftId,
@@ -86,7 +104,7 @@ const publicColumns = {
 }
 
 // Pages that filter or assign by worker read this list; only Admins see non-worker accounts.
-usersRouter.get('/', requireAnyView('workers', 'schedules', 'checks', 'exceptions', 'reports'), async (req, res) => {
+usersRouter.get('/', requireAnyView('workers', 'schedules', 'checks', 'jobs', 'exceptions', 'reports'), async (req, res) => {
   const requested = z.enum(ROLES).optional().parse(req.query.role)
   const role = isAdminRole(req.user!.role) ? requested : 'WORKER'
   if (!isAdminRole(req.user!.role) && requested && requested !== 'WORKER') return res.json([])
@@ -114,9 +132,25 @@ usersRouter.post('/', accountManagers, async (req, res) => {
 
 usersRouter.put('/:id', accountManagers, async (req, res) => {
   const id = idParam(req)
-  const { password, ...data } = updateInput.parse(req.body)
+  const { password, ...sent } = updateInput.parse(req.body)
   const [before] = await db.select().from(users).where(eq(users.id, id))
   if (!before) throw notFound('User')
+  // Fields not sent keep their stored values (optionalText turns a missing value into null, so the
+  // request body decides which fields were sent).
+  const body = (req.body ?? {}) as Record<string, unknown>
+  const pick = <K extends keyof typeof sent>(key: K) => (key in body && sent[key] !== undefined ? sent[key] : before[key as keyof typeof before])
+  const data = {
+    employeeId: pick('employeeId') as string,
+    name: pick('name') as string,
+    role: pick('role') as Role,
+    designation: pick('designation') as string | null,
+    departmentId: pick('departmentId') as string | null,
+    shiftId: pick('shiftId') as string | null,
+    phone: pick('phone') as string | null,
+    workerQualityRole: pick('workerQualityRole') as 'IPQC' | 'QC' | 'BOTH',
+    isActive: pick('isActive') as boolean,
+    appAccess: pick('appAccess') as boolean
+  }
   assertCanManageAccount(req.user!, before.role, data.role)
   if (password !== undefined) {
     // The Super Admin changes their own password in My Account, which asks for the current one.
@@ -146,15 +180,27 @@ usersRouter.put('/:id', accountManagers, async (req, res) => {
     .where(eq(users.id, id))
     .returning(publicColumns)
   invalidateCheckGeneration()
-  // A former manager keeps no module permissions.
+  // A former Manager keeps no per-user rows: their module rows from before the Manager role got one
+  // shared set (no longer read), and any old delete permission, which must not come back if they
+  // are made an Admin. Delete permissions are only granted once the account is an Admin.
   if (before.role === 'MANAGER' && data.role !== 'MANAGER') {
     await db.delete(managerPermissions).where(eq(managerPermissions.userId, id))
   }
+  // A former Admin keeps no delete permissions (they would come back on a later promotion).
+  if (before.role === 'ADMIN' && data.role !== 'ADMIN') await clearDeletePermissions(id)
   await audit(req, password ? 'UPDATE_USER_AND_PASSWORD' : 'UPDATE_USER', 'User', id, {
     oldValue: snapshot(before),
     newValue: row
   })
   res.json(row)
+})
+
+/**
+ * Each worker's shift sign-in: on shift or not, signed in or not, when the session ends
+ * automatically, and the login reminders sent this shift (services/workerShifts.ts).
+ */
+usersRouter.get('/shift-status', requireAnyView('workers'), async (_req, res) => {
+  res.json(await workerShiftStatuses())
 })
 
 /** Sends a test notification to the worker's phones so the admin can verify the setup. */

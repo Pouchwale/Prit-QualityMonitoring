@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { CalendarClock, Info, Zap } from 'lucide-react'
 import type { Activity, Machine, QualityCheck, User } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { formatDateTime } from '../../lib/format'
+import { formatDateTime, fromPlantInput, toPlantInput } from '../../lib/format'
 import { Modal } from '../../components/common/Modal'
 import { Button } from '../../components/common/Button'
 import { Field, FormError, Select, TextInput } from '../../components/common/Form'
@@ -19,11 +20,8 @@ type TestStatus = 'DUE' | 'PENDING'
 
 const WINDOW_OPTIONS = [15, 30, 60, 120, 240, 480]
 
-/** Local date and time as YYYY-MM-DDTHH:MM (what the date and time fields edit). */
-function localInputValue(date: Date) {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
+/** The plant's date and time as YYYY-MM-DDTHH:MM (what the date and time fields edit). */
+const localInputValue = toPlantInput
 
 function inMinutes(minutes: number) {
   const d = new Date(Date.now() + minutes * 60_000)
@@ -81,7 +79,8 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
     setActivityId((linkedActivities[0] ?? activeActivities[0]).id)
   }, [machine, activityId, activeActivities, linkedActivities])
 
-  const start = status === 'DUE' ? new Date() : new Date(startAt)
+  // The fields hold the plant's wall-clock time, whatever the browser's time zone.
+  const start = status === 'DUE' ? new Date() : fromPlantInput(startAt)
   const startValid = status === 'DUE' || (!Number.isNaN(start.getTime()) && start.getTime() > Date.now())
   const closesAt = new Date(start.getTime() + windowMinutes * 60_000)
 
@@ -144,14 +143,19 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
 
       {/* A fieldset, not a <label>: a label would give its name to the first button. */}
       <fieldset>
-        <legend className="block text-[13px] lg:text-xs font-semibold text-slate-700 mb-1">
-          Start<span className="text-failed"> *</span>
+        <legend className="block text-[13px] lg:text-[12.5px] font-medium text-ink-secondary mb-1.5">
+          Start
+          <span className="text-missed" aria-hidden>
+            {' '}
+            *
+          </span>
+          <span className="sr-only"> (required)</span>
         </legend>
         <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Start">
           {(
             [
-              { value: 'DUE', title: 'Start now', text: 'Opens immediately on the phone' },
-              { value: 'PENDING', title: 'Start later', text: 'Opens at a start time you choose' }
+              { value: 'DUE', title: 'Start now', text: 'Opens immediately on the phone', icon: <Zap className="w-4 h-4" /> },
+              { value: 'PENDING', title: 'Start later', text: 'Opens at a start time you choose', icon: <CalendarClock className="w-4 h-4" /> }
             ] as const
           ).map((option) => {
             const active = status === option.value
@@ -162,12 +166,20 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
                 role="radio"
                 aria-checked={active}
                 onClick={() => setStatus(option.value)}
-                className={`text-left px-3 py-2.5 rounded border transition-colors ${
-                  active ? 'border-accent bg-blue-50 ring-1 ring-accent' : 'border-line-strong bg-white hover:bg-slate-50'
+                className={`flex items-start gap-2.5 text-left px-3 py-2.5 rounded-lg border transition-colors ${
+                  active ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-line-strong bg-white hover:bg-subtle'
                 }`}
               >
-                <span className={`block text-xs font-semibold ${active ? 'text-accent' : 'text-ink'}`}>{option.title}</span>
-                <span className="block text-[11px] text-ink-muted mt-0.5">{option.text}</span>
+                <span
+                  className={`mt-px w-7 h-7 shrink-0 rounded-md flex items-center justify-center ${active ? 'bg-white text-accent ring-1 ring-accent-line' : 'bg-subtle text-ink-secondary'}`}
+                  aria-hidden
+                >
+                  {option.icon}
+                </span>
+                <span className="min-w-0">
+                  <span className={`block text-[13px] lg:text-[12.5px] font-semibold ${active ? 'text-accent-strong' : 'text-ink'}`}>{option.title}</span>
+                  <span className="block text-[11.5px] text-ink-muted mt-0.5">{option.text}</span>
+                </span>
               </button>
             )
           })}
@@ -253,10 +265,13 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
       </div>
 
       {startValid && (
-        <div className="px-3 py-2 rounded border border-line bg-slate-50 text-[11px] text-ink-secondary">
-          {status === 'DUE' ? 'Opens now' : `Opens at ${formatDateTime(start.toISOString())}`}, then marked{' '}
-          <span className="font-semibold text-missed">Missed</span> if not submitted by{' '}
-          <span className="font-semibold text-ink">{formatDateTime(closesAt.toISOString())}</span>.
+        <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg border border-line bg-subtle text-[12px] text-ink-secondary" role="status">
+          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden />
+          <span>
+            {status === 'DUE' ? 'Opens now' : `Opens at ${formatDateTime(start.toISOString())}`}, then marked{' '}
+            <span className="font-semibold text-missed">Missed</span> if not submitted by{' '}
+            <span className="font-semibold text-ink">{formatDateTime(closesAt.toISOString())}</span>.
+          </span>
         </div>
       )}
     </Modal>

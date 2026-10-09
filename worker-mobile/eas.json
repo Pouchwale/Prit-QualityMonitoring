@@ -11,8 +11,9 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://10.80.88.185:4000"
-      }
+        "EXPO_PUBLIC_API_URL": "http://10.192.193.14:4000"
+      },
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
@@ -20,8 +21,9 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://10.80.88.185:4000"
-      }
+        "EXPO_PUBLIC_API_URL": "http://10.192.193.14:4000"
+      },
+      "channel": "preview"
     },
     "production": {
       "autoIncrement": true,
@@ -29,7 +31,16 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://10.80.88.185:4000"
+        "EXPO_PUBLIC_API_URL": "http://10.192.193.14:4000"
+      },
+      "channel": "production",
+      "environment": "production"
+    },
+    "production-apk": {
+      "extends": "production",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
       }
     }
   },

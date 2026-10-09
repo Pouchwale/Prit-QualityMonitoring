@@ -3,7 +3,17 @@ import Constants from 'expo-constants'
 import * as Device from 'expo-device'
 import * as Notifications from 'expo-notifications'
 import { CheckSummary } from '../types'
-import { deletePushToken, getTodayChecks, registerPushToken, reportAlertStatus, type AlertStatus } from './api'
+import {
+  ApiError,
+  deletePushToken,
+  getApiUrl,
+  getTodayChecks,
+  registerPushToken,
+  rememberUnremovedPushToken,
+  reportAlertStatus,
+  type AlertStatus
+} from './api'
+import { nativeVoice } from './nativeVoice'
 
 /**
  * "Check is due" alerts on the phone.
@@ -110,7 +120,23 @@ export async function registerForPush(): Promise<string | null> {
   try {
     const { data } = await Notifications.getExpoPushTokenAsync({ projectId })
     pushToken = data
-    await registerPushToken(data, devicePlatform())
+    // App 1.2.0+ on Android: also the phone's own Firebase token, so due-check alerts can come as
+    // Firebase data messages that the native voice service speaks with the app closed.
+    let fcmToken: string | undefined
+    if (nativeVoice && Platform.OS === 'android') {
+      try {
+        const device = await Notifications.getDevicePushTokenAsync()
+        if (typeof device.data === 'string' && device.data) fcmToken = device.data
+      } catch (err) {
+        console.warn('No Firebase token: alerts come through Expo', err)
+      }
+    }
+    await registerPushToken(data, devicePlatform(), fcmToken)
+    try {
+      nativeVoice?.configure(getApiUrl() || null, fcmToken ?? null, true)
+    } catch (err) {
+      console.warn('Could not set up the voice service', err)
+    }
     setOutcome('registered', null)
     return data
   } catch (err) {
@@ -126,13 +152,48 @@ export async function registerForPush(): Promise<string | null> {
   }
 }
 
-/** Removes this phone from the backend and clears pending alerts. */
-export async function unregisterForPush(): Promise<void> {
+/**
+ * Signing out: the server stops sending this phone the worker's alerts, and pending alerts are
+ * cleared. When the server cannot be reached, the token is remembered and the sign-out is finished
+ * on the next start (api.ts logout).
+ *
+ * `keepShiftReminders` (workers): the server keeps the phone registered for the worker's
+ * shift-start login reminder only, so the voice service stays set up to speak that reminder.
+ */
+export async function unregisterForPush(options: { keepShiftReminders?: boolean } = {}): Promise<void> {
+  const token = pushToken
+  if (options.keepShiftReminders) await endShiftLocally()
+  else await stopAlertsLocally()
+  if (!token) return
   try {
-    if (pushToken) await deletePushToken(pushToken)
-  } catch {
-    // Signing out locally is enough.
+    await deletePushToken(token)
+  } catch (err) {
+    // A 401 means the sign-in is already over; anything else (offline, server trouble) is retried.
+    if (!(err instanceof ApiError && (err.status === 401 || err.status === 403))) rememberUnremovedPushToken(token)
   }
+}
+
+/**
+ * Stops this phone's alerts for the signed-out worker without asking the server (also used when
+ * the session expired and the server no longer accepts this sign-in): the native voice service
+ * stops speaking and sending its log for that worker, and scheduled reminders are removed.
+ */
+export async function stopAlertsLocally(): Promise<void> {
+  pushToken = null
+  try {
+    nativeVoice?.configure(getApiUrl() || null, null, false)
+  } catch (err) {
+    console.warn('Could not stop the voice service', err)
+  }
+  await Notifications.cancelAllScheduledNotificationsAsync().catch(() => undefined)
+}
+
+/**
+ * The worker's shift ended (or they signed out): scheduled check reminders are removed, but the
+ * voice service stays set up, so the next shift's login reminder is still spoken. The server only
+ * sends that reminder to a signed-out phone, never check alerts.
+ */
+export async function endShiftLocally(): Promise<void> {
   pushToken = null
   await Notifications.cancelAllScheduledNotificationsAsync().catch(() => undefined)
 }
@@ -204,6 +265,12 @@ export function onNotificationTap(handler: (checkId: string) => void) {
       if (checkId && !handledColdStart) {
         handledColdStart = true
         handler(checkId)
+        // Handled once: signing out and in again must not open this old check a second time.
+        try {
+          Notifications.clearLastNotificationResponse()
+        } catch {
+          // Older native code: the response simply stays until the app is restarted.
+        }
       }
     })
     .catch(() => undefined)

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { View, Text, ScrollView, RefreshControl, Pressable, Image } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { fileUrl, getHistory, getHistoryFilters } from '../services/api'
@@ -40,11 +40,13 @@ function dayLabel(iso: string) {
 const HistoryRow: React.FC<{ item: HistoryItem; onPress: () => void }> = ({ item, onPress }) => {
   const when = item.submittedAt ?? item.scheduledAt
   const extra = item.exceptionReason ?? (item.jobNo ? `PO No. ${item.jobNo}` : null)
+  // The department saved with the record; left out when the check type already carries its name (Label · Label).
+  const department = item.departmentName && item.departmentName.toLowerCase() !== item.activityName.toLowerCase() ? item.departmentName : null
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`${item.machineName}, ${item.activityName}, ${dayLabel(when)} ${formatTime(when)}`}
+      accessibilityLabel={`${item.machineName}, ${item.activityName}${item.departmentName ? `, ${item.departmentName}` : ''}, ${dayLabel(when)} ${formatTime(when)}`}
       className="min-h-[76px] flex-row items-center py-3 pl-4 pr-3 active:bg-subtle"
     >
       {item.photoUrl ? (
@@ -63,7 +65,7 @@ const HistoryRow: React.FC<{ item: HistoryItem; onPress: () => void }> = ({ item
           <Text className="ml-2 text-[14px] text-ink-muted">{formatTime(when)}</Text>
         </View>
         <Text className="mt-0.5 text-[14px] text-ink-secondary" numberOfLines={1}>
-          {item.activityName}
+          {department ? `${item.activityName} · ${department}` : item.activityName}
         </Text>
         <View className="mt-1 flex-row items-center">
           <StatusLabel status={item.status} />
@@ -103,12 +105,21 @@ export const HistoryScreen: React.FC<Props> = ({ refreshKey, onOpenRecord }) => 
   const [refreshing, setRefreshing] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
 
+  /**
+   * Counts the loads: when the worker changes page or filters quickly, only the answer to the last
+   * request is shown, never an older one that arrives late.
+   */
+  const requestId = useRef(0)
+
   const load = useCallback(async () => {
+    const id = ++requestId.current
     try {
-      setData(await getHistory(query))
+      const page = await getHistory(query)
+      if (id !== requestId.current) return
+      setData(page)
       setError(null)
     } catch (err) {
-      setError(friendlyMessage(err))
+      if (id === requestId.current) setError(friendlyMessage(err))
     }
   }, [query])
 

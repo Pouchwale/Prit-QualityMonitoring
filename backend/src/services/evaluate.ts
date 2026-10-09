@@ -2,6 +2,9 @@ import { badRequest } from '../lib/http'
 
 export type ParameterType = 'NUMBER' | 'TEXT' | 'DROPDOWN' | 'YES_NO' | 'PASS_FAIL' | 'PHOTO'
 
+/** The largest number accepted as a reading. */
+const MAX_READING = 1_000_000_000
+
 /** Stored as the value of a Photo parameter (e.g. Ink Photo) once its photo is attached. */
 export const PHOTO_VALUE = 'Photo attached'
 
@@ -101,6 +104,8 @@ export function evaluateValue(p: ParameterConfig, raw: unknown): { value: string
     case 'NUMBER': {
       const num = Number(text.replace(',', '.'))
       if (!Number.isFinite(num)) throw badRequest(`${p.name} must be a number`)
+      // No plant reading is this large; a value like 1e308 is a typing or input error.
+      if (Math.abs(num) > MAX_READING) throw badRequest(`${p.name} is out of range. Check the reading.`)
       if (p.minValue == null && p.maxValue == null) return { value: formatNumber(num), result: 'NA' }
       const ok = (p.minValue == null || num >= p.minValue) && (p.maxValue == null || num <= p.maxValue)
       return { value: formatNumber(num), result: ok ? 'PASS' : 'FAIL' }

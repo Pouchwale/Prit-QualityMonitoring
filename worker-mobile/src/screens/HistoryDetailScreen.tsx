@@ -233,7 +233,7 @@ export const HistoryDetailScreen: React.FC<Props> = ({ checkId, onClose }) => {
                 <ListGroup>
                   <DetailRow label="Reason" value={record.exception.reason} />
                   {record.exception.remark ? <DetailRow label="Remark" value={record.exception.remark} /> : null}
-                  <DetailRow label="Review" value={EXCEPTION_STATUS[record.exception.status] ?? record.exception.status} />
+                  <DetailRow label="Status" value={record.exception.status === 'RESOLVED' ? 'Recorded' : (EXCEPTION_STATUS[record.exception.status] ?? record.exception.status)} />
                   {record.exception.resolutionNotes ? (
                     <DetailRow label="Supervisor note" value={record.exception.resolutionNotes} />
                   ) : null}

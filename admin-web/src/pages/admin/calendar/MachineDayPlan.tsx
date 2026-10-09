@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Cog, Pencil, RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
+import { Cog, Lock, Pencil, RotateCcw, Search, SlidersHorizontal, TriangleAlert } from 'lucide-react'
 import type { Machine, MachineDayPlan } from '../../../types'
 import { api, errorText } from '../../../lib/api'
 import { useApi } from '../../../lib/useApi'
@@ -59,11 +59,11 @@ export const MachinesRunningSection: React.FC<{
         <Cog className="w-3.5 h-3.5" aria-hidden /> Machines running
       </h3>
       {loading ? (
-        <p className="text-xs text-ink-muted">Loading…</p>
+        <p className="text-[12px] text-ink-muted">Loading…</p>
       ) : plan ? (
         <div className="space-y-1.5">
-          <div className="flex items-start gap-2 text-xs text-ink">
-            <span className="mt-1 w-2 h-2 shrink-0 rounded-full bg-accent" aria-hidden />
+          <div className="inline-flex items-center gap-1.5 max-w-full min-h-[22px] px-2 py-0.5 rounded-full bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line text-[12px]">
+            <span className="w-1.5 h-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
             <span className="font-semibold">
               {plan.machineIds.length === 0
                 ? 'No machines running · custom plan'
@@ -71,23 +71,27 @@ export const MachinesRunningSection: React.FC<{
             </span>
           </div>
           {plan.machines.length > 0 && (
-            <p className="text-[11px] text-ink-secondary break-words" title={plan.machines.map((m) => m.name).join(', ')}>
+            <p className="text-[12px] text-ink-secondary break-words" title={plan.machines.map((m) => m.name).join(', ')}>
               {compactNames(plan.machines.map((m) => m.name))}
             </p>
           )}
-          {plan.note && <p className="text-[11px] text-ink-secondary italic break-words">“{plan.note}”</p>}
-          <p className="text-[11px] text-ink-muted">
+          {plan.note && <p className="text-[12px] text-ink-secondary italic break-words">“{plan.note}”</p>}
+          <p className="text-[11.5px] text-ink-muted">
             Only these machines get checks and reminders on this date.
             {plan.updatedByName ? ` Set by ${plan.updatedByName}.` : ''}
           </p>
         </div>
       ) : (
         <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs text-ink-secondary">
-            <span className={`w-2 h-2 rounded-full ${plantClosed ? 'bg-ink-faint' : 'bg-success'}`} aria-hidden />
+          <div
+            className={`inline-flex items-center gap-1.5 h-[22px] px-2 rounded-full ring-1 ring-inset text-[12px] font-medium ${
+              plantClosed ? 'bg-subtle text-ink-muted ring-line' : 'bg-success-bg text-success ring-success-line'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${plantClosed ? 'bg-ink-faint' : 'bg-[var(--color-chart-completed)]'}`} aria-hidden />
             {plantClosed ? 'Plant closed · no machines' : 'All machines (default)'}
           </div>
-          <p className="text-[11px] text-ink-muted">
+          <p className="text-[11.5px] text-ink-muted">
             {plantClosed ? 'Choose machines to run some of them on this closed day.' : 'Choose machines to run only some of them on this date.'}
           </p>
         </div>
@@ -95,7 +99,10 @@ export const MachinesRunningSection: React.FC<{
 
       {canEdit && !loading &&
         (past ? (
-          <p className="text-[11px] text-ink-faint">Past dates are read-only. Choose today or a later date to plan machines.</p>
+          <p className="flex items-start gap-1.5 text-[11.5px] text-ink-muted">
+            <Lock className="w-3.5 h-3.5 mt-px shrink-0 text-ink-faint" aria-hidden />
+            Past dates are read-only. Choose today or a later date to plan machines.
+          </p>
         ) : (
           <div className="flex gap-2">
             <Button
@@ -221,7 +228,7 @@ const MachinePickerModal: React.FC<{
       maxWidth="lg"
       footer={
         <div className="flex w-full flex-col-reverse sm:flex-row sm:items-center gap-2">
-          <span className="text-[11px] text-ink-muted sm:mr-auto" aria-live="polite">
+          <span className="text-[12px] text-ink-muted tabular-nums sm:mr-auto" aria-live="polite">
             {count} of {items.length} machine{items.length === 1 ? '' : 's'} running
           </span>
           <div className="flex gap-2">
@@ -238,7 +245,8 @@ const MachinePickerModal: React.FC<{
       <form id="machine-plan-form" onSubmit={save} className="space-y-3">
         <FormError message={error} />
         {count === 0 && machines && (
-          <div className="px-3 py-2 rounded border border-exception-line bg-exception-bg text-[11px] text-ink-secondary">
+          <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-exception-line bg-exception-bg text-[12px] text-ink-secondary" role="note">
+            <TriangleAlert className="w-3.5 h-3.5 mt-px shrink-0 text-exception" aria-hidden />
             No machine is switched on: nothing runs on this date, so no checks or reminders are sent.
           </div>
         )}
@@ -265,32 +273,34 @@ const MachinePickerModal: React.FC<{
           </div>
         </div>
 
-        <div className="max-h-[45vh] overflow-y-auto border border-line-strong rounded divide-y divide-line bg-white" role="group" aria-label="Machines">
+        <div className="max-h-[45vh] overflow-y-auto border border-line-strong rounded-md divide-y divide-line bg-white" role="group" aria-label="Machines">
           {machinesError ? (
-            <div className="px-3 py-3 text-xs text-failed flex items-center justify-between gap-2">
+            <div className="px-3 py-3 text-[12px] text-missed flex items-center justify-between gap-2" role="alert">
               <span>{machinesError}</span>
               <Button type="button" size="sm" variant="outline" onClick={onRetry}>
                 Retry
               </Button>
             </div>
           ) : !machines ? (
-            <div className="px-3 py-3 text-xs text-ink-muted">Loading machines…</div>
+            <div className="px-3 py-3 text-[12px] text-ink-muted">Loading machines…</div>
           ) : visible.length === 0 ? (
-            <div className="px-3 py-3 text-xs text-ink-muted">{items.length ? 'No machines match the search' : 'No active machines'}</div>
+            <div className="px-3 py-3 text-[12px] text-ink-muted">{items.length ? 'No machines match the search' : 'No active machines'}</div>
           ) : (
             visible.map((m) => {
               const on = selected.has(m.id)
               return (
-                <label key={m.id} className="flex items-center gap-2.5 px-3 py-2.5 lg:py-2 cursor-pointer hover:bg-slate-50">
+                <label key={m.id} className={`flex items-center gap-2.5 px-3 py-2.5 lg:py-2 cursor-pointer transition-colors ${on ? 'hover:bg-subtle/70' : 'bg-subtle/40 hover:bg-subtle/70'}`}>
                   <input type="checkbox" checked={on} onChange={() => toggle(m.id)} className="h-4 w-4 lg:h-3.5 lg:w-3.5 shrink-0 accent-accent" />
                   <span className="flex-1 min-w-0">
-                    <span className="block text-sm lg:text-xs font-medium text-ink truncate">{m.name}</span>
+                    <span className={`block text-[14px] lg:text-[12.5px] font-medium truncate ${on ? 'text-ink' : 'text-ink-secondary'}`}>{m.name}</span>
                     <span className="block text-[11px] text-ink-muted truncate">
                       {[m.code, m.departmentName, m.line, !m.isActive ? 'inactive' : m.status !== 'ACTIVE' ? m.status.toLowerCase() : null].filter(Boolean).join(' · ')}
                     </span>
                   </span>
                   <span
-                    className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${on ? 'bg-success-bg text-success' : 'bg-subtle text-ink-faint'}`}
+                    className={`inline-flex items-center h-5 px-1.5 rounded-full ring-1 ring-inset text-[11px] font-semibold uppercase tracking-wide ${
+                      on ? 'bg-success-bg text-success ring-success-line' : 'bg-white text-ink-muted ring-line'
+                    }`}
                     aria-hidden
                   >
                     {on ? 'On' : 'Off'}

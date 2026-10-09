@@ -552,7 +552,7 @@ const ActivityForm: React.FC<{ params: { id?: string } }> = ({ params }) => {
               <Input label="Code" required value={form.code} onChangeText={(v) => update('code', v)} placeholder="e.g. PRT-HOURLY" autoCapitalize="characters" />
               <SelectField
                 label="Department"
-                hint="Only this department's workers do this check. No department: every worker."
+                hint="Only this department's jobs get this check (a job's Item Code decides its department). No department: every job."
                 value={form.departmentId}
                 emptyLabel="No department"
                 options={departmentOptions}

@@ -1,3 +1,4 @@
+import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { Router } from 'express'
 import multer from 'multer'
@@ -51,6 +52,19 @@ const dateString = z.string().refine((v) => {
   }
 }, 'Enter a valid date')
 
+/** Content types the calendar document is served with, by stored extension. */
+const DOCUMENT_TYPES: Record<string, string> = {
+  pdf: 'application/pdf',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel',
+  csv: 'text/csv'
+}
+
 const documentUpload = multer({
   dest: path.join(config.uploadDir, '.tmp'),
   limits: { fileSize: 25 * 1024 * 1024, files: 1 },
@@ -83,10 +97,19 @@ calendarYearsRouter.delete('/:id', manage, async (req, res) => {
 
 /** Reads the company document (Excel, CSV, PDF or image) into dates for review. Nothing is approved. */
 calendarYearsRouter.post('/:id/import', manage, documentUpload, async (req, res) => {
-  const id = idParam(req)
   if (!req.file) throw new HttpError(400, 'Choose the calendar document to upload.')
-  const replace = z.object({ replace: z.enum(['true', 'false']).optional() }).parse(req.query).replace === 'true'
-  const year = await getYear(id)
+  let id: string
+  let replace: boolean
+  let year: Awaited<ReturnType<typeof getYear>>
+  try {
+    id = idParam(req)
+    replace = z.object({ replace: z.enum(['true', 'false']).optional() }).parse(req.query).replace === 'true'
+    year = await getYear(id)
+  } catch (err) {
+    // Refused before the import took the upload over: its temporary file is removed here.
+    await fsp.rm(req.file.path, { force: true })
+    throw err
+  }
   const summary = await importDocument(id, req.file, replace)
   await audit(req, 'IMPORT_CALENDAR_DOCUMENT', 'PlantCalendar', String(year.year), {
     newValue: { file: req.file.originalname, ...summary }
@@ -97,10 +120,16 @@ calendarYearsRouter.post('/:id/import', manage, documentUpload, async (req, res)
 /** The uploaded company document, for side-by-side review. Only for signed-in users with Plant Calendar access. */
 calendarYearsRouter.get('/:id/document', view, async (req, res) => {
   const file = await documentFile(idParam(req))
-  res.setHeader('Content-Type', file.mimeType)
-  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.name)}"`)
+  // The type comes from the stored file's extension, never from what the uploader's browser said, and
+  // only a PDF or picture is shown in the browser; a spreadsheet or CSV is downloaded. Nothing in the
+  // file can run as a page on this origin.
+  const type = DOCUMENT_TYPES[path.extname(file.path).slice(1).toLowerCase()] ?? 'application/octet-stream'
+  const inline = type === 'application/pdf' || type.startsWith('image/')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox")
+  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(file.name)}"`)
   res.setHeader('Cache-Control', 'private, no-store')
-  res.sendFile(file.path)
+  res.sendFile(file.path, { headers: { 'Content-Type': type } })
 })
 
 // ---------------------------------------------------------------- items

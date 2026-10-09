@@ -23,7 +23,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
   let bgClass = 'bg-subtle'
   let textClass = 'text-ink-secondary'
   let borderClass = 'border-line'
-  let dotClass = 'bg-ink-muted'
+  let dotClass = 'bg-[var(--color-chart-open)]'
   let label = status
 
   switch (normalized) {
@@ -31,7 +31,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       bgClass = 'bg-success-bg'
       textClass = 'text-success'
       borderClass = 'border-success-line'
-      dotClass = 'bg-green-600'
+      dotClass = 'bg-[var(--color-chart-completed)]'
       label = 'Completed'
       break
 
@@ -39,7 +39,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       bgClass = 'bg-missed-bg'
       textClass = 'text-missed'
       borderClass = 'border-missed-line'
-      dotClass = 'bg-failed'
+      dotClass = 'bg-[var(--color-chart-missed)]'
       label = 'Missed'
       break
 
@@ -47,7 +47,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       bgClass = 'bg-exception-bg'
       textClass = 'text-exception'
       borderClass = 'border-exception-line'
-      dotClass = 'bg-amber-600'
+      dotClass = 'bg-[var(--color-chart-exception)]'
       label = 'Exception'
       break
 
@@ -56,7 +56,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       bgClass = 'bg-success-bg'
       textClass = 'text-success'
       borderClass = 'border-success-line'
-      dotClass = 'bg-green-600'
+      dotClass = 'bg-[var(--color-chart-completed)]'
       label = 'Active'
       break
 
@@ -64,15 +64,15 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       bgClass = 'bg-exception-bg'
       textClass = 'text-exception'
       borderClass = 'border-exception-line'
-      dotClass = 'bg-amber-600'
+      dotClass = 'bg-[var(--color-chart-exception)]'
       label = 'Maintenance'
       break
 
     case 'IDLE':
-      bgClass = 'bg-slate-50'
+      bgClass = 'bg-subtle'
       textClass = 'text-ink-muted'
       borderClass = 'border-line'
-      dotClass = 'bg-ink-faint'
+      dotClass = 'bg-[var(--color-chart-open)]'
       label = 'Idle'
       break
 
@@ -80,16 +80,16 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       bgClass = 'bg-exception-bg'
       textClass = 'text-exception'
       borderClass = 'border-exception-line'
-      dotClass = 'bg-amber-600'
+      dotClass = 'bg-[var(--color-chart-exception)]'
       label = 'Paused'
       break
 
     case 'INACTIVE':
     case 'DISABLED':
-      bgClass = 'bg-slate-50'
+      bgClass = 'bg-subtle'
       textClass = 'text-ink-muted'
       borderClass = 'border-line'
-      dotClass = 'bg-ink-faint'
+      dotClass = 'bg-[var(--color-chart-open)]'
       label = normalized === 'DISABLED' ? 'Disabled' : 'Inactive'
       break
 
@@ -98,7 +98,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       bgClass = 'bg-success-bg'
       textClass = 'text-success'
       borderClass = 'border-success-line'
-      dotClass = 'bg-green-600'
+      dotClass = 'bg-[var(--color-chart-completed)]'
       label = 'Within limits'
       break
 
@@ -106,23 +106,23 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       bgClass = 'bg-missed-bg'
       textClass = 'text-failed'
       borderClass = 'border-failed-line'
-      dotClass = 'bg-failed'
+      dotClass = 'bg-[var(--color-chart-missed)]'
       label = 'Outside limits'
       break
 
     case 'NA':
-      bgClass = 'bg-slate-50'
+      bgClass = 'bg-subtle'
       textClass = 'text-ink-muted'
       borderClass = 'border-line'
-      dotClass = 'bg-ink-faint'
+      dotClass = 'bg-[var(--color-chart-open)]'
       label = 'Recorded'
       break
 
     case 'ACTION_TAKEN':
-      bgClass = 'bg-blue-50'
-      textClass = 'text-blue-700'
-      borderClass = 'border-blue-200'
-      dotClass = 'bg-blue-600'
+      bgClass = 'bg-accent-soft'
+      textClass = 'text-accent-strong'
+      borderClass = 'border-accent-line'
+      dotClass = 'bg-accent'
       label = 'Action Taken'
       break
 
@@ -131,15 +131,15 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       bgClass = 'bg-exception-bg'
       textClass = 'text-exception'
       borderClass = 'border-exception-line'
-      dotClass = 'bg-amber-600'
+      dotClass = 'bg-[var(--color-chart-exception)]'
       label = 'Under Review'
       break
 
     case 'ACKNOWLEDGED':
-      bgClass = 'bg-blue-50'
-      textClass = 'text-blue-700'
-      borderClass = 'border-blue-200'
-      dotClass = 'bg-blue-600'
+      bgClass = 'bg-accent-soft'
+      textClass = 'text-accent-strong'
+      borderClass = 'border-accent-line'
+      dotClass = 'bg-accent'
       label = 'Acknowledged'
       break
 
@@ -147,31 +147,39 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       bgClass = 'bg-success-bg'
       textClass = 'text-success'
       borderClass = 'border-success-line'
-      dotClass = 'bg-green-600'
+      dotClass = 'bg-[var(--color-chart-completed)]'
       label = 'Resolved'
       break
   }
 
-  const sizeClass = size === 'sm' 
-    ? 'text-[11px] px-1.5 py-0.5' 
-    : 'text-[12px] px-2 py-0.5'
+  const sizeClass = size === 'sm' ? 'text-[11px] h-5 px-1.5' : 'text-[12px] h-[22px] px-2'
 
+  // Soft pill: tinted background, hairline ring, a dot and the label (never colour alone).
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-medium rounded border tracking-tight ${sizeClass} ${bgClass} ${textClass} ${borderClass} ${className}`}
+      className={`inline-flex items-center gap-1.5 font-medium rounded-full ring-1 ring-inset whitespace-nowrap leading-none ${sizeClass} ${bgClass} ${textClass} ${borderClass.replace('border-', 'ring-')} ${className}`}
     >
-      {showDot && (
-        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} />
-      )}
+      {showDot && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotClass}`} aria-hidden />}
       <span>{label}</span>
     </span>
   )
 }
 
-/** A quality check's Status: Completed, Missed or Exception, or "—" while it is not finished. */
+/**
+ * A quality check's Status: Completed, Missed or Exception. A check that is not finished yet has
+ * no result; it shows a neutral "Open" pill so pending work is still visible at a glance.
+ */
 export const CheckStatusBadge: React.FC<{ status: QualityCheckStatus; size?: 'sm' | 'md'; className?: string }> = ({ status, size, className }) =>
   FINISHED.includes(status) ? (
     <StatusBadge status={status} size={size} className={className} />
   ) : (
-    <span className={`text-ink-faint ${className ?? ''}`} title="Not finished yet">—</span>
+    <span
+      className={`inline-flex items-center gap-1.5 font-medium rounded-full ring-1 ring-inset ring-line-strong bg-white text-ink-muted whitespace-nowrap leading-none ${
+        size === 'sm' ? 'text-[11px] h-5 px-1.5' : 'text-[12px] h-[22px] px-2'
+      } ${className ?? ''}`}
+      title="Not finished yet"
+    >
+      <span className="w-1.5 h-1.5 rounded-full shrink-0 border border-ink-faint" aria-hidden />
+      Open
+    </span>
   )

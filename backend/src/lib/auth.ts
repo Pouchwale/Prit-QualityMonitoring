@@ -1,4 +1,5 @@
 import type { RequestHandler } from 'express'
+import { randomUUID } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { eq } from 'drizzle-orm'
@@ -22,6 +23,8 @@ export interface AuthUser {
   app: ClientApp
   /** Effective module permissions, loaded from the database on every request. */
   permissions: Permissions
+  /** A worker's sign-in tied to their shift: when it ends (ISO). Null when not limited by a shift. */
+  sessionEndsAt?: string | null
 }
 
 declare global {
@@ -41,13 +44,25 @@ interface AccessPayload {
   type: 'access'
   /** Missing on tokens issued before the mobile app served every role: treated as web. */
   app?: ClientApp
+  /**
+   * The account's token version when the token was issued. A password change or reset, disabling the
+   * account or removing mobile access raises the version, which ends every session at once.
+   */
+  ver: number
+  /** Shift end (epoch seconds) of a worker's sign-in: refused from then on (services/workerShifts.ts). */
+  sx?: number
 }
 
-interface RefreshPayload {
+export interface RefreshPayload {
   sub: string
   ver: number
   type: 'refresh'
   app?: ClientApp
+  /** Identifies this refresh token so signing out can revoke it (revoked_tokens). */
+  jti?: string
+  exp?: number
+  /** Shift end (epoch seconds), carried over to every refreshed token. */
+  sx?: number
 }
 
 export const hashPassword = (password: string) => bcrypt.hash(password, 10)
@@ -61,18 +76,33 @@ export async function passwordColumns(password: string) {
   return { passwordHash: await hashPassword(password), passwordEncrypted: encryptPassword(password) }
 }
 
-export function signTokens(user: { id: string; name: string; employeeId: string; role: Role; tokenVersion: number }, app: ClientApp) {
+/** The message and code a worker gets once their shift is over. */
+export const SHIFT_ENDED = 'SHIFT_ENDED'
+export const shiftEndedError = () => new HttpError(401, 'Your shift has ended. Please sign in again at the start of your next shift.', SHIFT_ENDED)
+
+/**
+ * Signs a session's tokens. `sessionEndsAt` ties a worker's sign-in to their shift: both tokens
+ * carry it, and the access token never lives past it.
+ */
+export function signTokens(
+  user: { id: string; name: string; employeeId: string; role: Role; tokenVersion: number },
+  app: ClientApp,
+  sessionEndsAt: Date | null = null
+) {
+  const sx = sessionEndsAt ? Math.floor(sessionEndsAt.getTime() / 1000) : undefined
+  const untilShiftEnd = sx ? Math.max(60, sx - Math.floor(Date.now() / 1000)) : null
+  const accessTtl = untilShiftEnd !== null ? Math.min(untilShiftEnd, 12 * 60 * 60) : config.accessTokenTtl
   const accessToken = jwt.sign(
-    { sub: user.id, role: user.role, name: user.name, employeeId: user.employeeId, type: 'access', app } satisfies AccessPayload,
+    { sub: user.id, role: user.role, name: user.name, employeeId: user.employeeId, type: 'access', app, ver: user.tokenVersion, ...(sx ? { sx } : {}) } satisfies AccessPayload,
     config.jwtAccessSecret,
-    { expiresIn: config.accessTokenTtl }
+    { expiresIn: accessTtl }
   )
   const refreshToken = jwt.sign(
-    { sub: user.id, ver: user.tokenVersion, type: 'refresh', app } satisfies RefreshPayload,
+    { sub: user.id, ver: user.tokenVersion, type: 'refresh', app, jti: randomUUID(), ...(sx ? { sx } : {}) } satisfies RefreshPayload,
     config.jwtRefreshSecret,
     { expiresIn: config.refreshTokenTtl }
   )
-  return { accessToken, refreshToken }
+  return { accessToken, refreshToken, sessionEndsAt: sessionEndsAt?.toISOString() ?? null }
 }
 
 export function verifyRefreshToken(token: string): RefreshPayload {
@@ -89,8 +119,10 @@ export function verifyRefreshToken(token: string): RefreshPayload {
 export const MOBILE_ACCESS_OFF = 'Mobile app access is turned off for this account. Please contact your administrator.'
 
 /**
- * Verifies the bearer token and confirms the account is still active. Mobile sessions also need
- * mobile app access, checked on every request so turning it off applies at once.
+ * Verifies the bearer token and confirms the account is still active and the token still current.
+ * Mobile sessions also need mobile app access, checked on every request so turning it off applies
+ * at once. The token is only read from the Authorization header: a token in a URL ends up in browser
+ * history and server logs.
  */
 export const authenticate: RequestHandler = async (req, _res, next) => {
   const header = req.headers.authorization
@@ -101,15 +133,38 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
   try {
     payload = jwt.verify(token, config.jwtAccessSecret) as AccessPayload
     if (payload.type !== 'access') throw new Error('wrong token type')
-  } catch {
+  } catch (err) {
+    // A worker's access token runs out with their shift: say so, so the app does not try to refresh.
+    // The token is still checked (signature, type); this only picks the message.
+    if (err instanceof jwt.TokenExpiredError) {
+      try {
+        const expired = jwt.verify(token, config.jwtAccessSecret, { ignoreExpiration: true }) as AccessPayload
+        if (expired.type === 'access' && expired.sx && Date.now() >= expired.sx * 1000) return next(shiftEndedError())
+      } catch {
+        // Not a token of ours: the general answer below.
+      }
+    }
     return next(new HttpError(401, 'Session expired. Please sign in again.'))
   }
 
   const [user] = await db
-    .select({ id: users.id, name: users.name, employeeId: users.employeeId, role: users.role, isActive: users.isActive, appAccess: users.appAccess })
+    .select({
+      id: users.id,
+      name: users.name,
+      employeeId: users.employeeId,
+      role: users.role,
+      isActive: users.isActive,
+      appAccess: users.appAccess,
+      tokenVersion: users.tokenVersion
+    })
     .from(users)
     .where(eq(users.id, payload.sub))
   if (!user || !user.isActive) return next(new HttpError(401, 'Your account is disabled'))
+  // Issued before the password was changed or reset (or before tokens carried a version): the app
+  // refreshes, which also fails after a password change, and the user signs in again.
+  if (payload.ver !== user.tokenVersion) return next(new HttpError(401, 'Session expired. Please sign in again.'))
+  // A worker's sign-in ends with their shift, whatever the phone's own timer does.
+  if (payload.sx && Date.now() >= payload.sx * 1000) return next(shiftEndedError())
   const app: ClientApp = payload.app ?? 'web'
   if (app === 'mobile' && !user.appAccess) return next(new HttpError(401, MOBILE_ACCESS_OFF))
 
@@ -119,7 +174,8 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
     employeeId: user.employeeId,
     role: user.role,
     app,
-    permissions: await loadPermissions(user.id, user.role)
+    permissions: await loadPermissions(user.id, user.role),
+    sessionEndsAt: payload.sx ? new Date(payload.sx * 1000).toISOString() : null
   }
   next()
 }

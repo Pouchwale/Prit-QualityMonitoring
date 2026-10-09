@@ -3,6 +3,7 @@ import {
   BellOff,
   BriefcaseBusiness,
   CalendarCheck2,
+  CalendarDays,
   CalendarOff,
   CalendarRange,
   ChevronLeft,
@@ -12,13 +13,14 @@ import {
   Info,
   Pencil,
   Plus,
-  Trash2
+  Trash2,
+  TriangleAlert
 } from 'lucide-react'
 import type { CalendarYearSummary, ClosureType, DayState, MachineDayPlan, PlantClosure, WeeklyRule } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
-import { addDaysKey, dateKey, formatDateKey, formatLongDate } from '../../lib/format'
+import { addDaysKey, calendarKey, dateKey, formatDateKey, formatLongDate } from '../../lib/format'
 import { CLOSURE_TYPES, WEEKDAY_NAMES, WEEKLY_OFF_STYLE, isClosedType } from '../../lib/closureTypes'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
@@ -30,16 +32,18 @@ import { AnnualCalendarsTab } from './calendar/AnnualCalendarsTab'
 import { MachinesRunningSection } from './calendar/MachineDayPlan'
 import { WeeklyRulesTab } from './calendar/WeeklyRulesTab'
 import { DateInput } from '../../components/common/DateTimeInputs'
+import { Card, CardHeader } from '../../components/ui/Card'
+import { IconButton } from '../../components/ui/Toolbar'
 
 /** First date managed by annual calendars; earlier dates keep the original Plant Calendar setup. */
 const CALENDAR_V2_START = '2027-01-01'
 const LAST_LEGACY_DATE = '2026-12-31'
 
 type Tab = 'calendar' | 'years' | 'rules'
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'calendar', label: 'Calendar' },
-  { id: 'years', label: 'Annual calendars' },
-  { id: 'rules', label: 'Weekly rules' }
+const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  { id: 'calendar', label: 'Calendar', icon: <CalendarDays className="w-3.5 h-3.5" /> },
+  { id: 'years', label: 'Annual calendars', icon: <FileSpreadsheet className="w-3.5 h-3.5" /> },
+  { id: 'rules', label: 'Weekly rules', icon: <CalendarRange className="w-3.5 h-3.5" /> }
 ]
 
 export const PlantCalendarPage: React.FC = () => {
@@ -50,27 +54,38 @@ export const PlantCalendarPage: React.FC = () => {
     setYearId(id)
   }
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
+        icon={<CalendarDays className="w-4.5 h-4.5" />}
         title="Plant Calendar"
-        description="Weekly off days, holidays and closed days: no checks, no alerts and nothing marked Missed. An Adjustment Working Day opens the plant on that date."
+        description="Closed days: no checks, no alerts, nothing marked Missed"
+        info="Weekly off days, holidays and closed days: no checks, no alerts and nothing marked Missed. An Adjustment Working Day opens the plant on that date."
+        tabs={
+          <div role="tablist" aria-label="Plant Calendar" className="flex items-center gap-1 border-b border-line max-w-full overflow-x-auto">
+            {TABS.map((t) => {
+              const active = tab === t.id
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => open(t.id)}
+                  className={`relative inline-flex items-center gap-1.5 h-10 lg:h-9 px-3 text-[13px] font-medium whitespace-nowrap transition-colors ${
+                    active ? 'text-accent-strong' : 'text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  <span aria-hidden className={active ? 'text-accent' : 'text-ink-faint'}>
+                    {t.icon}
+                  </span>
+                  {t.label}
+                  {active && <span className="absolute left-2 right-2 -bottom-px h-[2px] rounded-full bg-accent" aria-hidden />}
+                </button>
+              )
+            })}
+          </div>
+        }
       />
-      <div role="tablist" aria-label="Plant Calendar" className="flex gap-1 border-b border-line -mt-1 overflow-x-auto">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => open(t.id)}
-            className={`h-[40px] lg:h-9 px-3 text-[13px] lg:text-xs font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${
-              tab === t.id ? 'border-accent text-accent' : 'border-transparent text-ink-secondary hover:text-ink'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
       {tab === 'calendar' && <CalendarView onOpen={open} />}
       {tab === 'years' && <AnnualCalendarsTab yearId={yearId} onOpenYear={(id) => open('years', id)} />}
       {tab === 'rules' && <WeeklyRulesTab />}
@@ -93,7 +108,7 @@ const daysBetween = (from: string, to: string) => Math.round((keyToDate(to).getT
 /** The 6-week grid (Monday first) that shows a month. */
 function monthGrid(month: Date) {
   const first = new Date(month.getFullYear(), month.getMonth(), 1)
-  const start = addDaysKey(dateKey(first), -((first.getDay() + 6) % 7))
+  const start = addDaysKey(calendarKey(first), -((first.getDay() + 6) % 7))
   return Array.from({ length: 42 }, (_, i) => addDaysKey(start, i))
 }
 
@@ -117,10 +132,8 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
   const notify = useToast()
   const today = dateKey()
 
-  const [month, setMonth] = useState(() => {
-    const now = new Date()
-    return new Date(now.getFullYear(), now.getMonth(), 1)
-  })
+  // Opens on the plant's current month.
+  const [month, setMonth] = useState(() => keyToDate(`${today.slice(0, 8)}01`))
   const [selected, setSelected] = useState(today)
   const [editor, setEditor] = useState<Editor | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
@@ -151,7 +164,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
   const yearOf = (key: string) => (years.data?.years ?? []).find((y) => y.year === Number(key.slice(0, 4))) ?? null
   const managedByYear = (key: string) => key >= CALENDAR_V2_START
   const upcomingRanges = useMemo(() => groupRanges(upcoming.data ?? []), [upcoming.data])
-  const monthKey = dateKey(month).slice(0, 7)
+  const monthKey = calendarKey(month).slice(0, 7)
   const monthStates = (monthData.data ?? []).filter((s) => s.date.startsWith(monthKey))
   const closedThisMonth = monthStates.filter((s) => s.closed).length
   const workingThisMonth = monthStates.filter((s) => s.entry?.type === 'WORKING').length
@@ -254,8 +267,9 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
   return (
     <div className="space-y-4">
       {canEdit && (
-        <div className="flex flex-wrap items-center justify-end gap-2 -mt-1">
-          <span className="text-[11px] text-ink-muted mr-auto">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-muted mr-auto">
+            <Info className="w-3.5 h-3.5 shrink-0 text-ink-faint" aria-hidden />
             Dates up to 31/12/2026 are edited here. From 2027, dates come from the approved annual calendar.
           </span>
           <Button size="sm" variant="outline" onClick={() => onOpen('years')} icon={<FileSpreadsheet className="w-3.5 h-3.5" />}>
@@ -271,13 +285,13 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-4 items-start">
         {/* Month */}
-        <section className="bg-white border border-line rounded-lg shadow-2xs overflow-hidden" aria-label="Plant calendar">
+        <Card className="overflow-hidden" aria-label="Plant calendar">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-3 border-b border-line">
             <div className="min-w-0">
-              <h2 className="text-base sm:text-lg font-bold text-ink tracking-tight" aria-live="polite">
+              <h2 className="text-[16px] sm:text-[17px] font-semibold text-ink tracking-tight" aria-live="polite">
                 {monthTitle(month)}
               </h2>
-              <p className="text-[11px] text-ink-muted">
+              <p className="text-[12px] text-ink-muted">
                 {monthData.loading && !monthData.data
                   ? 'Loading…'
                   : closedThisMonth || workingThisMonth
@@ -294,20 +308,22 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
               <Button size="sm" variant="outline" onClick={() => goToDate(today)} disabled={monthKey === today.slice(0, 7) && selected === today}>
                 Today
               </Button>
-              <div className="flex rounded border border-line shadow-2xs overflow-hidden">
-                <button type="button" onClick={() => goToMonth(-1)} aria-label="Previous month" className="h-[36px] w-[40px] lg:h-7 lg:w-8 flex items-center justify-center bg-white text-ink-secondary hover:bg-slate-50 hover:text-ink border-r border-line">
+              <div className="flex items-center rounded-md border border-line-strong bg-white shadow-[0_1px_1px_rgb(15_23_42/0.04)]">
+                <IconButton label="Previous month" onClick={() => goToMonth(-1)} className="rounded-r-none">
                   <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button type="button" onClick={() => goToMonth(1)} aria-label="Next month" className="h-[36px] w-[40px] lg:h-7 lg:w-8 flex items-center justify-center bg-white text-ink-secondary hover:bg-slate-50 hover:text-ink">
+                </IconButton>
+                <span className="w-px self-stretch bg-line" aria-hidden />
+                <IconButton label="Next month" onClick={() => goToMonth(1)} className="rounded-l-none">
                   <ChevronRight className="w-4 h-4" />
-                </button>
+                </IconButton>
               </div>
             </div>
           </div>
 
           {viewedYear >= Number(CALENDAR_V2_START.slice(0, 4)) && years.data && (!viewedCalendar || viewedCalendar.status !== 'APPROVED' || viewedCalendar.pendingChanges) && (
-            <div className="px-4 py-2 text-xs border-b border-exception-line bg-exception-bg flex flex-wrap items-center justify-between gap-2" role="status">
-              <span className="text-ink-secondary">
+            <div className="px-4 py-2 text-[12px] border-b border-exception-line bg-exception-bg flex flex-wrap items-center justify-between gap-2" role="status">
+              <span className="inline-flex items-start gap-1.5 text-ink-secondary">
+                <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-px text-exception" aria-hidden />
                 {!viewedCalendar
                   ? `No ${viewedYear} company calendar yet: only the weekly rules apply. Holidays and adjustment working days take effect once the ${viewedYear} calendar is approved.`
                   : viewedCalendar.status !== 'APPROVED'
@@ -321,15 +337,15 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
           )}
 
           {monthData.error && (
-            <div className="px-4 py-2 text-xs text-failed bg-missed-bg border-b border-missed-line flex items-center justify-between gap-2">
+            <div className="px-4 py-2 text-[12px] text-missed bg-missed-bg border-b border-missed-line flex items-center justify-between gap-2" role="alert">
               <span>{monthData.error}</span>
               <Button size="sm" variant="outline" onClick={monthData.reload}>Retry</Button>
             </div>
           )}
 
-          <div className="grid grid-cols-7 border-b border-line bg-slate-50">
-            {WEEKDAYS.map((d, i) => (
-              <div key={d} className={`py-2 text-center text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider ${i === 6 ? 'text-ink-faint' : 'text-ink-muted'}`}>
+          <div className="grid grid-cols-7 border-b border-line bg-subtle/60">
+            {WEEKDAYS.map((d) => (
+              <div key={d} className="py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
                 <span className="sm:hidden">{d.slice(0, 1)}</span>
                 <span className="hidden sm:inline">{d}</span>
               </div>
@@ -358,15 +374,21 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                   aria-selected={isSelected}
                   onClick={() => selectDay(key)}
                   onDoubleClick={() => canEdit && (closure ? openEdit(closure) : openNew(key))}
-                  className={`relative flex flex-col items-stretch text-left min-h-[54px] sm:min-h-[88px] lg:min-h-[100px] p-1 sm:p-2 border-line transition-colors focus:outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
+                  className={`relative flex flex-col items-stretch text-left min-h-[54px] sm:min-h-[88px] lg:min-h-[96px] p-1 sm:p-1.5 border-line transition-colors focus:outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
                     i % 7 !== 6 ? 'border-r' : ''
-                  } ${i < 35 ? 'border-b' : ''} ${style ? style.cell : inMonth ? 'bg-white hover:bg-slate-50' : 'bg-slate-50/70 hover:bg-slate-100/70'}`}
+                  } ${i < 35 ? 'border-b' : ''} ${style ? style.cell : inMonth ? 'bg-white hover:bg-subtle/60' : 'bg-subtle/50 hover:bg-subtle'}`}
                 >
-                  {isSelected && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-accent" aria-hidden />}
+                  {isSelected && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-accent bg-accent/[0.03]" aria-hidden />}
                   <span className="flex items-center justify-between gap-1">
                     <span
-                      className={`inline-flex items-center justify-center h-6 min-w-6 px-1 rounded-full text-[12px] sm:text-[13px] font-semibold tabular-nums ${
-                        isToday ? 'bg-accent text-white' : inMonth ? (past && !closure ? 'text-ink-muted' : 'text-ink') : 'text-ink-faint'
+                      className={`inline-flex items-center justify-center h-6 min-w-6 px-1 rounded-full text-[12px] sm:text-[12.5px] font-semibold tabular-nums ${
+                        isToday
+                          ? 'bg-accent text-white ring-2 ring-accent-line ring-offset-1'
+                          : inMonth
+                            ? past && !closure
+                              ? 'text-ink-muted'
+                              : 'text-ink'
+                            : 'text-ink-faint'
                       }`}
                     >
                       {keyToDate(key).getDate()}
@@ -374,16 +396,11 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                     <span className="inline-flex items-center gap-1">
                       {plan && (
                         <span
-                          className={`inline-flex items-center justify-center h-4 sm:h-5 min-w-4 sm:min-w-5 px-0.5 sm:px-1 rounded border border-accent bg-white text-accent text-[9px] sm:text-[10px] font-bold leading-none ${inMonth ? '' : 'opacity-60'}`}
+                          className={`inline-flex items-center justify-center h-4 sm:h-5 min-w-4 sm:min-w-5 px-0.5 sm:px-1 rounded ring-1 ring-inset ring-accent-line bg-accent-soft text-accent-strong text-[9px] sm:text-[11px] font-semibold leading-none tabular-nums ${inMonth ? '' : 'opacity-60'}`}
                           title={`Machine plan: ${plan.machineIds.length} machine${plan.machineIds.length === 1 ? '' : 's'} running`}
                           aria-hidden
                         >
                           M<span className="hidden sm:inline">·{plan.machineIds.length}</span>
-                        </span>
-                      )}
-                      {style && (
-                        <span className={`hidden sm:inline-flex items-center justify-center w-5 h-5 rounded-full ${style.chip} ${inMonth ? '' : 'opacity-60'}`} aria-hidden>
-                          {style.icon}
                         </span>
                       )}
                     </span>
@@ -391,9 +408,12 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                   {style && (
                     <>
                       <span className={`sm:hidden mt-auto mx-auto mb-0.5 h-1.5 w-1.5 rounded-full ${style.dot}`} aria-hidden />
-                      <span className={`hidden sm:block mt-auto ${inMonth ? '' : 'opacity-60'}`}>
-                        <span className="block text-[11px] font-semibold text-ink leading-tight line-clamp-2 break-words">{style.short}</span>
-                        {closure?.reason && <span className="block text-[11px] text-ink-secondary leading-tight line-clamp-2 break-words">{closure.reason}</span>}
+                      <span className={`hidden sm:flex flex-col gap-0.5 mt-auto min-w-0 ${inMonth ? '' : 'opacity-60'}`} aria-hidden>
+                        <span className={`inline-flex items-center gap-1 self-start max-w-full min-h-5 px-1.5 py-px rounded-md text-[11px] font-semibold leading-tight ${style.chip}`}>
+                          <span className="shrink-0 [&>svg]:w-3 [&>svg]:h-3">{style.icon}</span>
+                          <span className="line-clamp-2 break-words">{style.short}</span>
+                        </span>
+                        {closure?.reason && <span className="block px-0.5 text-[11px] text-ink-secondary leading-tight line-clamp-2 break-words">{closure.reason}</span>}
                       </span>
                     </>
                   )}
@@ -402,40 +422,44 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
             })}
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 sm:px-4 py-2.5 border-t border-line bg-slate-50/60 text-[11px] text-ink-secondary">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 sm:px-4 py-2.5 border-t border-line text-[12px] text-ink-secondary">
             {TYPE_ORDER.map((t) => (
               <span key={t} className="inline-flex items-center gap-1.5">
-                <span className={`w-2.5 h-2.5 rounded-full ${CLOSURE_TYPES[t].dot}`} aria-hidden />
+                <span className={`w-4 h-4 rounded flex items-center justify-center [&>svg]:w-2.5 [&>svg]:h-2.5 ${CLOSURE_TYPES[t].chip}`} aria-hidden>
+                  {CLOSURE_TYPES[t].icon}
+                </span>
                 {CLOSURE_TYPES[t].label}
               </span>
             ))}
             {(monthData.data ?? []).some((s) => s.source === 'WEEKLY') && (
               <span className="inline-flex items-center gap-1.5">
-                <span className={`w-2.5 h-2.5 rounded-full ${WEEKLY_OFF_STYLE.dot}`} aria-hidden />
+                <span className={`w-4 h-4 rounded flex items-center justify-center [&>svg]:w-2.5 [&>svg]:h-2.5 ${WEEKLY_OFF_STYLE.chip}`} aria-hidden>
+                  {WEEKLY_OFF_STYLE.icon}
+                </span>
                 Weekly Off
               </span>
             )}
             <span className="inline-flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-accent" aria-hidden />
+              <span className="w-3 h-3 rounded-full bg-accent ring-2 ring-accent-line" aria-hidden />
               Today
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <span className="inline-flex items-center justify-center h-3.5 px-0.5 rounded-sm border border-accent text-accent text-[8px] font-bold leading-none" aria-hidden>
+              <span className="inline-flex items-center justify-center h-4 px-1 rounded ring-1 ring-inset ring-accent-line bg-accent-soft text-accent-strong text-[9px] font-semibold leading-none" aria-hidden>
                 M
               </span>
               Machine plan
             </span>
             {canEdit && (
-              <span className="text-ink-muted sm:ml-auto">
+              <span className="text-[11.5px] text-ink-muted sm:ml-auto">
                 <span className="lg:hidden">Tap a day to mark or edit it</span>
                 <span className="hidden lg:inline">Select a day to mark or edit it · double-click to open it directly</span>
               </span>
             )}
           </div>
-        </section>
+        </Card>
 
         {/* Side panel */}
-        <aside className="space-y-4">
+        <aside className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-4 items-start">
           <SelectedDay
             date={selected}
             today={today}
@@ -459,20 +483,23 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
               canEdit={canEdit}
               onChanged={machinePlans.reload}
             />
-            {machinePlans.error && <p className="mt-2 text-[11px] text-failed">{machinePlans.error}</p>}
+            {machinePlans.error && (
+              <p className="mt-2 text-[11.5px] text-missed" role="alert">
+                {machinePlans.error}
+              </p>
+            )}
           </SelectedDay>
 
           <WeeklySummaryCard legacyDays={legacy.data?.weeklyOffDays ?? null} rules={rules.data?.rules ?? null} today={today} onOpenRules={() => onOpen('rules')} />
 
-          <section className="bg-white border border-line rounded-lg shadow-2xs overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-line flex items-center justify-between">
-              <h2 className="text-sm font-bold text-ink">Upcoming dates</h2>
-              <span className="text-[11px] text-ink-muted">next 12 months</span>
-            </div>
+          <Card className="overflow-hidden">
+            <CardHeader icon={<CalendarCheck2 className="w-4 h-4" />} title="Upcoming dates" subtitle="Next 12 months" />
             {upcoming.error ? (
-              <p className="px-4 py-4 text-xs text-failed">{upcoming.error}</p>
+              <p className="px-4 py-4 text-[12px] text-missed" role="alert">
+                {upcoming.error}
+              </p>
             ) : upcomingRanges.length === 0 ? (
-              <p className="px-4 py-5 text-xs text-ink-muted text-center">{upcoming.loading ? 'Loading…' : 'No holidays or working days planned.'}</p>
+              <p className="px-4 py-5 text-[12px] text-ink-muted text-center">{upcoming.loading ? 'Loading…' : 'No holidays or working days planned.'}</p>
             ) : (
               <ul className="divide-y divide-line max-h-[340px] overflow-y-auto">
                 {upcomingRanges.map((r) => {
@@ -480,44 +507,46 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                   const days = daysBetween(r.from, r.to)
                   return (
                     <li key={r.from}>
-                      <button type="button" onClick={() => goToDate(r.from)} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 flex items-start gap-3">
-                        <span className={`mt-0.5 w-7 h-7 shrink-0 rounded-full flex items-center justify-center ${style.chip}`} aria-hidden>
+                      <button type="button" onClick={() => goToDate(r.from)} className="w-full text-left px-4 py-2.5 hover:bg-subtle/70 flex items-start gap-3">
+                        <span className={`mt-0.5 w-7 h-7 shrink-0 rounded-lg flex items-center justify-center ${style.chip}`} aria-hidden>
                           {style.icon}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-xs font-semibold text-ink">
+                          <span className="block text-[12.5px] font-semibold text-ink tabular-nums">
                             {days === 1 ? shortDate(r.from) : `${shortDate(r.from)} – ${shortDate(r.to)}`}
                           </span>
-                          <span className="block text-[11px] text-ink-muted truncate">
+                          <span className="block text-[11.5px] text-ink-muted truncate">
                             {style.label}
                             {r.reason ? ` · ${r.reason}` : ''}
                             {days > 1 ? ` · ${days} days` : ''}
                           </span>
                         </span>
-                        {r.from === today && <span className="text-[10px] font-semibold uppercase tracking-wide text-accent">Today</span>}
+                        {r.from === today && (
+                          <span className="inline-flex items-center h-5 px-1.5 rounded-full bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line text-[11px] font-semibold">Today</span>
+                        )}
                       </button>
                     </li>
                   )
                 })}
               </ul>
             )}
-          </section>
+          </Card>
 
-          <section className="bg-slate-50 border border-line rounded-lg px-4 py-3">
-            <h2 className="text-xs font-bold text-ink flex items-center gap-1.5">
-              <Info className="w-3.5 h-3.5 text-ink-muted" /> On a closed day (weekly off, holiday, shutdown)
+          <Card padded className="bg-subtle/40 shadow-none">
+            <h2 className="text-[12.5px] font-semibold text-ink flex items-start gap-1.5">
+              <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden /> On a closed day (weekly off, holiday, shutdown)
             </h2>
-            <ul className="mt-2 space-y-1.5 text-[11px] text-ink-secondary">
-              <li className="flex gap-2"><CalendarOff className="w-3.5 h-3.5 shrink-0 text-ink-muted" /> Scheduled checks are skipped</li>
-              <li className="flex gap-2"><BellOff className="w-3.5 h-3.5 shrink-0 text-ink-muted" /> Workers get no check alerts</li>
-              <li className="flex gap-2"><ClipboardX className="w-3.5 h-3.5 shrink-0 text-ink-muted" /> Nothing is marked Missed</li>
-              <li className="flex gap-2"><CalendarCheck2 className="w-3.5 h-3.5 shrink-0 text-ink-muted" /> Completed and Exception records are kept</li>
+            <ul className="mt-2 space-y-1.5 text-[12px] text-ink-secondary">
+              <li className="flex gap-2"><CalendarOff className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden /> Scheduled checks are skipped</li>
+              <li className="flex gap-2"><BellOff className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden /> Workers get no check alerts</li>
+              <li className="flex gap-2"><ClipboardX className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden /> Nothing is marked Missed</li>
+              <li className="flex gap-2"><CalendarCheck2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden /> Completed and Exception records are kept</li>
             </ul>
-            <p className="mt-2.5 pt-2.5 border-t border-line text-[11px] text-ink-secondary">
-              <span className="font-semibold text-sky-700">Adjustment working days</span> are normal working days: checks are scheduled, workers get alerts
+            <p className="mt-2.5 pt-2.5 border-t border-line text-[12px] text-ink-secondary">
+              <span className="font-semibold text-due">Adjustment working days</span> are normal working days: checks are scheduled, workers get alerts
               and Missed checks count as usual.
             </p>
-          </section>
+          </Card>
         </aside>
       </div>
 
@@ -591,28 +620,39 @@ const SelectedDay: React.FC<{
   const style = closure ? CLOSURE_TYPES[closure.type] : null
   const when = date === today ? 'Today' : date === addDaysKey(today, 1) ? 'Tomorrow' : date === addDaysKey(today, -1) ? 'Yesterday' : null
   return (
-    <section className="bg-white border border-line rounded-lg shadow-2xs overflow-hidden" aria-live="polite">
-      <div className="px-4 pt-3 pb-3 border-b border-line">
-        <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">{when ?? 'Selected day'}</div>
-        <div className="mt-0.5 text-sm font-bold text-ink">{longDate(date)}</div>
+    <Card className="overflow-hidden" aria-live="polite">
+      <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-3 border-b border-line">
+        <span
+          className={`w-10 h-10 shrink-0 rounded-lg flex flex-col items-center justify-center leading-none ring-1 ring-inset ${
+            date === today ? 'bg-accent text-white ring-accent' : 'bg-subtle text-ink ring-line'
+          }`}
+          aria-hidden
+        >
+          <span className={`text-[10px] font-semibold uppercase ${date === today ? 'text-white/85' : 'text-ink-muted'}`}>{weekday.slice(0, 3)}</span>
+          <span className="text-[15px] font-semibold tabular-nums">{keyToDate(date).getDate()}</span>
+        </span>
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">{when ?? 'Selected day'}</div>
+          <div className="mt-0.5 text-[13.5px] font-semibold text-ink">{longDate(date)}</div>
+        </div>
       </div>
       <div className="px-4 py-3">
         {loading ? (
-          <p className="text-xs text-ink-muted">Loading…</p>
+          <p className="text-[12px] text-ink-muted">Loading…</p>
         ) : closure && style ? (
           <div className="space-y-3">
             <div className="flex items-start gap-3">
-              <span className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center ${style.chip}`} aria-hidden>
+              <span className={`w-9 h-9 shrink-0 rounded-lg flex items-center justify-center [&>svg]:w-4 [&>svg]:h-4 ${style.chip}`} aria-hidden>
                 {style.icon}
               </span>
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-ink">{style.label}</div>
+                <div className="text-[13.5px] font-semibold text-ink">{style.label}</div>
                 {(closure.reason || isClosedType(closure.type)) && (
-                  <div className="text-xs text-ink-secondary break-words">{closure.reason || <span className="text-ink-faint">No reason added</span>}</div>
+                  <div className="text-[12px] text-ink-secondary break-words">{closure.reason || <span className="text-ink-muted">No reason added</span>}</div>
                 )}
               </div>
             </div>
-            <p className="text-[11px] text-ink-muted">
+            <p className="text-[11.5px] text-ink-muted">
               {isClosedType(closure.type)
                 ? 'No checks are scheduled and no alerts are sent on this day.'
                 : weeklyOff
@@ -626,7 +666,7 @@ const SelectedDay: React.FC<{
                 <Button size="sm" variant="outline" onClick={onEdit} icon={<Pencil className="w-3.5 h-3.5" />} className="flex-1">
                   Edit
                 </Button>
-                <Button size="sm" variant="outline" onClick={onRemove} icon={<Trash2 className="w-3.5 h-3.5" />} className="flex-1 text-failed hover:text-failed">
+                <Button size="sm" variant="outline" onClick={onRemove} icon={<Trash2 className="w-3.5 h-3.5" />} className="flex-1 !text-missed hover:!bg-missed-bg">
                   Remove
                 </Button>
               </div>
@@ -635,15 +675,15 @@ const SelectedDay: React.FC<{
         ) : weeklyOff ? (
           <div className="space-y-3">
             <div className="flex items-start gap-3">
-              <span className={`w-9 h-9 shrink-0 rounded-full flex items-center justify-center ${WEEKLY_OFF_STYLE.chip}`} aria-hidden>
+              <span className={`w-9 h-9 shrink-0 rounded-lg flex items-center justify-center [&>svg]:w-4 [&>svg]:h-4 ${WEEKLY_OFF_STYLE.chip}`} aria-hidden>
                 {WEEKLY_OFF_STYLE.icon}
               </span>
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-ink">Weekly Off · Plant closed</div>
-                <div className="text-xs text-ink-secondary">Every {weekday} is closed unless marked as an Adjustment Working Day.</div>
+                <div className="text-[13.5px] font-semibold text-ink">Weekly Off · Plant closed</div>
+                <div className="text-[12px] text-ink-secondary">Every {weekday} is closed unless marked as an Adjustment Working Day.</div>
               </div>
             </div>
-            <p className="text-[11px] text-ink-muted">No checks are scheduled and no alerts are sent on this day.</p>
+            <p className="text-[11.5px] text-ink-muted">No checks are scheduled and no alerts are sent on this day.</p>
             {managedYear ? (
               <YearLink year={managedYear} status={yearStatus} onOpen={onOpenYear} />
             ) : canEdit && (
@@ -654,8 +694,8 @@ const SelectedDay: React.FC<{
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="flex items-center gap-2 text-xs text-ink-secondary">
-              <span className="w-2 h-2 rounded-full bg-success" aria-hidden />
+            <div className="inline-flex items-center gap-1.5 h-[22px] px-2 rounded-full bg-success-bg text-success ring-1 ring-inset ring-success-line text-[12px] font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-chart-completed)]" aria-hidden />
               Plant open · checks run as scheduled
             </div>
             {managedYear ? (
@@ -669,14 +709,14 @@ const SelectedDay: React.FC<{
         )}
         {children}
       </div>
-    </section>
+    </Card>
   )
 }
 
 /** 2027+ dates are changed in their annual calendar, after review and approval. */
 const YearLink: React.FC<{ year: number; status: CalendarYearSummary | null; onOpen: () => void }> = ({ year, status, onOpen }) => (
   <div className="space-y-2">
-    <p className="text-[11px] text-ink-muted">
+    <p className="text-[11.5px] text-ink-muted">
       {status
         ? status.status === 'APPROVED'
           ? `From the approved ${year} calendar. Change it there and approve again.`
@@ -698,16 +738,14 @@ const WeeklySummaryCard: React.FC<{ legacyDays: number[] | null; rules: WeeklyRu
 }) => {
   const current = (rules ?? []).filter((r) => !r.effectiveTo || r.effectiveTo >= (today > CALENDAR_V2_START ? today : CALENDAR_V2_START))
   return (
-    <section className="bg-white border border-line rounded-lg shadow-2xs overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-line">
-        <h2 className="text-sm font-bold text-ink">Weekly off</h2>
-      </div>
-      <div className="px-4 py-3 space-y-2 text-xs">
+    <Card className="overflow-hidden">
+      <CardHeader icon={<CalendarRange className="w-4 h-4" />} title="Weekly off" />
+      <div className="px-4 py-3 space-y-2.5 text-[12.5px]">
         <div className="flex justify-between gap-2">
           <span className="text-ink-muted">Up to 2026</span>
           <span className="text-right font-medium text-ink">
             {legacyDays === null ? '…' : legacyDays.length ? legacyDays.map((d) => WEEKDAY_NAMES[d]).join(', ') : 'None'}
-            <span className="block text-[11px] font-normal text-ink-muted">Locked</span>
+            <span className="block text-[11.5px] font-normal text-ink-muted">Locked</span>
           </span>
         </div>
         <div className="flex justify-between gap-2">
@@ -724,7 +762,7 @@ const WeeklySummaryCard: React.FC<{ legacyDays: number[] | null; rules: WeeklyRu
           Weekly rules
         </Button>
       </div>
-    </section>
+    </Card>
   )
 }
 
@@ -757,7 +795,7 @@ const ClosureModal: React.FC<{
       footer={
         <div className="flex w-full flex-col-reverse sm:flex-row sm:items-center gap-2">
           {!isNew && (
-            <Button type="button" variant="ghost" onClick={onRemove} icon={<Trash2 className="w-3.5 h-3.5" />} className="text-failed hover:text-failed sm:mr-auto">
+            <Button type="button" variant="ghost" onClick={onRemove} icon={<Trash2 className="w-3.5 h-3.5" />} className="!text-missed hover:!bg-missed-bg sm:mr-auto">
               Remove from calendar
             </Button>
           )}
@@ -781,8 +819,8 @@ const ClosureModal: React.FC<{
 
         {/* A fieldset, not a <label>: a label would give its name to the first option. */}
         <fieldset>
-          <legend className="block text-[13px] lg:text-xs font-semibold text-slate-700 mb-1">
-            Type<span className="text-failed"> *</span>
+          <legend className="block text-[13px] lg:text-[12.5px] font-medium text-ink-secondary mb-1.5">
+            Type<span className="text-missed"> *</span>
           </legend>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="radiogroup" aria-label="Type">
             {TYPE_ORDER.map((t) => {
@@ -796,14 +834,14 @@ const ClosureModal: React.FC<{
                   aria-checked={active}
                   onClick={() => onChange({ ...editor, type: t })}
                   className={`flex sm:flex-col items-center sm:items-start gap-2.5 sm:gap-1.5 text-left px-3 py-2.5 rounded-md border transition-colors ${
-                    active ? 'border-accent bg-blue-50/60 ring-1 ring-accent' : 'border-line-strong bg-white hover:bg-slate-50'
+                    active ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-line-strong bg-white hover:bg-subtle'
                   }`}
                 >
-                  <span className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center ${style.chip}`} aria-hidden>
+                  <span className={`w-7 h-7 shrink-0 rounded-lg flex items-center justify-center ${style.chip}`} aria-hidden>
                     {style.icon}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-xs font-semibold text-ink">{style.label}</span>
+                    <span className="block text-[12.5px] font-semibold text-ink">{style.label}</span>
                     <span className="block text-[11px] text-ink-muted leading-snug">{style.hint}</span>
                   </span>
                 </button>
@@ -860,8 +898,8 @@ const ClosureModal: React.FC<{
         </Field>
 
         {(includesPast || includesToday) && (
-          <div className="flex gap-2 px-3 py-2.5 rounded-md border border-exception-line bg-exception-bg text-[11px] text-ink-secondary">
-            <Info className="w-3.5 h-3.5 shrink-0 mt-px text-exception" />
+          <div className="flex gap-2 px-3 py-2.5 rounded-md border border-exception-line bg-exception-bg text-[12px] text-ink-secondary" role="note">
+            <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-px text-exception" aria-hidden />
             <span>
               {includesToday && 'Today’s open checks are removed and workers get no more alerts today. '}
               {includesPast && 'On past dates, checks that were never submitted — including Missed checks — are removed from monitoring and reports. '}

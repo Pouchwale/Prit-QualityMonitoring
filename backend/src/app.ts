@@ -9,6 +9,7 @@ import { masterData } from './lib/permissions'
 import { errorHandler, notFound } from './lib/http'
 import { authRouter } from './routes/auth'
 import { departmentsRouter } from './routes/departments'
+import { departmentMappingsRouter } from './routes/departmentMappings'
 import { shiftsRouter } from './routes/shifts'
 import { machinesRouter } from './routes/machines'
 import { parametersRouter } from './routes/parameters'
@@ -23,6 +24,9 @@ import { performanceRouter } from './routes/performance'
 import { jobsRouter } from './routes/jobs'
 import { workerRouter } from './routes/worker'
 import { accessRouter } from './routes/access'
+import { deletionsRouter } from './routes/deletions'
+import { deviceRouter } from './routes/deviceVoice'
+import { reportSharingRouter } from './routes/reportSharing'
 import { HttpError } from './lib/http'
 import { serveSignedMedia } from './lib/mediaLinks'
 
@@ -37,8 +41,18 @@ export function createApp() {
     }
     next()
   })
-  // Expose Content-Disposition so the admin site (another origin) can read download filenames.
-  app.use(cors({ exposedHeaders: ['Content-Disposition', 'X-Total-Count'] }))
+  // The admin panel runs on another port of the same host, so its origin is allowed; so are
+  // localhost (development) and CORS_ORIGINS. Other web sites cannot call the API from a browser.
+  // Expose Content-Disposition so the admin site can read download filenames.
+  app.use(
+    cors((req, callback) => {
+      const origin = req.headers.origin
+      callback(null, {
+        origin: !origin || isAllowedOrigin(origin, req.headers.host),
+        exposedHeaders: ['Content-Disposition', 'X-Total-Count', 'X-Truncated']
+      })
+    })
+  )
   app.use(express.json({ limit: '1mb' }))
 
   app.get('/api/health', (_req, res) => {
@@ -54,6 +68,8 @@ export function createApp() {
 
   // Worker mobile app
   app.use('/api/worker', authenticate, requireRole('WORKER'), workerRouter)
+  // The app's native voice service (no sign-in session when the app is closed): its remote voice log.
+  app.use('/api/device', deviceRouter)
 
   // Admin panel. Every route checks the signed-in user's module permissions (lib/permissions.ts).
   // Master-data lists may be read by any module whose page uses them as a dropdown;
@@ -62,11 +78,13 @@ export function createApp() {
   admin.use(authenticate, (req, _res, next) =>
     req.user!.role === 'WORKER' ? next(new HttpError(403, 'This account cannot use the admin panel')) : next()
   )
-  admin.use('/departments', masterData('departments', ['machines', 'parameters', 'activities', 'workers', 'checks', 'exceptions', 'reports']), departmentsRouter)
-  admin.use('/shifts', masterData('shifts', ['schedules', 'workers', 'checks', 'exceptions', 'reports']), shiftsRouter)
-  admin.use('/machines', masterData('machines', ['activities', 'schedules', 'workers', 'checks', 'exceptions', 'reports', 'calendar']), machinesRouter)
+  admin.use('/departments', masterData('departments', ['machines', 'parameters', 'activities', 'workers', 'checks', 'jobs', 'exceptions', 'reports']), departmentsRouter)
+  // Department Configuration (Item Code prefix -> department): read with Departments view, changed with Departments manage.
+  admin.use('/department-mappings', masterData('departments', []), departmentMappingsRouter)
+  admin.use('/shifts', masterData('shifts', ['schedules', 'workers', 'checks', 'jobs', 'exceptions', 'reports']), shiftsRouter)
+  admin.use('/machines', masterData('machines', ['activities', 'schedules', 'workers', 'checks', 'jobs', 'exceptions', 'reports', 'calendar']), machinesRouter)
   admin.use('/parameters', masterData('parameters', ['activities']), parametersRouter)
-  admin.use('/activities', masterData('activities', ['machines', 'schedules', 'checks', 'exceptions', 'reports']), activitiesRouter)
+  admin.use('/activities', masterData('activities', ['machines', 'schedules', 'checks', 'jobs', 'exceptions', 'reports']), activitiesRouter)
   admin.use('/schedules', masterData('schedules', []), schedulesRouter)
   admin.use('/plant-closures', plantCalendarRouter)
   admin.use('/machine-days', machineDaysRouter)
@@ -74,13 +92,63 @@ export function createApp() {
   admin.use('/weekly-rules', weeklyRulesRouter)
   admin.use('/users', usersRouter)
   admin.use('/access', accessRouter)
+  admin.use('/deletions', deletionsRouter)
   admin.use('/jobs', jobsRouter)
   admin.use('/performance', performanceRouter)
+  admin.use('/reports/sharing', reportSharingRouter)
   admin.use('/', monitoringRouter)
   app.use('/api', admin)
 
   app.use((_req, _res, next) => next(notFound('Endpoint')))
   app.use(errorHandler)
+  return app
+}
+
+/** A browser origin may call the API when it is this API's host (any port), localhost or listed in CORS_ORIGINS. */
+function isAllowedOrigin(origin: string, host: string | undefined) {
+  let url: URL
+  try {
+    url = new URL(origin)
+  } catch {
+    return false
+  }
+  if (config.corsOrigins.includes(url.origin)) return true
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return true
+  const apiHost = (host ?? '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '')
+  return !!apiHost && url.hostname === apiHost
+}
+
+/**
+ * The admin panel (admin-web build) on its own port, for desktop browsers. The page calls the API
+ * on PORT at the same host (admin-web/src/lib/api.ts), which the CORS setting above allows.
+ */
+export function createAdminWebApp() {
+  const app = express()
+  const dir = config.adminWebDir
+  const index = path.join(dir, 'index.html')
+  const built = () => fs.existsSync(index)
+  if (!built()) console.log(`Admin panel not built yet (${dir}); run "npm run build" in admin-web`)
+
+  // No CSP: the page talks to the API on another port. COOP and Origin-Agent-Cluster are HTTPS-only.
+  app.use(helmet({ contentSecurityPolicy: false, crossOriginOpenerPolicy: false, originAgentCluster: false }))
+  app.use(
+    express.static(dir, {
+      index: false,
+      setHeaders: (res, file) => {
+        // Vite puts a content hash in every file name under assets/.
+        if (file.includes(`${path.sep}assets${path.sep}`)) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      }
+    })
+  )
+  // Any other path is a page inside the admin panel.
+  app.get('/{*rest}', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache')
+    if (!built()) {
+      res.status(503).type('text/plain').send('The admin panel is not built yet. Run "npm run build" in admin-web.')
+      return
+    }
+    res.sendFile(index)
+  })
   return app
 }
 

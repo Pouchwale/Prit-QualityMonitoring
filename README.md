@@ -20,6 +20,21 @@ All configuration (machines, workers, departments, shifts, schedules, parameters
 
 **The running job decides everything a worker sees.** Workers are not tied to machines: in the app a worker sees every machine that is running, picks the one they are on and starts a job on it. From then until the job ends, that machine's checks and alerts are theirs. Ending the job frees the machine for anyone; a handover passes it, and its open checks, to another worker.
 
+## Plant server (10.192.193.14)
+
+Double-click **`Quality Server.exe`** to start the server: it runs `server.bat` in its own window (close that window to stop the server), waits until the API answers and opens the admin panel. If the server is already running it only opens the admin panel. Source and build script: `launcher/` (`launcher\build.bat` rebuilds the exe).
+
+`server.bat` is the production run: it builds the admin panel and the worker web app, then starts one backend process (no dev servers, no Expo). `server.bat --no-build` skips the builds; the exe uses it whenever both apps are already built. `start.bat` stays the development launcher.
+
+| Port | Serves | Used by |
+| --- | --- | --- |
+| `http://10.192.193.14:5000` | Admin panel (`admin-web/dist`, `ADMIN_PORT`) | Desktop browsers |
+| `http://10.192.193.14:4000` | API (`PORT`) | Android app (APK), and the admin panel's API calls |
+| `http://10.192.193.14:4000/app/` | Worker web app | Android browsers, PCs |
+| `https://10.192.193.14:4443/app/` | Worker web app over HTTPS, only when `HTTPS_KEY_FILE`/`HTTPS_CERT_FILE` are set | iPhones |
+
+The APK is built against `http://10.192.193.14:4000` (`worker-mobile/eas.json`). An older APK can be pointed at the server from its Server settings screen. Other devices reach the server only if Windows Firewall allows inbound TCP 4000 and 5000 (and 4443 when HTTPS is on).
+
 ## 1. Backend
 
 Requirements: Node.js 22+, PostgreSQL (tested with 18).
@@ -39,6 +54,8 @@ Starter accounts created by `db:setup` (passwords come from `.env`, change them 
 | Admin panel | `ADMIN` | `admin123` | Super Admin |
 | Mobile app (Android or web) | `EMP-104` | `worker123` | Worker |
 
+These are the seed defaults (set `SEED_ADMIN_PASSWORD` / `SEED_WORKER_PASSWORD` before `npm run db:seed`). Change them immediately on a real installation.
+
 Starter data includes the seven PRD parameters (Viscosity, Repeat Length, Corona Treatment, TEAP Test, Deep Punching, Registration, Print Prachar), one check type using them, and demo hourly schedules on all three shifts for `EMP-104`. Acceptance limits are empty except the PRD example for Viscosity — enter the company-approved SOP limits in **Admin → Parameters**.
 
 Photos and videos are saved under `backend/uploads/quality-checks/YYYY-MM-DD/` and `backend/uploads/exceptions/YYYY-MM-DD/`; the database stores the path. The files are **not public**: API responses that the caller is allowed to see (a check, an exception, a worker's own record) contain signed links, `/media/<path>?exp=…&sig=…`, valid for 12 hours (`src/lib/mediaLinks.ts`). A link without a valid signature, or an expired one, returns 403. Links in a CSV export also expire after 12 hours; export again for fresh ones. Set `MEDIA_LINK_SECRET` to use a dedicated signing secret (by default it is derived from `JWT_ACCESS_SECRET`, so changing that invalidates open links). Storage sits behind `src/storage/StorageService.ts` so it can be replaced by MinIO/S3 later.
@@ -49,18 +66,20 @@ After changing `src/db/schema.ts`, run `npm run db:generate` and then `npm run d
 
 | Role | Can use |
 | --- | --- |
-| **Super Admin** | Everything, including Admin accounts |
-| **Admin** | Every module; creates Managers and Workers and sets manager permissions |
-| **Manager** | Only the modules an Admin gives them, each as **View** or **Manage** |
+| **Super Admin** | Everything, including Admin accounts and the **Manager role's permissions** |
+| **Admin** | Every module; creates and edits Manager and Worker accounts (but not what Managers may use) |
+| **Manager** | Only the modules the Super Admin enables for the Manager role, each as **View** or **Manage** — for **every department** |
 | **Worker** | The mobile app's worker screens (Android app or web app) |
 
-**Admin → Manager Access** lists the managers. Pick one and set each module to *No access*, *View* or *Manage*, then save. You can also add, edit, activate and deactivate manager accounts there. A new manager has no access until you grant it. Dashboard, Reports and Audit Logs are view-only modules.
+**Super Admin → Manager Access** sets **one set of permissions for the Manager role**: each module *No access*, *View* or *Manage*, then **Save permissions**. It applies to every Manager at once, current and new. Only the Super Admin sees the page; Admins and Managers get **403** from its API (`GET`/`PUT /api/access/roles/manager`), and the old per-Manager save (`PUT /api/access/managers/:id`) answers **410**. The page also lists the Manager accounts (add, edit, activate, deactivate); Admins do the same in Workers & Users. View-only modules: Dashboard, Reports, Export Reports, Audit Logs, Worker Performance.
 
-Permissions are stored in the database (`manager_permissions`) and **checked by the backend on every request**, so hiding a page in the panel is not the only protection. A change applies on the manager's next click, without signing out. Deactivating a manager signs them out at once.
+Modules besides the page names: **Jobs** (see jobs; manage plans, hands over and closes them), **Export Reports** (the PDF downloads, including the report-sharing preview, and the CSV and print buttons). Managers are never limited to a department: module permissions alone decide what they see.
+
+Permissions are stored in the database (`role_permissions`, one row per module of the MANAGER role) and **checked by the backend on every request**, so hiding a page in the panel is not the only protection. A change applies on every Manager's next click, without signing out, and is written to the audit log (`UPDATE_ROLE_PERMISSIONS`). Deactivating a manager signs them out at once.
 
 Pages load lists from other modules for their dropdowns: a manager with *Schedules* needs machine and shift names without the *Machines* module. Those lists are readable; the module's own page and every change are not. Managers only ever see worker accounts in these lists.
 
-Existing databases are upgraded automatically: the first Admin becomes the Super Admin, and managers created earlier keep what they had before (view on every module, manage on none).
+Existing databases are upgraded automatically: the first Admin becomes the Super Admin. When Manager permissions became one set for the role (update 0023), the role started from what every active Manager already had (the modules all of them had, at the lowest level), Jobs was copied from Quality Checks and Export Reports from Reports or Quality Checks; the result is in the audit log as `SEED_ROLE_PERMISSIONS`, for the Super Admin to review.
 
 Everyone can open **My Account** to see their profile and access. Only the **Super Admin** sees a **Change my password** form there.
 
@@ -73,15 +92,36 @@ How it works: sign-in still uses the one-way bcrypt hash. Next to it the passwor
 - **Back up `backend/secrets/password-view.key` together with the database.** Without it the stored copies cannot be shown; signing in still works, and setting a new password makes it viewable again.
 - Passwords set **before** this feature were only stored as a hash and cannot be recovered. They show "Not available" until the password is next set: a Super Admin reset, or the Super Admin changing their own password in My Account.
 
+### Permanent delete (users, jobs, quality checks)
+
+Permanent delete is for removing test data. It needs one of three permissions, checked by the backend on every request (403 without it):
+
+| Permission | Super Admin | Admin | Manager / Worker |
+|---|---|---|---|
+| **Delete Users** | always | **never** | never |
+| **Delete Jobs** | always | only if granted | never |
+| **Delete Checks** | always | only if granted | never |
+
+The Super Admin grants and revokes Delete Jobs and Delete Checks per Admin in **Workers & Users → Admin delete permissions** (ON/OFF, Save, Revoke all). **Delete Users is the Super Admin's alone**: it cannot be granted (the API answers 400), and a stored `delete:users` grant is ignored. Admins cannot grant permissions to anyone or change their own; Managers and Workers can never have them. They are stored in `manager_permissions` under the keys `delete:jobs`, `delete:checks` (`backend/src/lib/deletePermissions.ts`), and an Admin who is given another role loses them.
+
+Every delete shows the server's **delete impact** first: the record, what goes with it (checks, values, exceptions, handovers), evidence files and their size, and anything blocking it. A **reason** is required and saved in the audit log. The delete runs in one transaction that re-checks the permission and the impact and refuses if anything changed since the preview; evidence files are removed from disk only after the commit (`backend/src/services/deletion.ts`).
+
+- **Jobs:** a running job (Starting, Active, Ending) cannot be deleted. Force-close it first. A job's checks are deleted with it, never left detached.
+- **Checks:** an open check of a running job, and a check a worker is filling in, cannot be deleted.
+- **Users (Super Admin only):** any account, whatever it has done or is doing now. The dialog asks *"Are you sure you want to permanently delete this user and their history?"* and the account is deleted **with its history**: the checks the user was assigned, submitted, raised an exception on or added evidence to; their jobs (assigned to them, or started by them and never given to anyone), running ones included, with every check of those jobs; the handovers they gave or received; their evidence files, devices and permissions. Records that belong to someone else or to the plant setup, which the user only acted on (a job they ended for another worker, an exception they reviewed, a schedule assigned to them, Plant Calendar edits), stay, with the user's name removed. Audit log entries stay with the name and role. The only refusals: your own account, and the last active Super Admin. An unknown user id is 404. To keep someone's history, **disable** the account instead.
+- **Bulk:** tick rows on screen (at most 200), type `DELETE <count>`, and give a reason. Above 20 records or 100 evidence files a second confirmation is asked. There is no "delete all".
+- Audit actions: `DELETE_USER`, `DELETE_JOB`, `DELETE_CHECK`, `BULK_DELETE_USERS`, `BULK_DELETE_JOBS`, `BULK_DELETE_CHECKS`, `GRANT_DELETE_PERMISSION`, `REVOKE_DELETE_PERMISSION`. Audit entries are never deleted.
+- **Take a database and uploads backup before deleting.** A permanent delete cannot be undone.
+
 ## One mobile app for every role
 
 Workers, Managers, Admins and the Super Admin sign in to the **same mobile app** with their usual employee ID and password. The app reads the account's role and permissions from the backend (`GET /api/auth/me`) and opens:
 
 - **Worker:** the worker screens as before (Today, History, Profile, checks, exceptions, alerts).
-- **Admin / Super Admin:** a plant dashboard (progress, closed-day and shift-without-worker warnings, missed checks, repeated misses, recent submissions, setup issues) and every admin panel module: Quality Checks, Exceptions, Reports (CSV and PDF), Plant Calendar with annual calendars and weekly rules, Workers & Users, Manager Access, Machines, Check Types, Parameters, Schedules, Departments, Shifts, Audit Logs and My Account.
-- **Manager:** a monitoring dashboard (today's progress, missed checks by worker, exceptions awaiting review, their own access) and only the modules granted in Manager Access, as View or Manage.
+- **Admin / Super Admin:** a plant dashboard (progress, closed-day and shift-without-worker warnings, missed checks, repeated misses, recent submissions, setup issues) and every admin panel module: Quality Checks, Jobs, Exceptions, Reports (CSV and PDF), Plant Calendar with annual calendars and weekly rules, Workers & Users, Machines, Check Types, Parameters, Schedules, Departments, Shifts, Audit Logs and My Account. **Manager Access** is for the Super Admin only.
+- **Manager:** a monitoring dashboard (today's progress, missed checks by worker, exceptions awaiting review, their own access) across every department, and only the modules the Super Admin enabled for the Manager role, as View or Manage.
 
-Tabs and actions follow the permissions: a module without access is not shown, and edit/add/delete buttons only appear with Manage. Permissions are re-read every minute and when the app returns to the foreground. **The backend still checks every request**, so hidden screens are not the protection: Workers get 403 on every staff API, staff accounts get 403 on the worker APIs, Managers get 403 outside their modules and on Admin/Super Admin features (Manager Access, Admin accounts, passwords).
+Tabs and actions follow the permissions: a module without access is not shown, and edit/add/delete buttons only appear with Manage. Permissions are re-read every minute and when the app returns to the foreground. **The backend still checks every request**, so hidden screens are not the protection: Workers get 403 on every staff API, staff accounts get 403 on the worker APIs, Managers get 403 outside their modules and on Admin/Super Admin features (Admin accounts, passwords), and Admins and Managers get 403 on Manager Access.
 
 **Mobile app access:** each account has a **Mobile app access** switch (Workers & Users → Edit, or Manager Access → Edit). When it is off, mobile sign-in is refused and an open mobile session is refused on its next request; the account's web panel session is not affected. The starter Super Admin starts with it off: turn it on in Workers & Users to use the app.
 
@@ -160,7 +200,7 @@ Android builds allow plain `http://` (`expo-build-properties` → `usesCleartext
 
 Every quality check is stored with the worker responsible for it, and the admin panel, reports, worker app and alerts all use that worker. That worker is **whoever started the job running on the machine** (`jobs.assigned_worker_id`):
 
-1. the worker picks any running machine in the app and starts a job on it (a planned job, or a new PO No.);
+1. the worker picks any running machine in the app and starts a job on it (a planned job, or a new job with its Item Code and PO No.; the Item Code decides the department, see "Departments" below);
 2. from then on every check of that machine — the job's start, its interval checks and its end — belongs to them, and their phone is the one alerted;
 3. a **handover** passes the job and its open checks to another worker;
 4. ending the job releases the machine: anyone can pick it up next.
@@ -185,7 +225,7 @@ Check Types, Machines and Schedules decide what a worker must do; nothing in the
 
 **Per department** (Parameters → *Departments*, and Check Types → *Department*): a quality parameter can be used by **several departments** — Viscosity by Pouch and Label, a Nail Test by Sleeve alone. A check type then only offers the parameters of its own department, so the Label check type lists Viscosity and the Sleeve one does not. A parameter with **no** department is unassigned and every check type can use it, which is how every parameter behaved before. The departments a parameter serves are stored in `parameter_departments`, and the Parameters list shows them as one column ("Pouch, Label", or "Unassigned").
 
-**Per department** (Check Types → Department): a check type that names a department is done **only by the workers of that department**. A Label worker is offered the **Label** check type, a Sleeve worker the **Sleeve** one, and neither is shown the other's; a check type with **no department** belongs to the whole plant and every worker gets it, so a plant that does not use departments is unaffected. This is enforced by the backend (`services/checkTypeScope.ts`), not by the app: the worker app is only ever sent the check types it may show, starting another department's check answers **403**, and neither the shift schedules nor the job scheduler create a check for a worker who is not in its department. Staff screens still show every check type. The plant ships with two of them:
+**Per department** (Check Types → Department): a check type that names a department is done **only on that department's jobs**, and a job's department comes from its Item Code (see "Departments" below). A Label job (Item Code RMLA…) gets the **Label** check type, a Sleeve job the **Sleeve** one, never the other's, whoever the worker is; a check type with **no department** belongs to the whole plant and every job gets it. This is enforced by the backend (`services/checkTypeScope.ts`), not by the app: the worker app is only ever sent the running job's check types, starting another department's check on the job answers **403**, and neither the shift schedules nor the job scheduler create a check of another department for a job. Staff screens still show every check type. The plant ships with two of them:
 
 | Check type | Department | Parameters |
 | --- | --- | --- |
@@ -234,7 +274,7 @@ Only one check per machine and check type is open at a time (a database rule, no
 
 A check type set to **Job-based** (Check Types → When it is checked) is checked per job, not per shift. Each parameter has its own **When checked**: Job start, Every 1 hour, Every 2 hours, Every 3 hours, a custom interval (5–1440 minutes), or Job end. There is no frequency for the check type as a whole; its **Grace** only says how long a scheduled check stays open before it counts as Missed (`backend/src/services/jobMonitoring.ts`).
 
-1. **Start Job** (a job planned by an Admin/Manager on the **Jobs** page, or a new PO No.): the Job Start check asks for every Job start parameter once. The job becomes active when it is submitted.
+1. **Start Job** (a job planned by an Admin/Manager on the **Jobs** page, or a new job: Item Code and PO No.): the backend works out the department from the Item Code, then the Job Start check asks for every Job start parameter of that department once. The job becomes active when it is submitted.
 2. **Scheduled checks:** every interval parameter runs on its own clock, counted from the job start and then from its own last submission. A check (and its notification) asks for **only the parameters due at that time**; parameters due at the same time (within a minute, or already overdue) share one check. Example with Viscosity every 1 h, Print Quality and Tape Test every 2 h, Registration every 3 h: 11:00 Viscosity; 12:00 Viscosity, Print Quality and Tape Test; 13:00 Viscosity and Registration.
 3. After each scheduled check the worker is asked **Continue the job or end the job?**. **End Job** is also a button on the machine screen.
 4. **End Job** withdraws every scheduled check of the job that is not submitted yet (they are never notified and never count as Missed) and opens the **Job End check** with all Job end parameters. The job is **Completed** only when it is submitted.
@@ -291,56 +331,61 @@ From **1 Jan 2027**, plant closures come from the database, so there is no yearl
 
 The code is in `backend/src/services/weeklyRules.ts`, `calendarYears.ts` (review, conflicts, approval), `calendarExtraction.ts` (Excel/PDF/OCR) and `calendarImport.ts` (rows → dates). Uploaded documents are stored in `backend/calendar-documents/` (not committed) and are only served to signed-in users with Plant Calendar access.
 
-## Departments: what a Manager sees
+## Departments: the Item Code decides, and Managers see every department
 
-An Admin or the Super Admin sees the whole plant. A **Manager sees only their own department** — the department on their account (Workers & Users → the manager → Department).
+**Machines and workers are shared: the department belongs to the work, and the Item Code names it.** The same machine runs Pouch work on one job and Label work on the next, and the same worker may do Pouch today and Sleeve tomorrow. The start of a job's Item Code (its **prefix**) says which department the job is for:
 
-**Machines are shared: the department belongs to the work, not to the machine.** The same machine runs Pouch work on one job and Label work on the next, so no department is set on a machine. Instead:
+| Item Code starts with | Department |
+| --- | --- |
+| RMLA (e.g. RMLA12345, RMLA-001) | Label |
+| RMPO (e.g. RMPO56789) | Pouch |
+| RMSL (e.g. RMSL98765) | Sleeve |
 
-- a **job** takes its department when a worker starts it, from that worker's account, and keeps it for good — a handover to a worker of another department moves who is responsible, never which department the job belongs to (`jobs.department_id`);
-- a **check** takes the department of the job it was done in, or of its check type when it was done outside a job (`quality_checks.department_id`);
-- a job an Admin only **plans** may name a department, or leave it to the worker who starts it. A Manager plans in their own department and cannot plan into another.
+- The mapping is kept in **one place**: the admin panel's **Configuration → Department Configuration** page (`/department-configuration`, table `department_mappings`), and applied only by the backend (`services/itemCodeDepartment.ts`); the apps only show what it decided. A new prefix (e.g. RMXX → a new department added on the Departments page first) is added there, with no code change. Each mapping can be added, edited, activated / deactivated and deleted; a mapping already used by jobs cannot be deleted (deactivate it instead). Every change is written to the audit log (entity `DepartmentMapping`). The Departments page shows each department's active prefixes read only.
+- Prefixes are unique and may not overlap (RM would swallow RMLA), so an Item Code matches at most one mapping; the longest prefix would win anyway. An **inactive mapping**, or a mapping to an **inactive department**, is refused with a clear message (e.g. "Item Code prefix RMSL (Sleeve) is inactive in Department Configuration, so jobs with this Item Code cannot be planned or started.") — the Item Code is never passed on to another department. An inactive mapping keeps its prefix reserved.
+- A **new department** only gets its jobs' department from the mapping; its jobs cannot start until its check types and parameters are set up on the machines ("No quality checks are set up for … on this machine").
+- API (Departments module: view to read, manage to change; Admins and the Super Admin always manage, Managers only when the Super Admin grants Departments → Manage, workers never): `GET /api/department-mappings`, `POST /api/department-mappings`, `PATCH /api/department-mappings/:id` (prefix and/or department), `PATCH /api/department-mappings/:id/status` (`{ isActive }`), `DELETE /api/department-mappings/:id`.
+- Matching ignores upper/lower case and surrounding spaces: `rmla12345`, `RMLA12345` and `Rmla12345` are all Label. New Item Codes are stored in upper case.
+- **Job Check Plan (before Start Job):** the worker enters the Item Code and PO and taps **Show Check Plan**. The backend names the department and returns that department's checks, grouped as **Before job start** (Job Start parameters), **During job / every N min** (interval parameters) and **At job end** (Job End parameters), straight from the Check Types configuration (`GET /api/worker/machines/:id/job-plan?itemCode=` or `?plannedJobId=`; read only, it creates no job, check or notification). Nothing about a department is written in the app. **Start Pre-Start Checks** then opens the Job Start check; the job only starts (interval checks, End Job) once every pre-start check is submitted, and the backend refuses anything else with "Please complete all required pre-start checks before starting the job." The running job's card shows the same plan with what is done, due now and next due (`checkPlan` on `GET /api/worker/machines`, worked out like the scheduler).
+- **Start Job:** there is no department question. The worker app then shows the department, read only, on the **Current Job** card (Item Code, PO No., Department, Status), the job details, the open check's Job details, the History list and each history record. The backend works out the department and loads only its check types and parameters, from Job Start to Job End (`POST /api/worker/machines/:id/jobs`; the response names the department). An Item Code with no known prefix is refused with **"Unable to determine the job department from this Item Code. Please check the Item Code."** and no job starts; a department without quality checks on that machine is refused too.
+- **Planning a job** (Jobs → Plan Job) needs the Item Code, and its department is worked out the same way; it is worked out again when the worker starts the job.
+- A **job** keeps its department for good — a handover moves who is responsible, never which department the job belongs to or which checks it asks (`jobs.department_id`). Editing a mapping later never recalculates saved jobs or checks: they keep the department they were given.
+- A **check** takes the department of the job it was done in, or of its check type when it was done outside a job (`quality_checks.department_id`), so earlier records never change when the worker's next job is for another department.
 
-A Pouch Manager's Dashboard, Quality Checks, Exceptions, Jobs and Reports therefore contain the Pouch work done on every machine, and none of the Label work done on those same machines. Worker Performance uses the worker's own department instead, because it is about people.
+The department on a worker's account never decides a job's department. (It is only used for a shift check type started by hand while no job is running.)
 
-Everything is enforced by the backend (`services/departmentScope.ts`), not by hiding things on screen:
-
-- the department of the signed-in Manager is read from the database on every request, so a change by an Admin applies at once;
-- a `departmentId` in the request that is not the Manager's own is refused with **403**, and a `workerId`, check or job of another department simply returns nothing or **404**;
-- a **shared machine is open to every Manager**: a machine is only refused when it names a department that is not theirs;
-- a Manager whose account has no department yet sees nothing and is told to ask an Admin;
-- the Dashboard and the mobile Home screen show which department they cover.
+**Managers see every department.** A Manager's Dashboard, Quality Checks, Exceptions, Jobs, Reports, Worker Performance and history cover Label, Pouch, Sleeve and any future department, with the same "All departments" / per-department filters an Admin has. What a Manager may open is decided only by the Manager role's module permissions (see "Roles and manager permissions"), never by a department on their account.
 
 Workers are unaffected: they only ever see their own checks and their own performance.
 
 ## Worker Performance and the score
 
-**Admin → Worker Performance** shows, for the chosen period, every worker's assigned checks, how many were completed, how many were not, and the resulting score. Workers see only their own figures, under **My performance** on the Profile screen of the app.
+**Admin → Worker Performance** shows, for the chosen period, every worker's checks, how many were completed, taken as an exception, missed or still open, and the resulting score. Workers see only their own figures, under **My performance** on the Profile screen of the app.
 
-The score is how much of the worker's work is **still not done**, as a negative percentage:
+Only checks whose time is over are counted: submitted, taken as an exception, Missed, or past the end of their window. A check still open inside its window is shown as **open** and is not counted yet, so nobody is marked down during a shift for a check that still has time left. An exception (a reasoned "could not do it" with a photo) counts as done; only **Missed** checks lower the score:
 
 ```
-completion % = completed / assigned x 100
-score        = completion % - 100 = -(pending %)
+assigned     = checks whose time is over
+done         = completed + exceptions
+completion % = done / assigned x 100
+score        = completion % - 100 = -(missed %)
 ```
 
-So 100 assigned with 80 completed is 80% complete, 20% pending and a score of **-20%**; everything completed is **0%**, nothing completed is **-100%**, and a worker who was given no checks at all is **0%** rather than -100%. "Not completed" counts every check that was not completed: gone past its time, taken as an exception, or still open. The table also shows that breakdown next to the completion rate.
-
-The score is a share, not a count, so ten missed out of ten reads the same as a hundred out of a hundred: **-100%**. The `score_settings` table and its `penalty per missed check` are still stored and still have their API and change history, but **the score no longer uses them**.
+So 10 counted checks with 8 done is 80% and a score of **-20%**; nothing missed is **0%**, everything missed is **-100%**, and a worker with no counted checks is **0%**. The score is a share, not a count. (The old "penalty per missed check" setting is no longer used and its Score Settings module has been removed; the `score_settings` table is kept only as history.)
 
 **Filters:** date, date range, department, worker, machine, shift and PO No. The score is recalculated for whatever is selected, so "25/09/2026" scores only that day's checks.
 
-**Departments decide who a Manager sees.** A Manager only ever sees the workers of their own department (the department on their account, Workers & Users → the manager → Department): a Pouch Manager sees Pouch workers, a Label Manager sees Label workers. The department filter is fixed to their own department and the worker list only offers its workers. This is enforced by the backend: a `departmentId` or `workerId` for another department in the request is ignored, and opening another department's worker answers **403**. A Manager whose account has no department yet sees nobody and is told to ask an Admin. Admins and the Super Admin see every department and can filter by it.
+**The department filter counts the work of that department**: the department recorded on each check (from its job's Item Code), not a department on the worker's account. So "Label" scores every worker on the Label checks they were given, and the same worker can appear under Pouch for their Pouch work.
 
 **Who sees what** (enforced by the backend, `routes/performance.ts`):
 
-| | See all workers | Filters | Change the rule | See the history |
-| --- | --- | --- | --- | --- |
-| **Super Admin / Admin** | Every department | Yes | Yes | Yes |
-| **Manager** with the Worker Performance module | Own department only | Yes (department fixed) | No (403) | No (403) |
-| **Worker** | No (403) | Own period only | No | No |
+| | See all workers | Filters |
+| --- | --- | --- |
+| **Super Admin / Admin** | Every department | Yes |
+| **Manager** with the Worker Performance module | Every department | Yes |
+| **Worker** | No (403) | Own period only |
 
-A worker reads their own figures from `GET /api/worker/performance`, which takes the worker from the signed-in account: adding someone else's worker id to the request changes nothing. Managers are given the module in **Manager Access → Worker Performance** (view only).
+A worker reads their own figures from `GET /api/worker/performance`, which takes the worker from the signed-in account: adding someone else's worker id to the request changes nothing. The Super Admin gives the Manager role **Worker Performance** (view only) in Manager Access.
 
 ## Quality Monitoring Report (PDF)
 

@@ -722,10 +722,10 @@ export const LinkButton: React.FC<{ label: string; onPress: () => void; icon?: I
   </Pressable>
 )
 
-/** Shared "no permission" state. */
+/** Shared "no permission" state. Only a Manager can lack a module, and the Super Admin sets what Managers may use. */
 export const AccessDenied: React.FC<{ title?: string; message?: string | null }> = ({
   title = 'You do not have permission for this action',
-  message = 'Ask an Admin for access.'
+  message = 'Ask the Super Admin for access.'
 }) => (
   <Card>
     <View className="items-center px-6 py-8" accessibilityRole="summary">

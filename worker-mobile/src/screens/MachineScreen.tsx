@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { View, Text, ScrollView, RefreshControl } from 'react-native'
 import { endJob, getMyMachines, getTodayChecks, startJob, startManualCheck } from '../services/api'
 import { friendlyMessage } from '../utils/friendlyError'
@@ -51,15 +51,22 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
   const [busy, setBusy] = useState<string | null>(null)
   const [handingOver, setHandingOver] = useState(false)
 
+  /** Counts the loads, so an older answer arriving late never replaces a newer one. */
+  const requestId = useRef(0)
+  /** Set the moment Start Job is pressed, before React re-renders: a double tap starts one job. */
+  const starting = useRef(false)
+
   const load = useCallback(async () => {
+    const id = ++requestId.current
     try {
       const [mine, today] = await Promise.all([getMyMachines(), getTodayChecks()])
+      if (id !== requestId.current) return
       const fresh = mine.find((m) => m.id === machine.id)
       if (fresh) setCurrent(fresh)
       setChecks(today.filter((c) => c.machineId === machine.id))
       setError(null)
     } catch (err) {
-      setError(friendlyMessage(err))
+      if (id === requestId.current) setError(friendlyMessage(err))
     }
   }, [machine.id])
 
@@ -91,19 +98,33 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
     }
   }
 
-  /** Start Job: the Job Start check opens straight away when the machine has one. */
+  /**
+   * Start Job: the server works out the job's department from its Item Code, and the Job Start check
+   * opens straight away when the department has one. Resolves false when the job could not be started
+   * (the error is shown, e.g. an Item Code whose department is not known; what was typed stays).
+   */
   const begin = async (busyKey: string, request: Parameters<typeof startJob>[1]) => {
+    // One start at a time: another Start Job pressed while a job is starting does nothing.
+    if (busy || starting.current) return false
+    starting.current = true
     setBusy(busyKey)
     try {
       const started = await startJob(current.id, request)
       await load()
       resyncLocalAlerts()
       const first = started.startChecks[0]
+      // The department the server worked out from the Item Code.
+      const department = started.department?.name ?? started.job.departmentName
       if (first) onStart(first.id)
-      else showSuccess('Job started', `PO No. ${started.job.jobNo} is running. The scheduled checks follow the admin's plan.`)
+      else showSuccess('Job started', `PO No. ${started.job.jobNo} is running${department ? ` for the ${department} department` : ''}. The scheduled checks follow the admin's plan.`)
+      return true
     } catch (err) {
       showError(err, { title: 'Could not start the job' })
+      // A planned job may have been changed or started meanwhile: show the latest (the typed values stay).
+      await load()
+      return false
     } finally {
+      starting.current = false
       setBusy(null)
     }
   }
@@ -111,7 +132,7 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
   /** End Job: opens the Job End check; the job completes when it is submitted. */
   const finishJob = () => {
     if (!job) return
-    showDialog('End this job?', `PO No. ${job.jobNo}: you will check the Job End parameters and submit them to complete the job.`, [
+    showDialog('End this job?', `PO No. ${job.jobNo}: you will do the job end checks and submit them to complete the job.`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'End Job',
@@ -184,12 +205,15 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
               </View>
             ) : null}
 
+            {/* A job-based machine shows its checks once a job runs: the job's department decides them. */}
             {current.checkTypes.length === 0 ? (
-              <EmptyState
-                icon="clipboard-outline"
-                title="No check set up"
-                message="Ask your supervisor to link a quality check to this machine."
-              />
+              current.jobBased ? null : (
+                <EmptyState
+                  icon="clipboard-outline"
+                  title="No check set up"
+                  message="Ask your supervisor to link a quality check to this machine."
+                />
+              )
             ) : (
               <View>
                 <SectionHeader size="large" title="Checks" />

@@ -59,7 +59,7 @@ export const SubmitSuccess: React.FC<Props> = ({ result, activityName, outOfRang
             <View className="flex-row items-start rounded-2xl bg-success-bg px-4 py-3.5">
               <Icon name="play-circle-outline" size={20} color="success" />
               <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink-secondary">
-                PO No. {result.job?.jobNo} is running. The scheduled checks follow the admin's plan.
+                Pre-start checks completed: PO No. {result.job?.jobNo} has started. The checks during the job follow its check plan.
               </Text>
             </View>
           ) : null}

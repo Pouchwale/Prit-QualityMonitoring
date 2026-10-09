@@ -1,4 +1,5 @@
 import React from 'react'
+import { Card, CardHeader } from '../ui/Card'
 
 /** Titled card used by the Settings and My Account pages. */
 export const Section: React.FC<{ icon: React.ReactNode; title: string; description?: string; children: React.ReactNode }> = ({
@@ -7,14 +8,8 @@ export const Section: React.FC<{ icon: React.ReactNode; title: string; descripti
   description,
   children
 }) => (
-  <section className="bg-white border border-line rounded-md shadow-2xs">
-    <div className="px-4 py-3 border-b border-line flex items-start gap-2">
-      <span className="text-accent mt-px">{icon}</span>
-      <div>
-        <h2 className="text-xs font-bold uppercase tracking-wider text-ink font-mono">{title}</h2>
-        {description && <p className="text-[11px] text-ink-muted mt-0.5">{description}</p>}
-      </div>
-    </div>
+  <Card>
+    <CardHeader icon={icon} title={title} subtitle={description} />
     <div className="p-4">{children}</div>
-  </section>
+  </Card>
 )

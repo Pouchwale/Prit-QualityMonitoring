@@ -69,7 +69,8 @@ export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<voi
   }, [])
 
   const handleLogout = async () => {
-    await unregisterForPush()
+    // The phone still gets this worker's shift-start login reminder (only that, until they sign in).
+    await unregisterForPush({ keepShiftReminders: true })
     await onLogout()
   }
 
@@ -111,7 +112,14 @@ export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<voi
     screen = (
       <>
         <View className="flex-1">
-          {tab === 'today' && <HomeScreen profile={profile} refreshKey={refreshKey} onOpenMachine={setMachine} />}
+          {tab === 'today' && (
+            <HomeScreen
+              profile={profile}
+              refreshKey={refreshKey}
+              onOpenMachine={setMachine}
+              onStartCheck={(id, startWith) => setOpenCheck({ id, startWith })}
+            />
+          )}
           {tab === 'history' && <HistoryScreen refreshKey={refreshKey} onOpenRecord={setOpenRecordId} />}
           {tab === 'profile' && <ProfileScreen profile={profile} onLogout={handleLogout} />}
         </View>

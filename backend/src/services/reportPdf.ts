@@ -27,6 +27,11 @@ import {
 /** A4 portrait, minus the left and right page margins. Every table must fit inside this. */
 const CONTENT_WIDTH = 523
 
+/** The evidence appendix: two photos to a row, each boxed to the same size so the grid lines up. */
+const PHOTO_GAP = 14
+const PHOTO_CELL = (CONTENT_WIDTH - PHOTO_GAP) / 2
+const PHOTO_HEIGHT = 190
+
 pdfmake.addFonts({
   Helvetica: {
     normal: 'Helvetica',
@@ -100,6 +105,19 @@ const tableLayout = {
   paddingBottom: () => 3
 }
 
+/** The cover's report-identity block: a light frame with comfortable padding. */
+const META_COLUMNS = 4
+const metaLayout = {
+  hLineWidth: (i: number, node: { table: { body: unknown[] } }) => (i === 0 || i === node.table.body.length ? 0.6 : 0),
+  vLineWidth: (i: number) => (i === 0 || i === META_COLUMNS ? 0.6 : 0),
+  hLineColor: () => HAIRLINE,
+  vLineColor: () => HAIRLINE,
+  paddingLeft: (i: number) => (i === 0 ? 8 : 0),
+  paddingRight: (i: number) => (i === META_COLUMNS - 1 ? 8 : 10),
+  paddingTop: () => 4,
+  paddingBottom: () => 4
+}
+
 /** Borderless layout for the meta and summary blocks. */
 const plainLayout = {
   hLineWidth: () => 0,
@@ -110,6 +128,7 @@ const plainLayout = {
   paddingBottom: () => 1.5
 }
 
+/** A numbered section rule. */
 const section = (number: number | string, title: string, note?: string): Content => ({
   stack: [
     {
@@ -447,14 +466,15 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
         { text: `Quality Report: ${longPeriod(meta.periodFrom, meta.periodTo)}`, style: 'periodLine' }
       ]
     },
+    // The identity of the record, framed so it reads as the header of a controlled document.
     {
       table: { widths: [72, '*', 62, '*'], body: metaRows },
-      layout: plainLayout,
+      layout: metaLayout,
       margin: [0, 10, 0, 0]
     },
     {
       canvas: [{ type: 'line', x1: 0, y1: 0, x2: CONTENT_WIDTH, y2: 0, lineWidth: 1, lineColor: INK }],
-      margin: [0, 8, 0, 0]
+      margin: [0, 10, 0, 0]
     },
 
     // 2. Executive summary
@@ -513,11 +533,11 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
           ]
         },
         {
-          text: `Parameter readings are separate recorded data and do not change the Result: a check with a reading outside its limits is still Completed.${report.readings.checksWithOutside ? ` ${report.readings.checksWithOutside} completed check${report.readings.checksWithOutside === 1 ? ' has' : 's have'} a reading outside limits (section 10).` : ''}`,
+          text: `Parameter readings are separate recorded data and do not change the Result: a check with a reading outside its limits is still Completed.`,
           margin: [0, 2, 0, 0]
         },
         {
-          text: `A parameter marked Not Applicable carries no reading and is never counted as a failure; the reason the worker gave is printed with the check (sections 9 and 10).`,
+          text: `A parameter marked Not Applicable carries no reading and is never counted as a failure; the reason the worker gave is printed with the check.`,
           margin: [0, 2, 0, 0]
         },
         {
@@ -533,6 +553,8 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
     {
       table: {
         headerRows: 1,
+        keepWithHeaderRows: 1,
+        dontBreakRows: true,
         widths: gridWidths([120, 44, 44, 100, '*']),
         body: [
           header(['Result', 'Count', 'Share', 'Distribution', '']),
@@ -678,88 +700,8 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
     }
   }
 
-  // 10. Parameter readings outside limits (recorded data; these checks are still Completed)
-  content.push(
-    section(
-      10,
-      'Parameter Readings Outside Limits',
-      'Readings recorded outside their acceptance limits. These checks were done and submitted, so their Result stays Completed.'
-    )
-  )
-  content.push(
-    report.outOfLimits.length === 0
-      ? empty(
-          report.readings.recorded
-            ? `All ${report.readings.recorded} recorded readings were within limits or had no limits.`
-            : 'No parameter readings were recorded in this period.'
-        )
-      : {
-          table: {
-            headerRows: 1,
-            keepWithHeaderRows: 1,
-            dontBreakRows: true,
-            widths: gridWidths([CODE_WIDTH, 44, 70, 64, '*', 44]),
-            body: [
-              header(['Check ID', 'Checked On', 'Machine / Check Type', 'Worker / Shift', 'Readings Outside Limits', 'Result']),
-              ...report.outOfLimits.map((o) => [
-                codeCell(o.code),
-                when(o.submittedAt),
-                pair(o.machineName, o.activityName),
-                pair(o.workerName, o.shiftName),
-                {
-                  stack: o.parameters.map((p) => ({
-                    text: [
-                      { text: `${p.name}: `, bold: true },
-                      { text: `${p.value}${p.unit !== '—' ? ` ${p.unit}` : ''}`, color: '#B91C1C', bold: true },
-                      { text: `  (limit ${p.standard})`, style: 'sub' }
-                    ]
-                  }))
-                },
-                { text: 'Completed', color: '#15803D', bold: true }
-              ])
-            ]
-          },
-          layout: tableLayout
-        }
-  )
-
-  /**
-   * Parameters marked Not Applicable, inside section 10 so the numbering of the report does not
-   * change. An N/A is recorded data like a reading, but it has no value and no PASS/FAIL.
-   */
-  content.push({ text: 'Parameters marked Not Applicable', style: 'h3', margin: [0, 10, 0, 3] })
-  content.push(
-    report.notApplicable.byParameter.length === 0
-      ? empty('No parameter was marked Not Applicable in this period.')
-      : {
-          table: {
-            headerRows: 1,
-            keepWithHeaderRows: 1,
-            dontBreakRows: true,
-            widths: gridWidths([160, 50, '*']),
-            body: [
-              header(['Parameter', 'N/A Count', 'Reasons Recorded']),
-              ...report.notApplicable.byParameter.map((p) => [
-                { text: p.name },
-                { text: String(p.count), alignment: 'center' as const },
-                { text: p.reasons.map((r) => `${r.reason} (${r.count})`).join(', '), style: 'sub' }
-              ]),
-              [
-                { text: 'Total', bold: true },
-                { text: String(report.notApplicable.total), alignment: 'center' as const, bold: true },
-                {
-                  text: `In ${report.notApplicable.checks} completed check${report.notApplicable.checks === 1 ? '' : 's'}. N/A never counts as a failed reading.`,
-                  style: 'sub'
-                }
-              ]
-            ]
-          },
-          layout: tableLayout
-        }
-  )
-
-  // 11. Missed checks
-  content.push(section(11, 'Missed Checks', 'The system does not record a reason for a missed check.'))
+  // 10. Missed checks
+  content.push(section(10, 'Missed Checks', 'The system does not record a reason for a missed check.'))
   content.push(
     report.missed.length === 0
       ? empty('No missed checks in this period.')
@@ -797,8 +739,8 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
         }
   )
 
-  // 12. Exceptions
-  content.push(section(12, 'Exception Checks', 'Exceptions are not quality failures; the check could not be performed.'))
+  // 11. Exceptions
+  content.push(section(11, 'Exception Checks', 'Exceptions are not quality failures; the check could not be performed.'))
   content.push(
     report.exceptions.length === 0
       ? empty('No exceptions in this period.')
@@ -836,66 +778,19 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
         }
   )
 
-  // 13. Quality issues requiring attention
-  content.push(
-    section(
-      13,
-      'Quality Issues Requiring Attention',
-      'Missed checks, exception checks and readings outside limits, kept as separate issue types.'
-    )
-  )
-  content.push(
-    report.issues.length === 0
-      ? empty('No issues recorded in this period.')
-      : {
-          table: {
-            headerRows: 1,
-            keepWithHeaderRows: 1,
-            dontBreakRows: true,
-            // 9 columns, 465.3pt to share: 390 fixed leaves 75pt for the description.
-            widths: gridWidths([46, CODE_WIDTH, 40, 58, 50, '*', 40, 44, 40]),
-            body: [
-              header([
-                'Issue Type',
-                'Check ID',
-                'Date / Time',
-                'Machine / Check Type',
-                'Worker / Shift',
-                'Description',
-                'Status',
-                'Action / Remarks',
-                'CAPA Ref.'
-              ]),
-              ...report.issues.map((i) => [
-                { text: i.type, bold: true, color: STATUS_COLOR[i.type] ?? '#B91C1C' },
-                codeCell(i.code),
-                when(i.when),
-                pair(i.machineName, i.activityName),
-                pair(i.workerName, i.shiftName),
-                { text: i.description },
-                { text: i.status },
-                { text: i.action, style: 'sub' },
-                { text: i.capa, style: 'sub' }
-              ])
-            ]
-          },
-          layout: tableLayout
-        }
-  )
-
-  // 14. Performance analysis
-  content.push(section(14, 'Performance Analysis'))
+  // 12. Performance analysis
+  content.push(section(12, 'Performance Analysis'))
   content.push({
     ul: report.analysis,
     style: 'body',
     margin: [0, 2, 0, 0]
   })
 
-  // 15. Trends
+  // 13. Trends
   const dateRows = report.byDate.filter((d) => d.counts.scheduled > 0)
   const machineRows = report.byMachine.filter((m) => m.counts.scheduled > 0)
   if (dateRows.length >= 2 || machineRows.length >= 2) {
-    content.push(section(15, 'Daily and Machine Trend', 'Completion % = completed checks ÷ scheduled checks.'))
+    content.push(section(13, 'Daily and Machine Trend', 'Completion % = completed checks ÷ scheduled checks.'))
     if (dateRows.length >= 2) {
       content.push({ text: 'Daily completion', style: 'h3', margin: [0, 4, 0, 3] })
       content.push({
@@ -928,14 +823,14 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
     }
   }
 
-  // 16. Evidence appendix (kept at the end so the main report stays readable)
+  // 14. Evidence appendix (kept at the end so the main report stays readable)
   const images = report.evidence.filter((e) => e.kind === 'PHOTO')
   const videos = report.evidence.filter((e) => e.kind === 'VIDEO')
   if (images.length || videos.length) {
     content.push({ text: '', pageBreak: 'before' })
     content.push(
       section(
-        16,
+        14,
         'Evidence Appendix',
         `${images.length} photo${images.length === 1 ? '' : 's'}${videos.length ? ` and ${videos.length} video${videos.length === 1 ? '' : 's'}` : ''} captured in this period.`
       )
@@ -955,26 +850,31 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
       const groupImages = group.items.filter((e) => e.kind === 'PHOTO')
       const shown = groupImages.slice(0, Math.max(0, budget))
       budget -= shown.length
-      const cells: Content[] = []
+      /**
+       * Two to a row, each in a column of the same width with the photo centred in it, so a
+       * portrait and a landscape shot still line up and their captions start on the same line.
+       */
+      const cells: (Content & { width?: number })[] = []
       for (const item of shown) {
         const data = imageData(item.path)
         cells.push({
+          width: PHOTO_CELL,
           unbreakable: true,
           stack: [
             data
-              ? { image: data, fit: [235, 175] as [number, number] }
-              : { text: 'Image file not available on the server', style: 'note' },
-            { text: item.code, style: 'sub', bold: true, margin: [0, 3, 0, 0] as [number, number, number, number] },
-            { text: `${item.machineName} · ${item.activityName}`, style: 'sub' },
-            { text: `${formatDateTime(item.capturedAt)} · ${item.workerName}`, style: 'sub' }
+              ? { image: data, fit: [PHOTO_CELL, PHOTO_HEIGHT] as [number, number], alignment: 'center' as const }
+              : { text: 'Image file not available on the server', style: 'note', alignment: 'center' as const },
+            { text: item.code, style: 'sub', bold: true, alignment: 'center' as const, margin: [0, 4, 0, 0] as [number, number, number, number] },
+            { text: `${item.machineName} · ${item.activityName}`, style: 'sub', alignment: 'center' as const },
+            { text: `${formatDateTime(item.capturedAt)} · ${item.workerName}`, style: 'sub', alignment: 'center' as const }
           ]
         })
       }
       for (let i = 0; i < cells.length; i += 2) {
         content.push({
-          columns: [cells[i], cells[i + 1] ?? { text: '' }],
-          columnGap: 14,
-          margin: [0, 0, 0, 12]
+          columns: [cells[i], cells[i + 1] ?? { width: PHOTO_CELL, text: '' }],
+          columnGap: PHOTO_GAP,
+          margin: [0, 0, 0, 14]
         })
       }
       if (groupImages.length > shown.length) {
@@ -993,28 +893,6 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
       }
     }
   }
-
-  // 17. Sign-off
-  const signature = (role: string): TableCell => ({
-    stack: [
-      { text: ' ', margin: [0, 16, 0, 0] as [number, number, number, number] },
-      { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 150, y2: 0, lineWidth: 0.6, lineColor: LINE }] },
-      { text: role, style: 'sub', margin: [0, 3, 0, 0] as [number, number, number, number] }
-    ]
-  })
-  content.push(section(17, 'Sign-off'))
-  content.push({
-    unbreakable: true,
-    table: {
-      widths: ['*', '*', '*'],
-      body: [
-        [signature('Prepared By'), signature('Checked By'), signature('Quality HOD')],
-        [signature('Date'), signature('Signature'), { text: '' }]
-      ]
-    },
-    layout: plainLayout,
-    margin: [0, 4, 0, 0]
-  })
 
   return {
     pageSize: 'A4',

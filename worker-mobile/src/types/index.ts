@@ -8,11 +8,14 @@ export type QualityCheckStatus =
   | 'MISSED'
   | 'EXCEPTION'
 
+export type WorkerQualityRole = 'IPQC' | 'QC' | 'BOTH'
+
 export interface Profile {
   id: string
   name: string
   employeeId: string
   role: 'WORKER' | 'MANAGER' | 'ADMIN' | 'SUPER_ADMIN'
+  workerQualityRole?: WorkerQualityRole
   /** Module access (from /api/auth/me): what an Admin or Manager may view or manage. */
   permissions?: Record<string, 'none' | 'view' | 'manage'>
   designation: string | null
@@ -20,7 +23,17 @@ export interface Profile {
   shiftName: string | null
   shiftStartTime: string | null
   shiftEndTime: string | null
+  /** The language voice alerts are spoken in (the worker's choice); notifications are always English. */
+  voiceNotificationLanguage?: VoiceLanguage
+  /**
+   * Workers with a shift: when the server ends this sign-in (the end of the shift, ISO time). The
+   * app signs out then; null when the sign-in is not tied to a shift.
+   */
+  sessionEndsAt?: string | null
 }
+
+/** Voice alert languages: English, Hindi, Gujarati. */
+export type VoiceLanguage = 'en' | 'hi' | 'gu'
 
 /** Who started the check: the scheduler (and its alert) or the worker, from the machine screen. */
 export type SubmissionType = 'NOTIFICATION' | 'MANUAL'
@@ -43,11 +56,12 @@ export type JobStatus = 'PLANNED' | 'STARTING' | 'ACTIVE' | 'ENDING' | 'COMPLETE
 export interface CheckSummary {
   id: string
   code: string
-  machineId: string
-  machineName: string
-  machineCode: string
+  machineId?: string | null
+  machineName?: string | null
+  machineCode?: string | null
   departmentName: string | null
   activityName: string
+  module?: 'IPQC' | 'QC'
   scheduledAt: string
   windowEndsAt: string
   status: QualityCheckStatus
@@ -74,7 +88,7 @@ export interface CheckSummary {
 export interface Job {
   id: string
   machineId: string
-  /** The item being produced, entered with the PO No. when the job started. */
+  /** The item being produced, entered with the PO No.; it decides the job's department. */
   itemCode?: string | null
   jobNo: string
   /** Older servers leave it out: a job that is running. */
@@ -90,6 +104,43 @@ export interface Job {
   assignedWorkerName?: string | null
   plannedFor?: string | null
   note?: string | null
+  /**
+   * The job's department (Pouch, Sleeve, Label), worked out by the server from the Item Code. On a
+   * planned job it is the one found when it was planned; Start Job works it out again.
+   */
+  departmentId?: string | null
+  departmentName?: string | null
+}
+
+/** One check of a job's check plan (a parameter of a job check type), e.g. "Viscosity". */
+export interface PlanItem {
+  parameterId: string
+  name: string
+  /** The reading must be entered (otherwise it is optional). */
+  required: boolean
+  /** The check type it belongs to. */
+  checkType: string
+}
+
+/**
+ * What a job's checks ask and when, from the admin's check type configuration (the server builds
+ * it; nothing about a department is written in the app).
+ */
+export interface JobCheckPlan {
+  checkTypes: { activityId: string; name: string; graceMinutes: number }[]
+  /** Checked before the job starts: the job waits for them. */
+  beforeStart: PlanItem[]
+  /** Due every `minutes` while the job runs; `nextDueAt` only for a running (active) job. */
+  intervals: { minutes: number; items: PlanItem[]; nextDueAt?: string | null }[]
+  /** Checked when the job is ended. */
+  atEnd: PlanItem[]
+}
+
+/** The plan of a job before Start Job: the department its Item Code names, and its checks. */
+export interface JobPlanPreview {
+  itemCode: string
+  department: { id: string; code: string; name: string }
+  plan: JobCheckPlan
 }
 
 /** One of the running job's checks for this worker (Job Start, Job End or the next interval check). */
@@ -105,15 +156,6 @@ export interface JobCheck {
   parameterNames: string[]
   canSubmit: boolean
   message: string | null
-}
-
-/** What a job-based check type asks at job start, at each interval and at job end. */
-export interface JobPlan {
-  activityId: string
-  name: string
-  start: string[]
-  intervals: { minutes: number; parameters: string[] }[]
-  end: string[]
 }
 
 /** The check a worker can open right now for one check type on one machine. */
@@ -178,10 +220,10 @@ export interface AssignedMachine {
   notRunning?: MachineNotRunning | null
   /** The running job's checks for this worker: Job Start, Job End and the next interval check. */
   jobChecks?: JobCheck[]
+  /** The running job's check plan (older servers leave it out). */
+  checkPlan?: JobCheckPlan | null
   /** Jobs planned for this machine that this worker may start. */
   plannedJobs?: Job[]
-  /** The job-based check types and when their parameters are checked. */
-  jobPlan?: JobPlan[]
 }
 
 /** Why a machine does not run today: the plant is closed, or a machine day plan leaves it out (planned). */
@@ -248,22 +290,27 @@ export interface CheckForm {
   exceptionReasons: string[]
   maxVideoSeconds: number
   captureFreshnessMinutes?: number
+  machines?: { id: string; name: string; code?: string }[]
 }
 
 /** A photo or video taken with the camera in this session. */
 /** "My performance": this worker's own figures, calculated by the backend. */
 export interface MyPerformance {
+  /** Checks whose time is over in the period: finished, or past the end of their window. */
   assigned: number
   completed: number
-  /** assigned - completed. */
+  /** Checks the worker missed: the only ones that lower the score. */
   missed: number
-  missedChecks: number
+  /** Same as `missed`, still sent by the server for older app builds. */
+  missedChecks?: number
+  /** Exceptions raised: they count as done. */
   exceptions: number
+  /** Checks still open inside their window: not counted yet. */
   open: number
+  /** Completion % minus 100 (exceptions count as done): 0 when nothing was missed. */
   score: number
+  /** (completed + exceptions) / assigned, as a percentage. */
   completionRate: number
-  /** Points lost per missed check, set by an Admin. */
-  penaltyPerMissed: number
 }
 
 export interface Capture {

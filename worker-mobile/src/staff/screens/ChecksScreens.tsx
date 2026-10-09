@@ -6,6 +6,8 @@ import { shareText } from '../../services/files'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
 import { FilterPanel, filterQuery, todayFilters, type MonitoringFilters } from '../Filters'
+import { DeleteSheet, SelectMark, SelectionFooter, deletedMessage, useDeletePermissions, useSelection } from '../deletion'
+import { printCheck } from '../printCheck'
 import {
   PARAMETER_TYPE_LABEL,
   RESULT_LABEL,
@@ -83,6 +85,12 @@ export const ChecksScreen: React.FC<{ params: ChecksParams }> = ({ params }) => 
   const rows = filters.status ? all.filter((c) => c.status === filters.status) : all
   const multiDay = filters.from !== filters.to
 
+  // Permanent delete: needs Delete Checks (the server checks it again). Only listed rows can be picked.
+  const canDeleteChecks = useDeletePermissions().DELETE_CHECKS
+  const shownRows = rows.slice(0, limit)
+  const selection = useSelection(useMemo(() => (canDeleteChecks ? shownRows.map((c) => c.id) : []), [canDeleteChecks, shownRows]))
+  const [deleting, setDeleting] = useState(false)
+
   const exportCsv = async () => {
     const csv = toCsv(
       ['Scheduled at', 'Check code', 'Machine', 'Machine code', 'Department', 'Check type', 'Worker', 'Employee ID', 'Shift', 'Status', 'Result', 'Item Code', 'PO No.', 'Submitted at', 'Parameters', 'Parameters outside limits', 'Exception reason'],
@@ -114,14 +122,33 @@ export const ChecksScreen: React.FC<{ params: ChecksParams }> = ({ params }) => 
   }
 
   const actions: HeaderAction[] = []
-  if (rows.length) actions.push({ label: 'CSV', icon: 'download-outline', onPress: exportCsv })
+  // The CSV needs the Export Reports module.
+  if (can('export') && rows.length) actions.push({ label: 'CSV', icon: 'download-outline', onPress: exportCsv })
   if (can('checks', 'manage')) actions.push({ label: 'Create test check', icon: 'add', onPress: () => push('testCheck') })
+  if (canDeleteChecks && rows.length && !selection.active) actions.push({ label: 'Select checks to delete', icon: 'checkmark-circle-outline', onPress: selection.start })
 
   const missedOnly = filters.status === 'MISSED'
   const missedCount = counts.get('MISSED') ?? 0
 
   return (
-    <Screen title="Quality Checks" right={actions} onRefresh={reload} refreshing={loading && !!data}>
+    <Screen
+      title="Quality Checks"
+      right={selection.active ? null : actions}
+      onRefresh={reload}
+      refreshing={loading && !!data}
+      footer={
+        selection.active ? (
+          <SelectionFooter
+            count={selection.selected.length}
+            noun={['check', 'checks']}
+            allSelected={selection.allSelected}
+            onToggleAll={selection.toggleAll}
+            onCancel={selection.stop}
+            onDelete={() => setDeleting(true)}
+          />
+        ) : undefined
+      }
+    >
       <View className="-mt-2 gap-3">
         <FilterPanel value={filters} onChange={setFilters} onReset={() => setFilters(todayFilters())} fields={['machine', 'worker', 'activity', 'shift', 'department']} />
         <Chips
@@ -147,19 +174,34 @@ export const ChecksScreen: React.FC<{ params: ChecksParams }> = ({ params }) => 
         emptyAction={missedOnly && all.length ? { label: 'Show all checks', onPress: () => setFilters({ ...filters, status: '' }) } : null}
       >
         <List>
-          {rows.slice(0, limit).map((c) => (
+          {shownRows.map((c) => (
             <Row
               key={c.id}
               title={c.machineName}
               subtitle={`${c.activityName} · ${multiDay ? formatDateTime(c.scheduledAt) : formatTime(c.scheduledAt)} · ${workerOf(c)}`}
-              accessibilityLabel={`${c.machineName} · ${c.activityName}`}
-              right={c.result ? <StatusBadge status={c.result} /> : <Badge label="Open" />}
-              onPress={() => push('checkDetail', { id: c.id })}
+              detail={selection.active ? c.code : null}
+              accessibilityLabel={selection.active ? `${selection.isSelected(c.id) ? 'Unselect' : 'Select'} check ${c.code}` : `${c.machineName} · ${c.activityName}`}
+              right={selection.active ? <SelectMark selected={selection.isSelected(c.id)} /> : c.result ? <StatusBadge status={c.result} /> : <Badge label="Open" />}
+              onPress={selection.active ? () => selection.toggle(c.id) : () => push('checkDetail', { id: c.id })}
             />
           ))}
           {rows.length > limit ? <ListFooterLink label={`Show more (${rows.length - limit} more)`} icon="chevron-down" onPress={() => setLimit((l) => l + 100)} /> : null}
         </List>
       </DataState>
+      {deleting ? (
+        <DeleteSheet
+          type="checks"
+          ids={selection.selected}
+          bulk
+          onClose={() => setDeleting(false)}
+          onDeleted={(r) => {
+            const m = deletedMessage(r, ['check', 'checks'])
+            notify('success', m.title, m.message)
+            selection.stop()
+            reload()
+          }}
+        />
+      ) : null}
     </Screen>
   )
 }
@@ -214,8 +256,27 @@ const ParameterCard: React.FC<{ value: CheckValue; media: MediaFile[]; workerNam
 
 /** One check: status summary, information, per-parameter readings and evidence, and any exception. */
 export const CheckDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
-  const { can, push } = useStaff()
+  const { can, push, pop } = useStaff()
+  const notify = useToast()
   const { data: check, error, loading, reload } = useQuery<QualityCheck>(`/api/quality-checks/${params.id}`)
+  // Permanent delete: needs Delete Checks (the server checks it again).
+  const canDeleteChecks = useDeletePermissions().DELETE_CHECKS
+  const [deleting, setDeleting] = useState(false)
+  const print = async () => {
+    if (!check) return
+    try {
+      await printCheck(check)
+    } catch (err) {
+      notify('error', 'Could not print', errorText(err))
+    }
+  }
+  // Printing is an export: it needs the Export Reports module.
+  const detailActions: HeaderAction[] = check
+    ? [
+        ...(can('export') ? [{ label: 'Print', icon: 'print-outline' as const, onPress: print }] : []),
+        ...(canDeleteChecks ? [{ label: 'Delete check', icon: 'trash-outline' as const, tone: 'danger' as const, onPress: () => setDeleting(true) }] : [])
+      ]
+    : []
   const outside = check ? check.values.filter((v) => v.result === 'FAIL').length : 0
   const notApplicable = check ? check.values.filter((v) => v.notApplicable).length : 0
   // Evidence captured for the whole check (or by the old single-photo flow) has no parameter.
@@ -223,7 +284,19 @@ export const CheckDetailScreen: React.FC<{ params: { id: string } }> = ({ params
   const itemCode = check?.itemCode ?? check?.job?.itemCode ?? null
   const jobNo = check?.job?.jobNo ?? check?.jobNo ?? null
   return (
-    <Screen title={check?.code ?? 'Quality check'} onRefresh={reload} refreshing={loading && !!check}>
+    <Screen title={check?.code ?? 'Quality check'} right={detailActions} onRefresh={reload} refreshing={loading && !!check}>
+      {deleting ? (
+        <DeleteSheet
+          type="checks"
+          ids={[params.id]}
+          onClose={() => setDeleting(false)}
+          onDeleted={(r) => {
+            const m = deletedMessage(r, ['check', 'checks'])
+            notify('success', m.title, m.message)
+            pop()
+          }}
+        />
+      ) : null}
       <DataState loading={loading} error={error} onRetry={reload} hasData={!!check}>
         {check ? (
           <>
@@ -306,13 +379,6 @@ export const CheckDetailScreen: React.FC<{ params: { id: string } }> = ({ params
                     <KV label="Resolution" value={check.exception.resolutionNotes} />
                   </List>
                   <EvidenceGallery media={check.exception.media} workerName={check.submittedByName ?? check.workerName} />
-                  {can('exceptions') ? (
-                    <ActionRow
-                      icon="alert-circle-outline"
-                      label={can('exceptions', 'manage') ? 'Review exception' : 'Open exception'}
-                      onPress={() => push('exceptionDetail', { id: check.exception!.id, from: dateKey(new Date(check.exception!.createdAt)) })}
-                    />
-                  ) : null}
                 </View>
               </Section>
             ) : null}

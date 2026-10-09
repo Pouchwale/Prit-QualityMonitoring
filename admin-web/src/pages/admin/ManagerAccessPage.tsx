@@ -1,6 +1,35 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Check, Edit2, Eye, KeyRound, Plus, Power, RotateCcw, ShieldCheck, X } from 'lucide-react'
-import type { Access, ManagerAccess, ModuleInfo, ModuleKey, Permissions, User } from '../../types'
+import {
+  AlertOctagon,
+  Briefcase,
+  Building2,
+  CalendarClock,
+  CalendarOff,
+  Check,
+  ClipboardCheck,
+  Clock3,
+  Cpu,
+  Download,
+  Eye,
+  FileSpreadsheet,
+  Gauge,
+  History,
+  KeyRound,
+  LayoutDashboard,
+  LayoutGrid,
+  Pencil,
+  Plus,
+  Power,
+  RotateCcw,
+  Settings,
+  ShieldCheck,
+  SlidersHorizontal,
+  Smartphone,
+  Users,
+  Workflow,
+  X
+} from 'lucide-react'
+import type { Access, ManagerAccount, ManagerRoleAccess, ModuleInfo, ModuleKey, Permissions, User } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { formatDateTime } from '../../lib/format'
@@ -14,16 +43,40 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { RevealPasswordModal } from './RevealPasswordModal'
-import { askConfirm } from '../../components/common/AppDialog'
+import { Card, CardHeader, EmptyState } from '../../components/ui/Card'
+import { IconButton } from '../../components/ui/Toolbar'
+import { Pill, UserAvatar } from '../../components/ui/Chips'
 
-const LEVELS: { value: Access; label: string; icon: React.ReactNode }[] = [
-  { value: 'none', label: 'No access', icon: <X className="w-3 h-3" /> },
-  { value: 'view', label: 'View', icon: <Eye className="w-3 h-3" /> },
-  { value: 'manage', label: 'Manage', icon: <Check className="w-3 h-3" /> }
+/** The three access levels; `on` is the look of the selected one (the text always says which). */
+const LEVELS: { value: Access; label: string; short: string; icon: React.ReactNode; on: string }[] = [
+  { value: 'none', label: 'No access', short: 'None', icon: <X className="w-3 h-3" aria-hidden />, on: 'bg-white text-ink ring-line-strong' },
+  { value: 'view', label: 'View', short: 'View', icon: <Eye className="w-3 h-3" aria-hidden />, on: 'bg-due-bg text-due ring-due-line' },
+  { value: 'manage', label: 'Manage', short: 'Manage', icon: <Check className="w-3 h-3" aria-hidden />, on: 'bg-success-bg text-success ring-success-line' }
 ]
 
-const sameAccess = (a: Permissions, b: Permissions) => (Object.keys(a) as ModuleKey[]).every((k) => a[k] === b[k])
-const grantedCount = (p: Permissions) => Object.values(p).filter((a) => a !== 'none').length
+/** The same icons as the sidebar, so a module is easy to find in the list. */
+const MODULE_ICON: Partial<Record<ModuleKey, React.ReactNode>> = {
+  dashboard: <LayoutDashboard className="w-4 h-4" />,
+  checks: <ClipboardCheck className="w-4 h-4" />,
+  jobs: <Briefcase className="w-4 h-4" />,
+  exceptions: <AlertOctagon className="w-4 h-4" />,
+  reports: <FileSpreadsheet className="w-4 h-4" />,
+  export: <Download className="w-4 h-4" />,
+  performance: <Gauge className="w-4 h-4" />,
+  machines: <Cpu className="w-4 h-4" />,
+  parameters: <SlidersHorizontal className="w-4 h-4" />,
+  activities: <Workflow className="w-4 h-4" />,
+  schedules: <CalendarClock className="w-4 h-4" />,
+  calendar: <CalendarOff className="w-4 h-4" />,
+  shifts: <Clock3 className="w-4 h-4" />,
+  departments: <Building2 className="w-4 h-4" />,
+  workers: <Users className="w-4 h-4" />,
+  audit_logs: <History className="w-4 h-4" />,
+  settings: <Settings className="w-4 h-4" />
+}
+
+/** View-only modules have nothing to manage: "Manage" is saved as "View" (the server does the same). */
+const allowed = (module: ModuleInfo, level: Access): Access => (level === 'manage' && module.viewOnly ? 'view' : level)
 
 interface AccountForm {
   employeeId: string
@@ -36,75 +89,70 @@ interface AccountForm {
 }
 
 /**
- * Admins decide which modules each Manager can view or manage. The backend checks the same
+ * Super Admin only: which modules Managers can view or manage. It is one set for the whole Manager
+ * role, so every Manager has the same access, in every department. The backend checks the same
  * permissions on every request, so hiding a page here is not the only protection.
+ *
+ * Below it, the Manager accounts it applies to. Admins also create and edit these accounts, on
+ * Workers & Users, but they cannot change the permissions.
  */
 export const ManagerAccessPage: React.FC = () => {
   const notify = useToast()
-  // Only the Super Admin may reset another user's password.
-  const canResetPassword = useAuth().user?.role === 'SUPER_ADMIN'
+  // Only the Super Admin may view or reset another user's password.
+  const { isSuperAdmin } = useAuth()
   const modulesApi = useApi<ModuleInfo[]>('/api/access/modules')
-  const managersApi = useApi<ManagerAccess[]>('/api/access/managers')
+  const roleApi = useApi<ManagerRoleAccess>('/api/access/roles/manager')
   // Full account records, needed to edit a manager's details.
   const accountsApi = useApi<User[]>('/api/users', { role: 'MANAGER' })
 
   const modules = useMemo(() => modulesApi.data ?? [], [modulesApi.data])
-  const managers = useMemo(() => managersApi.data ?? [], [managersApi.data])
+  const managers = useMemo(() => roleApi.data?.managers ?? [], [roleApi.data])
+  const saved = roleApi.data?.permissions ?? null
 
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [draft, setDraft] = useState<Permissions | null>(null)
+  /**
+   * Levels changed on this page and not saved yet. Every other module shows its saved level, so
+   * reloading the page data (e.g. after a Manager account is added) keeps these changes.
+   */
+  const [changes, setChanges] = useState<Partial<Permissions>>({})
   const [saving, setSaving] = useState(false)
   const [account, setAccount] = useState<{ editing: User | 'new'; form: AccountForm } | null>(null)
   const [accountError, setAccountError] = useState<string | null>(null)
   const [savingAccount, setSavingAccount] = useState(false)
-  const [toggling, setToggling] = useState<ManagerAccess | null>(null)
-  const [revealing, setRevealing] = useState<ManagerAccess | null>(null)
+  const [toggling, setToggling] = useState<ManagerAccount | null>(null)
+  const [revealing, setRevealing] = useState<ManagerAccount | null>(null)
 
-  const selected = managers.find((m) => m.id === selectedId) ?? null
+  const draft = useMemo(() => (saved ? { ...saved, ...changes } : null), [saved, changes])
+  const changed = useMemo(() => (saved && draft ? modules.filter((m) => draft[m.key] !== saved[m.key]) : []), [modules, saved, draft])
+  const dirty = changed.length > 0
+  const grantedCount = (p: Permissions) => modules.filter((m) => (p[m.key] ?? 'none') !== 'none').length
 
-  // Pick the first manager once loaded, and reset the draft whenever the selection changes.
+  // Closing or reloading the browser tab with unsaved changes asks first.
   useEffect(() => {
-    if (!selectedId && managers.length) setSelectedId(managers[0].id)
-  }, [managers, selectedId])
-  useEffect(() => {
-    setDraft(selected ? { ...selected.permissions } : null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId, managersApi.data])
+    if (!dirty) return
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = true // older browsers need this as well
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
 
-  const dirty = !!(selected && draft && !sameAccess(selected.permissions, draft))
-
-  const setLevel = (module: ModuleInfo, level: Access) => {
-    if (!draft) return
-    setDraft({ ...draft, [module.key]: level === 'manage' && module.viewOnly ? 'view' : level })
-  }
-  const setAll = (level: Access) => {
-    if (!draft) return
-    setDraft(Object.fromEntries(modules.map((m) => [m.key, level === 'manage' && m.viewOnly ? 'view' : level])) as Permissions)
-  }
-
-  const choose = async (id: string) => {
-    if (
-      dirty &&
-      !(await askConfirm({
-        title: 'Discard unsaved changes?',
-        message: 'The permission changes for this manager have not been saved.',
-        next: 'Choose Keep editing and press Save first to keep them.',
-        cancelLabel: 'Keep editing',
-        confirmLabel: 'Discard changes',
-        danger: true
-      }))
-    )
-      return
-    setSelectedId(id)
-  }
+  const setLevel = (module: ModuleInfo, level: Access) => setChanges((c) => ({ ...c, [module.key]: allowed(module, level) }))
+  const setAll = (level: Access) => setChanges(Object.fromEntries(modules.map((m) => [m.key, allowed(m, level)])))
 
   const save = async () => {
-    if (!selected || !draft) return
+    if (!draft || !dirty) return
     setSaving(true)
     try {
-      await api.put(`/api/access/managers/${selected.id}`, { permissions: draft })
-      notify('success', 'Permissions saved', `${selected.name} gets the new access on their next click.`)
-      await managersApi.reload()
+      // Only the modules changed here are sent; the server keeps every other module as it is.
+      const result = await api.put<{ permissions: Permissions }>('/api/access/roles/manager', {
+        permissions: Object.fromEntries(changed.map((m) => [m.key, draft[m.key]]))
+      })
+      roleApi.setData((d) => (d ? { ...d, permissions: result.permissions } : d))
+      setChanges({})
+      notify('success', 'Permissions saved', 'Every Manager gets the new access on their next click.')
+      // Also drops an older answer still on its way, so the page cannot go back to the old permissions.
+      roleApi.reload()
     } catch (err) {
       notify('error', 'Could not save permissions', errorText(err))
     } finally {
@@ -116,7 +164,7 @@ export const ManagerAccessPage: React.FC = () => {
     setAccountError(null)
     setAccount({ editing: 'new', form: { employeeId: '', name: '', designation: '', password: '', isActive: true, appAccess: false } })
   }
-  const openEditManager = (m: ManagerAccess) => {
+  const openEditManager = (m: ManagerAccount) => {
     const record = accountsApi.data?.find((u) => u.id === m.id)
     if (!record) return
     setAccountError(null)
@@ -154,14 +202,13 @@ export const ManagerAccessPage: React.FC = () => {
     try {
       if (creating) {
         const created = await api.post<User>('/api/users', body)
-        notify('success', 'Manager created', `${created.name} has no access yet. Choose their modules and save.`)
-        setSelectedId(created.id)
+        notify('success', 'Manager created', `${created.name} gets the Manager permissions set on this page.`)
       } else {
         await api.put(`/api/users/${editing.id}`, body)
         notify('success', 'Manager updated', body.name)
       }
       setAccount(null)
-      await Promise.all([managersApi.reload(), accountsApi.reload()])
+      await Promise.all([roleApi.reload(), accountsApi.reload()])
     } catch (err) {
       setAccountError(errorText(err))
     } finally {
@@ -188,9 +235,9 @@ export const ManagerAccessPage: React.FC = () => {
           isActive: true,
           appAccess: record.appAccess
         })
-        notify('success', 'Manager activated', `${toggling.name} can sign in again with the same access.`)
+        notify('success', 'Manager activated', `${toggling.name} can sign in again, with the same access as every Manager.`)
       }
-      await Promise.all([managersApi.reload(), accountsApi.reload()])
+      await Promise.all([roleApi.reload(), accountsApi.reload()])
     } catch (err) {
       notify('error', 'Could not change the account', errorText(err))
     }
@@ -200,10 +247,12 @@ export const ManagerAccessPage: React.FC = () => {
     setAccount((a) => (a ? { ...a, form: { ...a.form, [key]: value } } : a))
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
+        icon={<ShieldCheck className="w-4.5 h-4.5" />}
         title="Manager Access"
-        description="Choose which modules each Manager can view or manage. Changes apply on the manager's next click."
+        description={roleApi.data ? `${grantedCount(roleApi.data.permissions)} of ${modules.length} modules granted · ${managers.length} ${managers.length === 1 ? 'manager' : 'managers'}` : 'What Managers can view or manage'}
+        info="Choose which modules Managers can view or manage. It is one set for the whole Manager role, the same in every department, and changes apply on each Manager's next click. Admins also create and edit Manager accounts on Workers & Users, but only the Super Admin can change these permissions."
         actions={
           <Button size="sm" variant="primary" onClick={openNewManager} icon={<Plus className="w-3.5 h-3.5" />}>
             Add Manager
@@ -212,117 +261,74 @@ export const ManagerAccessPage: React.FC = () => {
       />
 
       <DataState
-        loading={managersApi.loading || modulesApi.loading}
-        error={managersApi.error || modulesApi.error}
+        loading={roleApi.loading || modulesApi.loading}
+        error={roleApi.error || modulesApi.error}
         onRetry={() => {
-          managersApi.reload()
+          roleApi.reload()
           modulesApi.reload()
         }}
-        empty={!managersApi.loading && managers.length === 0}
-        emptyText="No managers yet. Add a manager, then choose the modules they can use."
+        // Once loaded, the page stays on screen while it reloads (e.g. after an account change).
+        empty={roleApi.data && modulesApi.data ? false : undefined}
       >
-        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 items-start">
-          {/* Managers */}
-          <section className="bg-white border border-line rounded-md shadow-2xs overflow-hidden" aria-label="Managers">
-            <div className="px-3 py-2 border-b border-line bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-ink-secondary">
-              Managers · {managers.length}
-            </div>
-            <ul className="divide-y divide-line max-h-[60vh] overflow-y-auto">
-              {managers.map((m) => {
-                const active = m.id === selectedId
-                return (
-                  <li key={m.id}>
-                    <button
-                      type="button"
-                      onClick={() => choose(m.id)}
-                      aria-current={active ? 'true' : undefined}
-                      className={`w-full text-left px-3 py-2.5 flex items-center justify-between gap-2 transition-colors ${
-                        active ? 'bg-subtle border-l-2 border-accent pl-2.5' : 'hover:bg-slate-50'
-                      }`}
-                    >
-                      <span className="min-w-0">
-                        <span className={`block text-[13px] lg:text-xs font-semibold truncate ${m.isActive ? 'text-ink' : 'text-ink-muted'}`}>{m.name}</span>
-                        <span className="block text-[11px] text-ink-muted font-mono truncate">
-                          {m.employeeId}
-                          {m.designation ? ` · ${m.designation}` : ''}
-                        </span>
-                      </span>
-                      <span className="shrink-0 flex flex-col items-end gap-1">
-                        {!m.isActive && <StatusBadge status="DISABLED" size="sm" />}
-                        <span className="text-[11px] text-ink-muted whitespace-nowrap">
-                          {grantedCount(m.permissions)} of {modules.length}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </section>
-
-          {/* Permissions of the selected manager */}
-          {selected && draft && (
-            <section className="bg-white border border-line rounded-md shadow-2xs overflow-hidden" aria-label={`Permissions for ${selected.name}`}>
-              <div className="px-4 py-3 border-b border-line bg-slate-50 flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <h2 className="text-sm font-bold text-ink flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-accent" />
-                    {selected.name}
-                  </h2>
-                  <p className="text-[11px] text-ink-muted">
-                    {selected.isActive ? 'Active' : 'Deactivated'} · last sign-in {selected.lastLoginAt ? formatDateTime(selected.lastLoginAt) : 'never'}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <Button size="sm" variant="outline" onClick={() => openEditManager(selected)} icon={<Edit2 className="w-3 h-3" />} disabled={!accountsApi.data}>
-                    Edit account
+        {saved && draft && (
+          <div className="space-y-5">
+            {/* Permissions of the Manager role. overflow-clip (not hidden) keeps the Save bar in view while scrolling. */}
+            <Card className="overflow-clip" aria-label="Manager permissions">
+              <CardHeader
+                icon={<ShieldCheck className="w-4 h-4" />}
+                title="Manager permissions"
+                subtitle="Applies to every Manager"
+                info="These permissions apply to every Manager. Only the Super Admin can change them. The server checks the same permissions on every request."
+                actions={
+                  <div role="group" aria-label="Set all modules" className="hidden sm:flex items-center gap-1">
+                    <span className="text-[11.5px] text-ink-muted mr-1">Set all</span>
+                    {LEVELS.map((l) => (
+                      <Button key={l.value} size="sm" variant="ghost" onClick={() => setAll(l.value)} disabled={saving} icon={l.icon} aria-label={`Set all modules to ${l.label}`}>
+                        {l.short}
+                      </Button>
+                    ))}
+                  </div>
+                }
+              />
+              {/* Phones: the Set all buttons get their own row. */}
+              <div role="group" aria-label="Set all modules" className="sm:hidden flex flex-wrap items-center gap-1 px-3 py-2 border-b border-line">
+                <span className="text-[11.5px] text-ink-muted mr-1">Set all</span>
+                {LEVELS.map((l) => (
+                  <Button key={l.value} size="sm" variant="ghost" onClick={() => setAll(l.value)} disabled={saving} icon={l.icon} aria-label={`Set all modules to ${l.label}`}>
+                    {l.short}
                   </Button>
-                  {canResetPassword && (
-                    <Button size="sm" variant="outline" onClick={() => setRevealing(selected)} icon={<KeyRound className="w-3 h-3" />}>
-                      View password
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant={selected.isActive ? 'ghost' : 'outline'}
-                    onClick={() => setToggling(selected)}
-                    icon={<Power className={`w-3 h-3 ${selected.isActive ? 'text-failed' : 'text-success'}`} />}
-                  >
-                    {selected.isActive ? 'Deactivate' : 'Activate'}
-                  </Button>
-                </div>
+                ))}
               </div>
 
-              <div className="px-4 py-2 border-b border-line flex flex-wrap items-center gap-2 text-[11px] text-ink-muted">
-                <span>Set all:</span>
-                <Button size="sm" variant="ghost" onClick={() => setAll('none')}>
-                  No access
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setAll('view')}>
-                  View all
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setAll('manage')}>
-                  Manage all
-                </Button>
-              </div>
-
-              <ul className="divide-y divide-line">
+              <ul className="p-3 grid grid-cols-1 xl:grid-cols-2 gap-2.5">
                 {modules.map((m) => {
                   const level = draft[m.key]
-                  const changed = level !== selected.permissions[m.key]
+                  const isChanged = level !== saved[m.key]
                   return (
-                    <li key={m.key} className={`px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${changed ? 'bg-due-bg/50' : ''}`}>
-                      <div className="min-w-0">
-                        <div className="text-[13px] lg:text-xs font-semibold text-ink">
-                          {m.label}
-                          {changed && <span className="ml-1.5 text-[11px] font-medium text-due">changed</span>}
-                        </div>
-                        <div className="text-[11px] text-ink-muted">
-                          {m.description}
-                          {m.viewOnly ? ' · view only' : ''}
+                    <li
+                      key={m.key}
+                      className={`flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors ${isChanged ? 'border-accent-line bg-accent-soft/40' : 'border-line bg-white'}`}
+                    >
+                      <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                        <span className="w-8 h-8 shrink-0 rounded-md bg-subtle text-ink-secondary flex items-center justify-center" aria-hidden>
+                          {MODULE_ICON[m.key] ?? <LayoutGrid className="w-4 h-4" />}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[13px] font-semibold text-ink">{m.label}</span>
+                            {m.viewOnly && <span className="text-[11px] text-ink-muted">· view only</span>}
+                            {isChanged && (
+                              <span className="h-[18px] px-1.5 inline-flex items-center rounded-full bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line text-[11px] font-semibold">
+                                Changed
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11.5px] text-ink-muted leading-snug line-clamp-2" title={m.description}>
+                            {m.description}
+                          </p>
                         </div>
                       </div>
-                      <div role="radiogroup" aria-label={`${m.label} access`} className="grid grid-cols-3 sm:inline-flex shrink-0 rounded border border-line-strong overflow-hidden">
+                      <div role="radiogroup" aria-label={`${m.label} access`} className="grid grid-cols-3 gap-0.5 p-0.5 rounded-md bg-subtle border border-line sm:w-[228px] shrink-0">
                         {LEVELS.map((l) => {
                           const disabled = l.value === 'manage' && m.viewOnly
                           const on = level === l.value
@@ -332,21 +338,15 @@ export const ManagerAccessPage: React.FC = () => {
                               type="button"
                               role="radio"
                               aria-checked={on}
-                              disabled={disabled}
+                              disabled={disabled || saving}
                               onClick={() => setLevel(m, l.value)}
-                              title={disabled ? `${m.label} has nothing to manage` : undefined}
-                              className={`h-[40px] lg:h-7 px-2.5 inline-flex items-center justify-center gap-1 text-[12px] lg:text-[11px] font-medium whitespace-nowrap border-r border-line last:border-r-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                                on
-                                  ? l.value === 'none'
-                                    ? 'bg-slate-700 text-white'
-                                    : l.value === 'view'
-                                      ? 'bg-due text-white'
-                                      : 'bg-success text-white'
-                                  : 'bg-white text-ink-secondary hover:bg-slate-50'
+                              title={disabled ? `${m.label} has nothing to manage` : l.label}
+                              className={`h-[36px] lg:h-7 px-2 inline-flex items-center justify-center gap-1 rounded text-[12px] font-medium whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                on ? `${l.on} shadow-[var(--shadow-card)] ring-1` : 'text-ink-secondary hover:text-ink hover:bg-white/60'
                               }`}
                             >
                               {l.icon}
-                              {l.label}
+                              {l.short}
                             </button>
                           )
                         })}
@@ -356,12 +356,12 @@ export const ManagerAccessPage: React.FC = () => {
                 })}
               </ul>
 
-              <div className="sticky bottom-0 px-4 py-3 border-t border-line bg-slate-50 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[11px] text-ink-muted">
-                  {dirty ? 'Unsaved changes' : `${grantedCount(selected.permissions)} of ${modules.length} modules granted`}
+              <div className="sticky bottom-0 px-4 py-3 border-t border-line bg-white/95 backdrop-blur flex flex-wrap items-center justify-between gap-2">
+                <span className={`text-[12px] ${dirty ? 'font-medium text-accent-strong' : 'text-ink-muted'}`} aria-live="polite">
+                  {dirty ? `${changed.length} unsaved ${changed.length === 1 ? 'change' : 'changes'}` : `${grantedCount(saved)} of ${modules.length} modules granted`}
                 </span>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => setDraft({ ...selected.permissions })} disabled={!dirty || saving} icon={<RotateCcw className="w-3 h-3" />}>
+                  <Button size="sm" variant="ghost" onClick={() => setChanges({})} disabled={!dirty || saving} icon={<RotateCcw className="w-3 h-3" />}>
                     Undo
                   </Button>
                   <Button size="sm" variant="primary" onClick={save} disabled={!dirty} loading={saving}>
@@ -369,9 +369,109 @@ export const ManagerAccessPage: React.FC = () => {
                   </Button>
                 </div>
               </div>
-            </section>
-          )}
-        </div>
+            </Card>
+
+            {/* The Manager accounts these permissions apply to */}
+            <Card className="overflow-hidden" aria-label="Managers">
+              <CardHeader
+                icon={<Users className="w-4 h-4" />}
+                title="Managers"
+                subtitle="Accounts these permissions apply to"
+                actions={
+                  <span className="h-5 min-w-5 px-1.5 inline-flex items-center justify-center rounded-full bg-subtle text-ink-muted ring-1 ring-inset ring-line text-[11px] font-semibold tabular-nums">
+                    {managers.length}
+                  </span>
+                }
+              />
+              {managers.length === 0 ? (
+                <EmptyState
+                  icon={<Users className="w-5 h-5" />}
+                  title="No managers yet"
+                  hint="Add a manager to give them these permissions."
+                  compact
+                  action={
+                    <Button size="sm" variant="outline" onClick={openNewManager} icon={<Plus className="w-3.5 h-3.5" />}>
+                      Add Manager
+                    </Button>
+                  }
+                />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="data-table stack-sm">
+                    <thead>
+                      <tr>
+                        <th>Manager</th>
+                        <th>Status</th>
+                        <th>Last sign-in</th>
+                        <th className="text-right">
+                          <span className="sr-only">Actions</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {managers.map((m) => {
+                        const record = accountsApi.data?.find((u) => u.id === m.id)
+                        return (
+                          <tr key={m.id}>
+                            <td>
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <UserAvatar name={m.name} muted={!m.isActive} />
+                                <div className="min-w-0 text-left">
+                                  <div className={`font-semibold truncate ${m.isActive ? 'text-ink' : 'text-ink-muted'}`}>{m.name}</div>
+                                  <div className="text-[11.5px] text-ink-muted truncate">
+                                    <span className="font-mono">{m.employeeId}</span>
+                                    {m.designation ? ` · ${m.designation}` : ''}
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                <StatusBadge status={m.isActive ? 'ACTIVE' : 'DISABLED'} size="sm" />
+                                {record && (
+                                  <Pill
+                                    className={record.appAccess ? 'bg-white text-ink-secondary ring-line-strong' : 'bg-subtle text-ink-muted ring-line'}
+                                    title={record.appAccess ? 'Can sign in to the mobile app' : 'Mobile app blocked'}
+                                  >
+                                    <Smartphone className="w-3 h-3" aria-hidden />
+                                    <span className="sr-only">Mobile app: </span>
+                                    {record.appAccess ? 'App' : 'No app'}
+                                  </Pill>
+                                )}
+                              </div>
+                            </td>
+                            <td className="whitespace-nowrap text-ink-secondary tabular-nums">
+                              {m.lastLoginAt ? formatDateTime(m.lastLoginAt) : <span className="text-ink-faint">Never</span>}
+                            </td>
+                            <td className="text-right whitespace-nowrap" data-label="">
+                              <div className="inline-flex items-center gap-0.5">
+                                <IconButton label={`Edit account of ${m.name}`} onClick={() => openEditManager(m)} disabled={!accountsApi.data}>
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </IconButton>
+                                {isSuperAdmin && (
+                                  <IconButton label={`View password of ${m.name}`} onClick={() => setRevealing(m)}>
+                                    <KeyRound className="w-3.5 h-3.5" />
+                                  </IconButton>
+                                )}
+                                <IconButton
+                                  label={`${m.isActive ? 'Deactivate' : 'Activate'} ${m.name}`}
+                                  tone={m.isActive ? 'danger' : 'neutral'}
+                                  onClick={() => setToggling(m)}
+                                >
+                                  <Power className={`w-3.5 h-3.5 ${m.isActive ? '' : 'text-success'}`} />
+                                </IconButton>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          </div>
+        )}
       </DataState>
 
       <Modal
@@ -403,7 +503,7 @@ export const ManagerAccessPage: React.FC = () => {
               <Field label="Designation">
                 <TextInput value={account.form.designation} onChange={(e) => setForm('designation', e.target.value)} placeholder="e.g. Production Manager" maxLength={100} />
               </Field>
-              {(account.editing === 'new' || canResetPassword) && (
+              {(account.editing === 'new' || isSuperAdmin) && (
                 <Field
                   label={account.editing === 'new' ? 'Password' : 'New password'}
                   required={account.editing === 'new'}
@@ -413,7 +513,7 @@ export const ManagerAccessPage: React.FC = () => {
                 </Field>
               )}
             </div>
-            {account.editing !== 'new' && !canResetPassword && (
+            {account.editing !== 'new' && !isSuperAdmin && (
               <p className="text-[11px] text-ink-muted">Only the Super Admin can change this manager's password.</p>
             )}
             <Toggle checked={account.form.isActive} onChange={(v) => setForm('isActive', v)} label="Active" description="Deactivated managers cannot sign in" />
@@ -424,7 +524,7 @@ export const ManagerAccessPage: React.FC = () => {
               description="Can sign in to the mobile app, with the same module access as on the web"
             />
             {account.editing === 'new' && (
-              <p className="text-[11px] text-ink-muted">A new manager has no access until you choose their modules and save.</p>
+              <p className="text-[11px] text-ink-muted">A new manager gets the Manager permissions shown on this page, like every other Manager.</p>
             )}
           </form>
         )}
@@ -437,8 +537,8 @@ export const ManagerAccessPage: React.FC = () => {
         title={toggling?.isActive ? 'Deactivate manager?' : 'Activate manager?'}
         message={
           toggling?.isActive
-            ? `${toggling?.name} will be signed out now and cannot sign in until activated again. Their permissions are kept.`
-            : `${toggling?.name} can sign in again with the permissions they had.`
+            ? `${toggling?.name} will be signed out now and cannot sign in until activated again.`
+            : `${toggling?.name} can sign in again, with the same access as every Manager.`
         }
         confirmLabel={toggling?.isActive ? 'Deactivate' : 'Activate'}
         danger={toggling?.isActive}

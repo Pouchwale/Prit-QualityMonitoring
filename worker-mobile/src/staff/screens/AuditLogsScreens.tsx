@@ -24,7 +24,8 @@ import {
 } from '../ui'
 import { SummaryHeader, facts } from './adminParts'
 
-const ENTITIES = ['User', 'Parameter', 'Activity', 'Machine', 'Schedule', 'Shift', 'Department', 'PlantCalendar', 'QualityCheck', 'Exception', 'Settings']
+// Role: changes to the Manager role's permissions (Manager Access).
+const ENTITIES = ['User', 'Role', 'Parameter', 'Activity', 'Machine', 'Schedule', 'Shift', 'Department', 'PlantCalendar', 'QualityCheck', 'Exception', 'Settings']
 const PER_PAGE = [25, 50, 100, 200]
 const DEFAULT_PER_PAGE = 25
 
@@ -93,7 +94,7 @@ export const AuditLogsScreen: React.FC<{ params: Record<string, never> }> = () =
   if (!allowed) {
     return (
       <Screen title="Audit Logs">
-        <AccessDenied message="Ask an Admin for access to Audit Logs." />
+        <AccessDenied message="Ask the Super Admin for access to Audit Logs." />
       </Screen>
     )
   }

@@ -17,6 +17,7 @@ import {
 } from 'drizzle-orm/pg-core'
 
 export const roleEnum = pgEnum('role', ['WORKER', 'ADMIN', 'MANAGER', 'SUPER_ADMIN'])
+export const qualityModuleEnum = pgEnum('quality_module', ['IPQC', 'QC'])
 export const parameterTypeEnum = pgEnum('parameter_type', ['NUMBER', 'TEXT', 'DROPDOWN', 'YES_NO', 'PASS_FAIL', 'PHOTO'])
 export const machineStatusEnum = pgEnum('machine_status', ['ACTIVE', 'MAINTENANCE', 'IDLE'])
 export const checkStatusEnum = pgEnum('check_status', [
@@ -72,6 +73,29 @@ export const departments = pgTable('departments', {
   ...timestamps
 })
 
+/**
+ * Department Configuration: which department an Item Code prefix stands for, e.g. RMLA -> Label.
+ * A job whose Item Code starts with the prefix is that department's job (services/itemCodeDepartment.ts).
+ * This is the one place the mapping is kept. Prefixes are stored in upper case and never overlap
+ * (RM and RMLA cannot both exist), so an Item Code matches at most one row. An inactive row still
+ * reserves its prefix, but jobs with it cannot be planned or started.
+ */
+export const departmentMappings = pgTable(
+  'department_mappings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    prefix: text('prefix').notNull().unique(),
+    departmentId: uuid('department_id')
+      .notNull()
+      .references(() => departments.id, { onDelete: 'restrict' }),
+    isActive: boolean('is_active').notNull().default(true),
+    createdById: uuid('created_by_id').references(() => users.id, { onDelete: 'set null' }),
+    updatedById: uuid('updated_by_id').references(() => users.id, { onDelete: 'set null' }),
+    ...timestamps
+  },
+  (t) => [index('department_mappings_department_idx').on(t.departmentId)]
+)
+
 export const shifts = pgTable('shifts', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
@@ -104,6 +128,13 @@ export const users = pgTable('users', {
   isActive: boolean('is_active').notNull().default(true),
   /** Whether the user may sign in to the worker mobile app. */
   appAccess: boolean('app_access').notNull().default(true),
+  /**
+   * The language the phone speaks voice alerts in (the worker's choice on the Profile screen):
+   * en English, hi Hindi, gu Gujarati. Notifications themselves are always in English.
+   */
+  voiceNotificationLanguage: text('voice_notification_language').$type<'en' | 'hi' | 'gu'>().notNull().default('en'),
+  /** Worker's assigned quality role: IPQC, QC, or BOTH (IPQC + QC). */
+  workerQualityRole: text('worker_quality_role').$type<'IPQC' | 'QC' | 'BOTH'>().notNull().default('IPQC'),
   /**
    * What the worker's latest device reported when it tried to turn on alerts, including why it
    * could not (e.g. Expo Go without a project id, permission denied, web app without HTTPS).
@@ -175,6 +206,7 @@ export const activities = pgTable('activities', {
   code: text('code').notNull().unique(),
   departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
   description: text('description'),
+  module: qualityModuleEnum('module').notNull().default('IPQC'),
   /** "Overall check photo/video": one photo/video for the whole check, next to the per-parameter rules. */
   requirePhoto: boolean('require_photo').notNull().default(true),
   requireVideo: boolean('require_video').notNull().default(false),
@@ -223,16 +255,18 @@ export const machineActivities = pgTable(
 
 export const schedules = pgTable('schedules', {
   id: uuid('id').primaryKey().defaultRandom(),
-  machineId: uuid('machine_id').notNull().references(() => machines.id, { onDelete: 'restrict' }),
+  machineId: uuid('machine_id').references(() => machines.id, { onDelete: 'restrict' }),
   activityId: uuid('activity_id').notNull().references(() => activities.id, { onDelete: 'restrict' }),
-  shiftId: uuid('shift_id').notNull().references(() => shifts.id, { onDelete: 'restrict' }),
-  /** Optional: when empty, each check goes to the worker assigned to the machine on that shift (services/workerAssignment.ts). */
+  shiftId: uuid('shift_id').references(() => shifts.id, { onDelete: 'restrict' }),
+  /** The assigned worker for worker/role-based schedules. */
   workerId: uuid('worker_id').references(() => users.id, { onDelete: 'set null' }),
+  departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
+  module: qualityModuleEnum('module').notNull().default('IPQC'),
   intervalMinutes: integer('interval_minutes').notNull(),
-  /** Optional window inside the shift (HH:MM). Defaults to the shift times. */
+  /** Optional window inside the shift or day (HH:MM). Defaults to the shift times. */
   startTime: text('start_time'),
   endTime: text('end_time'),
-  /** INTERVAL: checks all through the shift. JOB: only while a job runs on the machine. */
+  /** INTERVAL: checks all through the shift/window. JOB: only while a job runs on the machine. */
   mode: scheduleModeEnum('mode').notNull().default('INTERVAL'),
   isActive: boolean('is_active').notNull().default(true),
   ...timestamps
@@ -268,9 +302,10 @@ export const jobs = pgTable(
     /** Closed by an Admin/Manager without the Job End check. */
     forceClosed: boolean('force_closed').notNull().default(false),
     /**
-     * The department doing this job. Machines are shared, so the department belongs to the work,
-     * not to the machine: it is fixed when a worker starts the job (their department) and never
-     * changes afterwards, not even on a handover to another department.
+     * The department doing this job. Machines and workers are shared, so the department belongs to
+     * the work, not to the machine or the worker: it is worked out from the job's Item Code prefix
+     * (department_mappings) when the job is planned or started, and it never changes afterwards, not
+     * even on a handover or when the mapping is edited later.
      */
     departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
     ...timestamps
@@ -352,7 +387,7 @@ export const qualityChecks = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     code: text('code').notNull().unique(),
     scheduleId: uuid('schedule_id').references(() => schedules.id, { onDelete: 'set null' }),
-    machineId: uuid('machine_id').notNull().references(() => machines.id, { onDelete: 'restrict' }),
+    machineId: uuid('machine_id').references(() => machines.id, { onDelete: 'restrict' }),
     activityId: uuid('activity_id').notNull().references(() => activities.id, { onDelete: 'restrict' }),
     workerId: uuid('worker_id').references(() => users.id, { onDelete: 'set null' }),
     shiftId: uuid('shift_id').references(() => shifts.id, { onDelete: 'set null' }),
@@ -382,10 +417,12 @@ export const qualityChecks = pgTable(
     parameterIds: uuid('parameter_ids').array(),
     /**
      * The department this check belongs to, written when the check is created: the job's
-     * department, or the check type's when there is no job. Managers are scoped by this, never by
-     * the machine, because a machine is used by several departments.
+     * department, or the check type's when there is no job. Department filters use this, never the
+     * machine, because a machine is used by several departments. It is never recalculated.
      */
     departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
+    /** IPQC or QC: the check type's (or schedule's) module, written on every insert. */
+    module: qualityModuleEnum('module').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => [
@@ -405,11 +442,21 @@ export const qualityChecks = pgTable(
     uniqueIndex('quality_checks_one_open_job_check')
       .on(t.jobId, t.activityId, t.kind, t.scheduledAt)
       .where(sql`${t.kind} <> 'SCHEDULED' and ${t.status} in ('PENDING', 'DUE', 'IN_PROGRESS')`),
-    index('quality_checks_job_idx').on(t.jobId)
+    index('quality_checks_job_idx').on(t.jobId),
+    // The worker app, performance and history read checks by worker, submitter and department.
+    index('quality_checks_worker_status_idx').on(t.workerId, t.status),
+    index('quality_checks_submitted_by_idx').on(t.submittedById, t.submittedAt),
+    index('quality_checks_department_scheduled_idx').on(t.departmentId, t.scheduledAt),
+    // Moving open checks to Due or Missed (every minute and before reads) scans only the open ones.
+    index('quality_checks_open_window_idx')
+      .on(t.windowEndsAt)
+      .where(sql`${t.status} in ('PENDING', 'DUE', 'IN_PROGRESS')`)
   ]
 )
 
-export const qualityCheckValues = pgTable('quality_check_values', {
+export const qualityCheckValues = pgTable(
+  'quality_check_values',
+  {
   id: uuid('id').primaryKey().defaultRandom(),
   checkId: uuid('check_id').notNull().references(() => qualityChecks.id, { onDelete: 'cascade' }),
   parameterId: uuid('parameter_id').references(() => parameters.id, { onDelete: 'set null' }),
@@ -428,16 +475,18 @@ export const qualityCheckValues = pgTable('quality_check_values', {
   /** Applicability rule snapshot at submission time. */
   appliesWhen: appliesWhenEnum('applies_when'),
   sortOrder: integer('sort_order').notNull().default(0)
-})
+  },
+  (t) => [index('quality_check_values_check_idx').on(t.checkId)]
+)
 
 export const checkExceptions = pgTable('exceptions', {
   id: uuid('id').primaryKey().defaultRandom(),
   checkId: uuid('check_id').notNull().unique().references(() => qualityChecks.id, { onDelete: 'cascade' }),
   workerId: uuid('worker_id').references(() => users.id, { onDelete: 'set null' }),
-  machineId: uuid('machine_id').notNull().references(() => machines.id, { onDelete: 'restrict' }),
+  machineId: uuid('machine_id').references(() => machines.id, { onDelete: 'restrict' }),
   reason: text('reason').notNull(),
   remark: text('remark'),
-  status: exceptionStatusEnum('status').notNull().default('UNDER_REVIEW'),
+  status: exceptionStatusEnum('status').notNull().default('RESOLVED'),
   reviewedById: uuid('reviewed_by_id').references(() => users.id, { onDelete: 'set null' }),
   resolutionNotes: text('resolution_notes'),
   ...timestamps
@@ -466,9 +515,17 @@ export const media = pgTable('media', {
   originalSha256: text('original_sha256'),
   /** Pixel size of the stored file, upright. */
   width: integer('width'),
-  height: integer('height')
+  height: integer('height'),
+  /**
+   * SHA-256 of a photo's decoded pixels (services/uploads.ts). The same picture sent again with other
+   * bytes (metadata changed, bytes appended) has the same pixels, so it is refused like an exact copy.
+   */
+  contentSha256: text('content_sha256')
 }, (t) => [
   index('media_sha256_idx').on(t.sha256),
+  index('media_content_sha256_idx').on(t.contentSha256),
+  index('media_check_idx').on(t.checkId),
+  index('media_exception_idx').on(t.exceptionId),
   index('media_original_sha256_idx').on(t.originalSha256),
   index('media_processing_pending_idx').on(t.createdAt).where(sql`${t.processing} = 'PENDING'`)
 ])
@@ -486,13 +543,48 @@ export const pushTokens = pgTable('push_tokens', {
   kind: text('kind').$type<'expo' | 'web'>().notNull().default('expo'),
   subscription: jsonb('subscription').$type<{ endpoint: string; keys: { p256dh: string; auth: string } }>(),
   platform: text('platform'),
+  /**
+   * kind 'expo' on Android (app 1.2.0+): the phone's own Firebase (FCM) token. Due-check alerts then go
+   * straight to Firebase as data messages, so the app's voice service can speak them with the app
+   * closed (services/fcm.ts); without it, or if Firebase fails, they go through Expo as before.
+   */
+  fcmToken: text('fcm_token').unique(),
+  /**
+   * Set when the worker signed out on this phone (or their shift ended). The phone stays registered
+   * so the shift-start login reminder can still reach it, but due-check and other alerts only go to
+   * phones that are signed in (null). Signing in again clears it.
+   */
+  signedOutAt: timestamp('signed_out_at', { withTimezone: true }),
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 })
 
 /**
- * What a Manager may use. One row per manager and module; a missing row means no access.
- * Admins and Super Admins are not listed here: they always have full access.
+ * Voice alert steps reported by phones (push received, voice found, speaking started, spoken or
+ * why not, with the phone state: app in front, screen on/off, locked), to check voice alerts from
+ * the server. Only a log: nothing reads it to decide anything. Kept for 14 days.
+ */
+export const voiceEvents = pgTable(
+  'voice_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    platform: text('platform'),
+    /** When it happened on the phone. */
+    at: timestamp('at', { withTimezone: true }).notNull(),
+    step: text('step').notNull(),
+    detail: text('detail'),
+    /** The phone state then, e.g. "background · screen off · locked". */
+    state: text('state'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index('voice_events_user_at_idx').on(t.userId, t.at)]
+)
+
+/**
+ * Per-user grants. Holds the Admin delete permissions (keys `delete:*`, lib/deletePermissions.ts).
+ * Module rows of Managers were used before the Manager role got one shared set (role_permissions);
+ * they are no longer read.
  */
 export const managerPermissions = pgTable(
   'manager_permissions',
@@ -505,6 +597,68 @@ export const managerPermissions = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.module] })]
 )
+
+/**
+ * What a role may use, set by the Super Admin (lib/permissions.ts). Only the MANAGER role has
+ * rows: one per module it may use, a missing row means no access. Admins and the Super Admin are
+ * not listed: they always have full access.
+ */
+export const rolePermissions = pgTable(
+  'role_permissions',
+  {
+    role: roleEnum('role').notNull(),
+    module: text('module').notNull(),
+    canView: boolean('can_view').notNull().default(false),
+    canManage: boolean('can_manage').notNull().default(false),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [primaryKey({ columns: [t.role, t.module] })]
+)
+
+/**
+ * One row per worker and shift occurrence (services/workerShifts.ts): when the shift runs, whether
+ * and when the worker signed in for it, the shift-start login reminders sent, and how the session
+ * ended (signed out, or logged out automatically when the shift ended). Created at sign-in or at the
+ * first reminder, whichever comes first. A record of activity only: no password or token is kept.
+ */
+export const workerShiftLogins = pgTable(
+  'worker_shift_logins',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workerId: uuid('worker_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    shiftId: uuid('shift_id').references(() => shifts.id, { onDelete: 'set null' }),
+    /** The shift occurrence, as instants (an overnight shift ends the next day). */
+    shiftStart: timestamp('shift_start', { withTimezone: true }).notNull(),
+    shiftEnd: timestamp('shift_end', { withTimezone: true }).notNull(),
+    /** First and latest sign-in for this occurrence; null while the worker has not signed in. */
+    loginAt: timestamp('login_at', { withTimezone: true }),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    logoutAt: timestamp('logout_at', { withTimezone: true }),
+    /** MANUAL (signed out) or SHIFT_ENDED (logged out automatically at the end of the shift). */
+    logoutReason: text('logout_reason').$type<'MANUAL' | 'SHIFT_ENDED'>(),
+    remindersSent: integer('reminders_sent').notNull().default(0),
+    firstReminderAt: timestamp('first_reminder_at', { withTimezone: true }),
+    lastReminderAt: timestamp('last_reminder_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    uniqueIndex('worker_shift_logins_worker_start_idx').on(t.workerId, t.shiftStart),
+    index('worker_shift_logins_open_idx').on(t.shiftEnd).where(sql`${t.logoutAt} is null`)
+  ]
+)
+
+/**
+ * Refresh tokens ended by signing out (routes/auth.ts). A row is kept until the token would have
+ * expired anyway, then removed by the scheduler.
+ */
+export const revokedTokens = pgTable('revoked_tokens', {
+  jti: text('jti').primaryKey(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+})
 
 export const auditLogs = pgTable('audit_logs', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -672,3 +826,62 @@ export const scoreSettingHistory = pgTable('score_setting_history', {
   changedById: uuid('changed_by_id').references(() => users.id, { onDelete: 'set null' }),
   changedAt: timestamp('changed_at', { withTimezone: true }).notNull().defaultNow()
 })
+
+/**
+ * Dedicated notification phone/user assignments per quality module (IPQC / QC).
+ * When an IPQC check becomes due, notifications route to the IPQC assigned user's phone.
+ * When a QC check becomes due, notifications route to the QC assigned user's phone.
+ */
+export const moduleNotificationAssignments = pgTable('module_notification_assignments', {
+  module: text('module').primaryKey(), // 'IPQC' | 'QC'
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedById: uuid('updated_by_id').references(() => users.id, { onDelete: 'set null' })
+})
+
+export const reportEmailSettings = pgTable('report_email_settings', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  isEnabled: boolean('is_enabled').notNull().default(false),
+  frequencyHours: integer('frequency_hours').notNull().default(1),
+  frequencyMinutes: integer('frequency_minutes').default(60),
+  frequencyMode: text('frequency_mode').default('INTERVAL'), // 'INTERVAL' | 'DAILY_AT'
+  scheduledTime: text('scheduled_time'), // e.g. "18:00"
+  percentage: integer('percentage').notNull().default(20),
+  recipients: text('recipients').array().notNull().default(sql`ARRAY[]::text[]`),
+  lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+  nextRunAt: timestamp('next_run_at', { withTimezone: true }),
+  smtpHost: text('smtp_host'),
+  smtpPort: integer('smtp_port').default(587),
+  smtpSecure: boolean('smtp_secure').default(false),
+  smtpUser: text('smtp_user'),
+  smtpPass: text('smtp_pass'),
+  smtpFrom: text('smtp_from'),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date())
+})
+
+export const reportEmailLogs = pgTable(
+  'report_email_logs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    trigger: text('trigger').notNull().default('AUTO'),
+    status: text('status').notNull().default('SUCCESS'),
+    recipients: text('recipients').array().notNull(),
+    subject: text('subject').notNull(),
+    checkIds: uuid('check_ids').array().notNull(),
+    checksCount: integer('checks_count').notNull().default(0),
+    periodFrom: timestamp('period_from', { withTimezone: true }),
+    periodTo: timestamp('period_to', { withTimezone: true }),
+    percentage: integer('percentage'),
+    pdfSizeBytes: integer('pdf_size_bytes'),
+    videoCount: integer('video_count').default(0),
+    errorMessage: text('error_message'),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+    sentById: uuid('sent_by_id').references(() => users.id, { onDelete: 'set null' }),
+    sentByName: text('sent_by_name')
+  },
+  (t) => [index('report_email_logs_sent_at_idx').on(t.sentAt)]
+)
+

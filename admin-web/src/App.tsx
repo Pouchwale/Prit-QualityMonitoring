@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { AlertCircle, Loader2 } from 'lucide-react'
 import type { DashboardData, Settings } from './types'
-import { api } from './lib/api'
+import { api, hasSession } from './lib/api'
 import { dateKey } from './lib/format'
 import { AuthProvider, useAuth } from './lib/auth'
 import { ToastProvider } from './components/common/Toast'
+import { Button } from './components/common/Button'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Sidebar, NAV_LABEL, NAV_ORDER, useCanOpen, type NavTab } from './components/layout/Sidebar'
 import { LOGIN_PATH, MONITORING_LABEL, MONITORING_TAB_LABEL, NAV_PATH, checkPath, isMonitoringTab, safeNext, signOutIntent, tabFromPath } from './lib/routes'
@@ -20,6 +21,7 @@ import { ReportsPage } from './pages/admin/ReportsPage'
 import { PerformancePage } from './pages/admin/PerformancePage'
 import { MachinesPage } from './pages/admin/MachinesPage'
 import { DepartmentsPage } from './pages/admin/DepartmentsPage'
+import { DepartmentConfigPage } from './pages/admin/DepartmentConfigPage'
 import { ParametersPage } from './pages/admin/ParametersPage'
 import { ActivitiesPage } from './pages/admin/ActivitiesPage'
 import { SchedulesPage } from './pages/admin/SchedulesPage'
@@ -43,7 +45,10 @@ const Guard: React.FC<{ tab: NavTab; children: React.ReactNode }> = ({ tab, chil
   return canOpen(tab) ? <>{children}</> : <FirstAllowed />
 }
 
-/** A quality check's detail page, opened from Quality Checks, the Dashboard, Exceptions or Jobs. */
+/**
+ * A quality check's detail page, opened from Quality Checks, the Dashboard, Exceptions or Jobs.
+ * Any one of those pages is enough, so the Jobs module alone opens a job's checks (as on the server).
+ */
 const CheckDetailRoute: React.FC = () => {
   const { checkId = '' } = useParams()
   const navigate = useNavigate()
@@ -112,8 +117,17 @@ const Shell: React.FC = () => {
   const browserTitle = !isDetail && isMonitoringTab(current) ? MONITORING_TAB_LABEL[current] : title
 
   // Every page starts at the top (the menu closes from its own link), and the browser tab names the page.
+  // After moving to another page (not on the first load) focus goes to the page content, so keyboard
+  // and screen-reader users start there instead of back at the menu.
+  const firstPage = useRef(true)
   useEffect(() => {
-    document.querySelector('main')?.scrollTo({ top: 0 })
+    const main = document.querySelector<HTMLElement>('main')
+    main?.scrollTo({ top: 0 })
+    if (firstPage.current) {
+      firstPage.current = false
+      return
+    }
+    if (main && !main.contains(document.activeElement)) main.focus({ preventScroll: true })
   }, [location.pathname])
   useEffect(() => {
     document.title = `${browserTitle} · Quality Monitoring`
@@ -128,6 +142,17 @@ const Shell: React.FC = () => {
 
   return (
     <div className="app-shell flex h-screen bg-canvas text-ink font-sans antialiased overflow-hidden">
+      {/* First stop for keyboard users: jump past the menu and header. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[80] focus:px-3 focus:py-2 focus:rounded focus:bg-white focus:text-accent focus:font-semibold focus:shadow-lg focus:border focus:border-line-strong"
+        onClick={(e) => {
+          e.preventDefault()
+          document.getElementById('main-content')?.focus()
+        }}
+      >
+        Skip to main content
+      </a>
       <Sidebar
         currentTab={current}
         onSelectTab={closeMenu}
@@ -150,13 +175,16 @@ const Shell: React.FC = () => {
             if (allowed) navigate(allowed)
           }}
           onOpenMenu={() => setMenuOpen(true)}
+          onOpenAccount={() => navigate('account')}
           onLogout={() => {
             signOutIntent.active = true
             return logout()
           }}
         />
         {/* overflow-x-hidden: a wide table scrolls inside its own container, never the whole page */}
-        <main className="app-shell flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6">
+        <main id="main-content" tabIndex={-1} className="app-shell flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6 outline-none">
+          {/* Content width is capped on very wide screens so tables and cards stay readable. */}
+          <div className="mx-auto w-full max-w-[1680px]">
           <Routes>
             <Route index element={<FirstAllowed />} />
             {/* Quality Monitoring: one module, three views, each keeping its own address. */}
@@ -169,6 +197,7 @@ const Shell: React.FC = () => {
             <Route path={NAV_PATH.performance} element={<Guard tab="performance"><PerformancePage /></Guard>} />
             <Route path={NAV_PATH.machines} element={<Guard tab="machines"><MachinesPage /></Guard>} />
             <Route path={NAV_PATH.departments} element={<Guard tab="departments"><DepartmentsPage /></Guard>} />
+            <Route path={NAV_PATH['department-config']} element={<Guard tab="department-config"><DepartmentConfigPage /></Guard>} />
             <Route path={NAV_PATH.parameters} element={<Guard tab="parameters"><ParametersPage /></Guard>} />
             <Route path={NAV_PATH.activities} element={<Guard tab="activities"><ActivitiesPage /></Guard>} />
             <Route path={NAV_PATH.calendar} element={<Guard tab="calendar"><PlantCalendarPage /></Guard>} />
@@ -180,7 +209,39 @@ const Shell: React.FC = () => {
             <Route path={NAV_PATH.account} element={<AccountPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
+          </div>
         </main>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Shown instead of the sign-in page when a saved session exists but the server could not be
+ * reached to check it. Try again re-checks; Sign out drops the session and opens sign-in.
+ */
+const ServerUnreachable: React.FC<{ message: string }> = ({ message }) => {
+  const { refresh, logout } = useAuth()
+  const [busy, setBusy] = useState(false)
+  const retry = async () => {
+    setBusy(true)
+    await refresh()
+    setBusy(false)
+  }
+  return (
+    <div className="h-screen flex items-center justify-center bg-canvas px-4">
+      <div className="w-full max-w-sm bg-white border border-line rounded-lg p-6 text-center" role="alert">
+        <AlertCircle className="w-5 h-5 text-failed mx-auto mb-2" />
+        <div className="text-sm font-semibold text-ink">Cannot reach the server</div>
+        <div className="text-xs text-ink-muted mt-1">{message}</div>
+        <div className="mt-4 flex justify-center gap-2">
+          <Button size="sm" variant="primary" onClick={retry} loading={busy}>
+            Try again
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => logout()} disabled={busy}>
+            Sign out
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -188,7 +249,7 @@ const Shell: React.FC = () => {
 
 /** Signed out: every page asks for sign-in first and comes back to it afterwards. */
 const AppRoutes: React.FC = () => {
-  const { user, loading } = useAuth()
+  const { user, loading, connectionError } = useAuth()
   const location = useLocation()
   const [params] = useSearchParams()
   // The redirect below has read the sign-out flag by the time this runs.
@@ -203,6 +264,9 @@ const AppRoutes: React.FC = () => {
       </div>
     )
   }
+
+  // The saved session could not be checked (server down): keep it and offer to try again.
+  if (!user && connectionError && hasSession()) return <ServerUnreachable message={connectionError} />
 
   return (
     <Routes>

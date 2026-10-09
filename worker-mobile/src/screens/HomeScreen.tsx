@@ -1,9 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { getMyMachines, getPlantStatus, getTodayChecks, type PlantStatus } from '../services/api'
+import { getMyMachines, getPlantStatus, getTodayChecks, startManualCheck, type PlantStatus } from '../services/api'
+import { showDialog, showError, showSuccess } from '../utils/dialog'
+import { Button } from '../components/ui/Button'
+import { MachinePickerModal } from './CheckScreen'
 import { friendlyMessage } from '../utils/friendlyError'
-import { AssignedMachine, Profile } from '../types'
+import { AssignedMachine, CheckSummary, Profile } from '../types'
 import { formatDate, formatTime } from '../utils/format'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import { syncLocalAlerts } from '../services/notifications'
@@ -21,76 +24,56 @@ interface Props {
   profile: Profile
   refreshKey: number
   onOpenMachine: (machine: AssignedMachine) => void
+  onStartCheck?: (checkId: string, startWith?: 'exception') => void
 }
 
-/** The checks the worker can submit on this machine right now. */
-const dueChecks = (machine: AssignedMachine) => [
-  ...machine.checkTypes.map((t) => t.openCheck).filter((c): c is NonNullable<typeof c> => !!c?.canSubmit),
-  // A job's Job Start / Job End check waiting for this worker counts as due too.
-  ...(machine.jobChecks ?? []).filter((c) => c.canSubmit && (c.kind === 'JOB_START' || c.kind === 'JOB_END'))
-]
+type ModuleFilter = 'ALL' | 'IPQC' | 'QC'
+type SectionTab = 'ALL' | 'DUE' | 'UPCOMING' | 'COMPLETED' | 'MISSED'
 
-/** The earliest upcoming check on a machine that is not due yet. */
-const nextAt = (machine: AssignedMachine) =>
-  machine.checkTypes
-    .map((t) => t.openCheck?.scheduledAt ?? t.nextDueAt)
-    .filter((at): at is string => !!at)
-    .sort()[0] ?? null
-
-/**
- * False when the machine does not run today: the plant is closed or today's machine day plan leaves
- * it out. Older servers do not send runsToday, so the plant status decides there.
- */
-const runsToday = (machine: AssignedMachine, plantClosed: boolean) => machine.runsToday ?? !plantClosed
-
-/** Only what is worth saying about a machine that is not due: null when there is nothing informative. */
-function quietStatus(machine: AssignedMachine, plantClosed: boolean): { text: string; tone: 'muted' | 'success' } | null {
-  if (!runsToday(machine, plantClosed)) {
-    return { text: machine.notRunning?.planned ? 'Not running today' : 'Plant closed', tone: 'muted' }
-  }
-  if (machine.runningJob) return { text: `Job running · ${machine.runningJob.jobNo}`, tone: 'success' }
-  if (machine.plannedJobs?.length) return { text: `${machine.plannedJobs.length} job${machine.plannedJobs.length === 1 ? '' : 's'} assigned`, tone: 'muted' }
-  const next = nextAt(machine)
-  if (next) return { text: `Next at ${formatTime(next)}`, tone: 'muted' }
-  return null
-}
-
-/** Due machines first (handled separately), then the next soonest check, then the rest by name. */
-function byUrgency(a: AssignedMachine, b: AssignedMachine) {
-  const na = nextAt(a)
-  const nb = nextAt(b)
-  if (na && nb) return na.localeCompare(nb)
-  if (na) return -1
-  if (nb) return 1
-  return a.name.localeCompare(b.name)
-}
-
-/**
- * Step 1 of a check: the worker picks the machine they are standing at.
- * Every running machine is listed: the worker picks the one they are on and starts a job on it.
- */
-export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine }) => {
+export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine, onStartCheck }) => {
   const insets = useSafeAreaInsets()
+  const [checks, setChecks] = useState<CheckSummary[] | null>(null)
   const [machines, setMachines] = useState<AssignedMachine[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [machinesError, setMachinesError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [plant, setPlant] = useState<PlantStatus>({ closed: false })
+  const [moduleFilter, setModuleFilter] = useState<ModuleFilter>('ALL')
+  const [sectionTab, setSectionTab] = useState<SectionTab>('ALL')
+
+  const [pickingMachine, setPickingMachine] = useState(false)
+  const [startingManual, setStartingManual] = useState(false)
+
+  const workerQualityRole = profile.workerQualityRole ?? 'IPQC'
+  const hasBothRoles = workerQualityRole === 'BOTH'
+
+  /**
+   * Counts the loads: an answer that arrives after a newer load started (a slow refresh, then a
+   * pull to refresh) is dropped, so older data never replaces newer data.
+   */
+  const requestId = useRef(0)
 
   const load = useCallback(async () => {
+    const id = ++requestId.current
     try {
-      const [mine, today, status] = await Promise.all([
-        getMyMachines(),
+      const [today, mine, status] = await Promise.all([
         getTodayChecks(),
-        // An older server without the Plant Calendar simply shows no banner.
+        // A failure keeps the machines already shown (and says so) instead of showing none.
+        getMyMachines().then(
+          (list) => ({ list, error: null }),
+          (err: unknown) => ({ list: null, error: friendlyMessage(err) })
+        ),
         getPlantStatus().catch(() => ({ closed: false }) as PlantStatus)
       ])
+      if (id !== requestId.current) return
+      setChecks(today)
+      if (mine.list) setMachines(mine.list)
+      setMachinesError(mine.error)
       setPlant(status)
-      setMachines(mine)
       setError(null)
-      // Alerts follow the list of machines the worker can pick from.
       syncLocalAlerts(today)
     } catch (err) {
-      setError(friendlyMessage(err))
+      if (id === requestId.current) setError(friendlyMessage(err))
     }
   }, [])
 
@@ -100,27 +83,75 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
 
   useAutoRefresh(load)
 
+  /**
+   * Manual Start: the worker picks only a machine and its check starts now, without waiting for
+   * the schedule. The server reuses an open check, so a machine never gets two (routes/worker.ts).
+   */
+  const manualStart = async (machineId: string) => {
+    setPickingMachine(false)
+    const m = machines?.find((x) => x.id === machineId)
+    if (!m || startingManual) return
+    const ready = m.checkTypes.filter((t) => t.openCheck?.canSubmit || t.canStart)
+    // Several check types on this machine: its screen lists them to choose from.
+    if (ready.length > 1) return onOpenMachine(m)
+    const type = ready[0]
+    if (!type) {
+      return showDialog('Cannot start a check', m.checkTypes[0]?.startMessage ?? `No quality check can be started on ${m.name} now.`)
+    }
+    setStartingManual(true)
+    try {
+      const id = type.openCheck?.canSubmit ? type.openCheck.id : (await startManualCheck(m.id, type.activityId)).id
+      load()
+      showSuccess('Check started', `${type.activityName} started on ${m.name}.`, () => onStartCheck?.(id))
+    } catch (err) {
+      showError(err, { title: 'Could not start the check' })
+    } finally {
+      setStartingManual(false)
+    }
+  }
+
   const onPullRefresh = async () => {
     setRefreshing(true)
     await load()
     setRefreshing(false)
   }
 
-  const running = (m: AssignedMachine) => runsToday(m, plant.closed)
-  const due = (machines ?? []).filter((m) => running(m) && dueChecks(m).length > 0)
-  const dueTotal = due.reduce((n, m) => n + dueChecks(m).length, 0)
-  // Machines that do not run today sort to the end, by name.
-  const others = [
-    ...(machines ?? []).filter((m) => running(m) && dueChecks(m).length === 0).sort(byUrgency),
-    ...(machines ?? []).filter((m) => !running(m)).sort((a, b) => a.name.localeCompare(b.name))
-  ]
-  /** Today's machine day plan leaves out every machine of this worker. */
-  const noneScheduled = plant.closed && !!plant.planned
-  /** The plant is closed today, but the machine day plan runs some of this worker's machines. */
-  const runsByPlan = !plant.closed && !!plant.plantClosed && !!plant.machinePlan?.count
+  // Filter checks by module tab (if worker has BOTH)
+  const filteredChecks = useMemo(() => {
+    if (!checks) return []
+    return checks.filter((c) => {
+      const m = c.module ?? 'IPQC'
+      if (moduleFilter !== 'ALL' && m !== moduleFilter) return false
+      return true
+    })
+  }, [checks, moduleFilter])
+
+  // Categorize checks
+  const dueChecks = useMemo(
+    () => filteredChecks.filter((c) => c.status === 'DUE' || c.status === 'IN_PROGRESS' || (c.status === 'PENDING' && c.canSubmit)),
+    [filteredChecks]
+  )
+  const upcomingChecks = useMemo(
+    () => filteredChecks.filter((c) => c.status === 'PENDING' && !c.canSubmit),
+    [filteredChecks]
+  )
+  const completedChecks = useMemo(
+    () => filteredChecks.filter((c) => c.status === 'COMPLETED' || c.result === 'COMPLETED'),
+    [filteredChecks]
+  )
+  const missedChecks = useMemo(
+    () => filteredChecks.filter((c) => c.status === 'MISSED' || c.status === 'EXCEPTION' || c.result === 'MISSED' || c.result === 'EXCEPTION'),
+    [filteredChecks]
+  )
+
   const shift = profile.shiftName
     ? `${profile.shiftName}${profile.shiftStartTime ? ` · ${formatClockRange(profile.shiftStartTime, profile.shiftEndTime)}` : ''}`
-    : profile.name
+    : profile.departmentName ?? profile.name
+
+  const showDue = sectionTab === 'ALL' || sectionTab === 'DUE'
+  const showUpcoming = sectionTab === 'ALL' || sectionTab === 'UPCOMING'
+  const showCompleted = sectionTab === 'ALL' || sectionTab === 'COMPLETED'
+  const showMissed = sectionTab === 'ALL' || sectionTab === 'MISSED'
 
   return (
     <View className="flex-1 bg-canvas" style={{ paddingTop: insets.top }}>
@@ -131,10 +162,30 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
       >
         <View className="flex-row items-center">
           <View className="flex-1">
-            <LargeHeader eyebrow={formatDate(new Date())} title="Select Machine">
-              <View className="mt-1.5 flex-row items-center">
-                <Icon name="time-outline" size={16} color="muted" />
-                <Text className="ml-1.5 flex-1 text-[15px] text-ink-secondary" numberOfLines={1}>
+            <LargeHeader eyebrow={formatDate(new Date())} title={profile.name}>
+              <View className="mt-1 flex-row items-center gap-2">
+                <View
+                  className={`px-2 py-0.5 rounded border ${
+                    workerQualityRole === 'BOTH'
+                      ? 'bg-emerald-50 border-emerald-200'
+                      : workerQualityRole === 'QC'
+                        ? 'bg-indigo-50 border-indigo-200'
+                        : 'bg-blue-50 border-blue-200'
+                  }`}
+                >
+                  <Text
+                    className={`text-[12px] font-bold ${
+                      workerQualityRole === 'BOTH'
+                        ? 'text-emerald-700'
+                        : workerQualityRole === 'QC'
+                          ? 'text-indigo-700'
+                          : 'text-blue-700'
+                    }`}
+                  >
+                    {workerQualityRole === 'BOTH' ? 'IPQC + QC' : workerQualityRole}
+                  </Text>
+                </View>
+                <Text className="text-[14px] text-ink-secondary" numberOfLines={1}>
                   {shift}
                 </Text>
               </View>
@@ -143,147 +194,318 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
           <ScoreCard refreshKey={refreshKey} />
         </View>
 
-        {machines === null && error ? (
-          <ErrorState message={error} onRetry={load} />
-        ) : machines === null ? (
-          <Loading />
-        ) : machines.length === 0 ? (
-          <EmptyState
-            icon="construct-outline"
-            title="No machine is running"
-            message="No machine is set up and active right now. Ask your supervisor."
-            action={{ label: 'Refresh', onPress: load }}
-          />
-        ) : (
-          <View className="gap-7">
-            {plant.closed && due.length === 0 ? (
-              <View className="flex-row rounded-2xl bg-surface px-4 py-4" accessibilityRole="summary">
-                <View className="mr-3 h-10 w-10 items-center justify-center rounded-full bg-subtle">
-                  <Icon name="moon-outline" size={20} color="secondary" />
-                </View>
-                <View className="flex-1">
-                  {noneScheduled ? (
-                    <>
-                      <Text className="text-[17px] font-semibold text-ink">None of your machines runs today</Text>
-                      <Text className="mt-0.5 text-[15px] leading-[20px] text-ink-muted">
-                        Today's machine plan does not include your machines. No quality checks are scheduled today.
-                      </Text>
-                    </>
-                  ) : (
-                    <>
-                      <Text className="text-[17px] font-semibold text-ink">
-                        Plant closed today{plant.label ? ` · ${plant.label}` : ''}
-                      </Text>
-                      <Text className="mt-0.5 text-[15px] leading-[20px] text-ink-muted">
-                        {plant.reason ? `${plant.reason}. ` : ''}No quality checks are scheduled today.
-                      </Text>
-                    </>
-                  )}
-                </View>
-              </View>
-            ) : null}
-
-            {runsByPlan ? (
-              <View className="-mb-4 flex-row items-center px-1" accessibilityRole="summary">
-                <Icon name="calendar-outline" size={16} color="muted" />
-                <Text className="ml-1.5 flex-1 text-[14px] text-ink-muted" numberOfLines={2}>
-                  Running today by plan · plant otherwise closed
+        {/* Quality Role Tabs when worker has BOTH roles */}
+        {hasBothRoles && (
+          <View className="mt-4 flex-row rounded-xl border border-line bg-surface p-1">
+            {(['ALL', 'IPQC', 'QC'] as ModuleFilter[]).map((tab) => (
+              <Pressable
+                key={tab}
+                onPress={() => setModuleFilter(tab)}
+                className={`flex-1 items-center justify-center py-2 rounded-lg ${
+                  moduleFilter === tab ? 'bg-accent shadow-xs' : 'bg-transparent'
+                }`}
+              >
+                <Text className={`text-[13px] font-semibold ${moduleFilter === tab ? 'text-white' : 'text-ink-secondary'}`}>
+                  {tab === 'ALL' ? 'All Modules' : tab}
                 </Text>
-              </View>
-            ) : null}
+              </Pressable>
+            ))}
+          </View>
+        )}
 
-            {due.length > 0 ? (
+        {/* Section Pill Badges for Quick Filtering */}
+        <View className="mt-3 flex-row gap-2">
+          <Pressable
+            onPress={() => setSectionTab('ALL')}
+            className={`flex-1 items-center py-2 px-1 rounded-lg border ${
+              sectionTab === 'ALL' ? 'bg-ink border-ink' : 'bg-surface border-line'
+            }`}
+          >
+            <Text className={`text-[11px] font-semibold ${sectionTab === 'ALL' ? 'text-white' : 'text-ink'}`}>All</Text>
+            <Text className={`text-[13px] font-bold ${sectionTab === 'ALL' ? 'text-white' : 'text-ink'}`}>{filteredChecks.length}</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setSectionTab(sectionTab === 'DUE' ? 'ALL' : 'DUE')}
+            className={`flex-1 items-center py-2 px-1 rounded-lg border ${
+              sectionTab === 'DUE' ? 'bg-due border-due' : 'bg-surface border-line'
+            }`}
+          >
+            <Text className={`text-[11px] font-semibold ${sectionTab === 'DUE' ? 'text-white' : 'text-due'}`}>Due</Text>
+            <Text className={`text-[13px] font-bold ${sectionTab === 'DUE' ? 'text-white' : 'text-due'}`}>{dueChecks.length}</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setSectionTab(sectionTab === 'UPCOMING' ? 'ALL' : 'UPCOMING')}
+            className={`flex-1 items-center py-2 px-1 rounded-lg border ${
+              sectionTab === 'UPCOMING' ? 'bg-accent border-accent' : 'bg-surface border-line'
+            }`}
+          >
+            <Text className={`text-[11px] font-semibold ${sectionTab === 'UPCOMING' ? 'text-white' : 'text-ink-muted'}`}>Upcoming</Text>
+            <Text className={`text-[13px] font-bold ${sectionTab === 'UPCOMING' ? 'text-white' : 'text-ink-muted'}`}>{upcomingChecks.length}</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setSectionTab(sectionTab === 'COMPLETED' ? 'ALL' : 'COMPLETED')}
+            className={`flex-1 items-center py-2 px-1 rounded-lg border ${
+              sectionTab === 'COMPLETED' ? 'bg-success border-success' : 'bg-surface border-line'
+            }`}
+          >
+            <Text className={`text-[11px] font-semibold ${sectionTab === 'COMPLETED' ? 'text-white' : 'text-success'}`}>Done</Text>
+            <Text className={`text-[13px] font-bold ${sectionTab === 'COMPLETED' ? 'text-white' : 'text-success'}`}>{completedChecks.length}</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => setSectionTab(sectionTab === 'MISSED' ? 'ALL' : 'MISSED')}
+            className={`flex-1 items-center py-2 px-1 rounded-lg border ${
+              sectionTab === 'MISSED' ? 'bg-missed border-missed' : 'bg-surface border-line'
+            }`}
+          >
+            <Text className={`text-[11px] font-semibold ${sectionTab === 'MISSED' ? 'text-white' : 'text-missed'}`}>Missed</Text>
+            <Text className={`text-[13px] font-bold ${sectionTab === 'MISSED' ? 'text-white' : 'text-missed'}`}>{missedChecks.length}</Text>
+          </Pressable>
+        </View>
+
+        <View className="mt-4">
+          <Button
+            label="Manual Start"
+            icon="play-circle-outline"
+            variant="secondary"
+            loading={startingManual}
+            disabled={!machines?.length}
+            accessibilityLabel="Manual Start: choose a machine and start its check now"
+            onPress={() => setPickingMachine(true)}
+          />
+        </View>
+
+        {checks === null && error ? (
+          <View className="mt-6">
+            <ErrorState message={error} onRetry={load} />
+          </View>
+        ) : checks === null ? (
+          <View className="mt-8">
+            <Loading />
+          </View>
+        ) : filteredChecks.length === 0 ? (
+          <View className="mt-6">
+            <EmptyState
+              icon="calendar-outline"
+              title="No checks scheduled"
+              message="No quality checks are scheduled for you today. Ask your supervisor if checks should be configured."
+              action={{ label: 'Refresh', onPress: load }}
+            />
+          </View>
+        ) : (
+          <View className="mt-6 gap-6">
+            {/* 1. DUE CHECKS */}
+            {showDue && dueChecks.length > 0 && (
               <View>
-                <SectionHeader size="large" title="Due now" detail={dueTotal === 1 ? '1 check' : `${dueTotal} checks`} />
+                <SectionHeader size="large" title="Due Checks" detail={`${dueChecks.length} ready`} />
                 <ListGroup>
-                  {due.map((m) => {
-                    const open = dueChecks(m)
-                    const until = open.map((c) => c.windowEndsAt).sort()[0]
-                    const count = open.length === 1 ? '1 check due' : `${open.length} checks due`
+                  {dueChecks.map((c) => {
+                    const mod = c.module ?? 'IPQC'
                     return (
                       <Pressable
-                        key={m.id}
-                        onPress={() => onOpenMachine(m)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${m.name}, ${count}${until ? ` until ${formatTime(until)}` : ''}`}
+                        key={c.id}
+                        onPress={() => onStartCheck?.(c.id)}
                         className="min-h-[72px] flex-row items-center py-3 pl-4 pr-3 active:bg-subtle"
                       >
-                        <View className="mr-3 h-2.5 w-2.5 rounded-full bg-due" />
+                        <View className="mr-3 h-3 w-3 rounded-full bg-due" />
                         <View className="flex-1">
-                          <Text className="text-[17px] font-semibold text-ink" numberOfLines={1}>
-                            {m.name}
-                          </Text>
-                          <Text className="mt-0.5 text-[15px] text-due" numberOfLines={1}>
-                            {count}
-                            {until ? ` · until ${formatTime(until)}` : ''}
+                          <View className="flex-row items-center gap-2">
+                            <View
+                              className={`px-1.5 py-0.2 rounded border ${
+                                mod === 'QC' ? 'bg-indigo-50 border-indigo-200' : 'bg-blue-50 border-blue-200'
+                              }`}
+                            >
+                              <Text className={`text-[10px] font-bold ${mod === 'QC' ? 'text-indigo-700' : 'text-blue-700'}`}>
+                                {mod}
+                              </Text>
+                            </View>
+                            <Text className="text-[17px] font-semibold text-ink" numberOfLines={1}>
+                              {c.activityName}
+                            </Text>
+                          </View>
+                          <Text className="mt-0.5 text-[14px] text-due" numberOfLines={1}>
+                            Due now · until {formatTime(c.windowEndsAt)}
+                            {c.departmentName ? ` · ${c.departmentName}` : ''}
                           </Text>
                         </View>
-                        <View className="ml-2">
-                          <Icon name="chevron-forward" size={20} color="faint" />
+                        <View className="ml-2 flex-row items-center rounded-lg bg-due px-3 py-1.5">
+                          <Text className="text-[13px] font-bold text-white">Start</Text>
+                          <Icon name="chevron-forward" size={14} color="white" />
                         </View>
                       </Pressable>
                     )
                   })}
                 </ListGroup>
               </View>
-            ) : !plant.closed ? (
-              <View className="flex-row items-center rounded-2xl bg-surface px-4 py-3.5" accessibilityRole="summary">
-                <Icon name="checkmark-circle" size={22} color="success" />
-                <View className="ml-3 flex-1">
-                  <Text className="text-[17px] font-semibold text-ink">Nothing due right now</Text>
-                  <Text className="mt-0.5 text-[15px] text-ink-muted">Tap a machine to start a check.</Text>
-                </View>
-              </View>
-            ) : null}
+            )}
 
-            {others.length > 0 ? (
+            {/* 2. UPCOMING CHECKS */}
+            {showUpcoming && upcomingChecks.length > 0 && (
               <View>
-                <SectionHeader size="large" title={due.length ? 'Other machines' : 'All machines'} />
+                <SectionHeader size="large" title="Upcoming Checks" detail={`${upcomingChecks.length} scheduled`} />
                 <ListGroup>
-                  {others.map((m) => {
-                    const status = quietStatus(m, plant.closed)
+                  {upcomingChecks.map((c) => {
+                    const mod = c.module ?? 'IPQC'
                     return (
                       <Pressable
-                        key={m.id}
-                        onPress={() => onOpenMachine(m)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${m.name}, ${status?.text ?? 'Nothing due'}`}
+                        key={c.id}
+                        onPress={() => onStartCheck?.(c.id)}
                         className="min-h-[64px] flex-row items-center py-3 pl-4 pr-3 active:bg-subtle"
                       >
+                        <View className="mr-3 h-2.5 w-2.5 rounded-full bg-line-strong" />
                         <View className="flex-1">
-                          <Text className="text-[17px] font-semibold text-ink" numberOfLines={1}>
-                            {m.name}
-                          </Text>
-                          <View className="mt-0.5 flex-row items-center">
-                            <Text className="text-[15px] text-ink-muted">{m.code}</Text>
-                            {status ? (
-                              <>
-                                <Text className="mx-1.5 text-[15px] text-ink-muted">·</Text>
-                                {status.tone === 'success' ? <View className="mr-1.5 h-2 w-2 rounded-full bg-success" /> : null}
-                                <Text
-                                  className={`flex-1 text-[15px] ${status.tone === 'success' ? 'text-success' : 'text-ink-secondary'}`}
-                                  numberOfLines={1}
-                                >
-                                  {status.text}
-                                </Text>
-                              </>
-                            ) : null}
+                          <View className="flex-row items-center gap-2">
+                            <View
+                              className={`px-1.5 py-0.2 rounded border ${
+                                mod === 'QC' ? 'bg-indigo-50 border-indigo-200' : 'bg-blue-50 border-blue-200'
+                              }`}
+                            >
+                              <Text className={`text-[10px] font-bold ${mod === 'QC' ? 'text-indigo-700' : 'text-blue-700'}`}>
+                                {mod}
+                              </Text>
+                            </View>
+                            <Text className="text-[16px] font-medium text-ink" numberOfLines={1}>
+                              {c.activityName}
+                            </Text>
                           </View>
+                          <Text className="mt-0.5 text-[13px] text-ink-muted" numberOfLines={1}>
+                            Scheduled for {formatTime(c.scheduledAt)}
+                            {c.departmentName ? ` · ${c.departmentName}` : ''}
+                          </Text>
                         </View>
-                        <View className="ml-2">
-                          <Icon name="chevron-forward" size={20} color="faint" />
-                        </View>
+                        <Icon name="time-outline" size={16} color="muted" />
                       </Pressable>
                     )
                   })}
                 </ListGroup>
               </View>
+            )}
+
+            {/* 3. COMPLETED CHECKS */}
+            {showCompleted && completedChecks.length > 0 && (
+              <View>
+                <SectionHeader size="large" title="Completed Checks" detail={`${completedChecks.length} done`} />
+                <ListGroup>
+                  {completedChecks.map((c) => {
+                    const mod = c.module ?? 'IPQC'
+                    return (
+                      <View key={c.id} className="min-h-[64px] flex-row items-center py-3 pl-4 pr-3">
+                        <View className="mr-3 h-5 w-5 items-center justify-center rounded-full bg-success-bg">
+                          <Icon name="checkmark" size={12} color="success" />
+                        </View>
+                        <View className="flex-1">
+                          <View className="flex-row items-center gap-2">
+                            <View
+                              className={`px-1.5 py-0.2 rounded border ${
+                                mod === 'QC' ? 'bg-indigo-50 border-indigo-200' : 'bg-blue-50 border-blue-200'
+                              }`}
+                            >
+                              <Text className={`text-[10px] font-bold ${mod === 'QC' ? 'text-indigo-700' : 'text-blue-700'}`}>
+                                {mod}
+                              </Text>
+                            </View>
+                            <Text className="text-[16px] font-medium text-ink" numberOfLines={1}>
+                              {c.activityName}
+                            </Text>
+                          </View>
+                          <Text className="mt-0.5 text-[13px] text-ink-secondary" numberOfLines={1}>
+                            Submitted {c.submittedAt ? formatTime(c.submittedAt) : 'today'}
+                            {c.itemCode ? ` · Item: ${c.itemCode}` : ''}
+                            {c.jobNo ? ` · PO: ${c.jobNo}` : ''}
+                          </Text>
+                        </View>
+                        <View className="rounded px-2 py-0.5 bg-success-bg">
+                          <Text className="text-[11px] font-bold text-success">Done</Text>
+                        </View>
+                      </View>
+                    )
+                  })}
+                </ListGroup>
+              </View>
+            )}
+
+            {/* 4. MISSED CHECKS */}
+            {showMissed && missedChecks.length > 0 && (
+              <View>
+                <SectionHeader size="large" title="Missed Checks" detail={`${missedChecks.length} missed`} />
+                <ListGroup>
+                  {missedChecks.map((c) => {
+                    const mod = c.module ?? 'IPQC'
+                    return (
+                      <View key={c.id} className="min-h-[64px] flex-row items-center py-3 pl-4 pr-3">
+                        <View className="mr-3 h-5 w-5 items-center justify-center rounded-full bg-missed-bg">
+                          <Icon name="close" size={12} color="missed" />
+                        </View>
+                        <View className="flex-1">
+                          <View className="flex-row items-center gap-2">
+                            <View
+                              className={`px-1.5 py-0.2 rounded border ${
+                                mod === 'QC' ? 'bg-indigo-50 border-indigo-200' : 'bg-blue-50 border-blue-200'
+                              }`}
+                            >
+                              <Text className={`text-[10px] font-bold ${mod === 'QC' ? 'text-indigo-700' : 'text-blue-700'}`}>
+                                {mod}
+                              </Text>
+                            </View>
+                            <Text className="text-[16px] font-medium text-ink" numberOfLines={1}>
+                              {c.activityName}
+                            </Text>
+                          </View>
+                          <Text className="mt-0.5 text-[13px] text-missed" numberOfLines={1}>
+                            Window expired ({formatTime(c.scheduledAt)} – {formatTime(c.windowEndsAt)})
+                          </Text>
+                        </View>
+                        <View className="rounded px-2 py-0.5 bg-missed-bg">
+                          <Text className="text-[11px] font-bold text-missed">Missed</Text>
+                        </View>
+                      </View>
+                    )
+                  })}
+                </ListGroup>
+              </View>
+            )}
+
+            {machinesError ? (
+              <Text className="px-4 pt-2 text-[14px] text-missed">Could not load your machines: {machinesError}</Text>
             ) : null}
 
-            {error ? <Text className="px-4 text-[14px] text-missed">Could not refresh: {error}</Text> : null}
+            {/* Legacy Machine access if machines exist */}
+            {machines && machines.length > 0 && (
+              <View className="pt-2">
+                <SectionHeader title="Machines" detail={`${machines.length} active`} />
+                <ListGroup>
+                  {machines.slice(0, 5).map((m) => (
+                    <Pressable
+                      key={m.id}
+                      onPress={() => onOpenMachine(m)}
+                      className="min-h-[56px] flex-row items-center py-2.5 pl-4 pr-3 active:bg-subtle"
+                    >
+                      <Icon name="hardware-chip-outline" size={18} color="muted" />
+                      <View className="ml-3 flex-1">
+                        <Text className="text-[15px] font-medium text-ink" numberOfLines={1}>
+                          {m.name}
+                        </Text>
+                        <Text className="text-[12px] text-ink-muted font-mono">{m.code}</Text>
+                      </View>
+                      <Icon name="chevron-forward" size={14} color="muted" />
+                    </Pressable>
+                  ))}
+                </ListGroup>
+              </View>
+            )}
           </View>
         )}
       </ScrollView>
+      <MachinePickerModal
+        visible={pickingMachine}
+        machines={machines ?? []}
+        selectedId=""
+        onSelect={manualStart}
+        onClose={() => setPickingMachine(false)}
+      />
     </View>
   )
 }

@@ -1,7 +1,29 @@
 import React, { useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, Briefcase, Camera, Hash, Pencil, Plus, Search, Trash2, Video, X } from 'lucide-react'
-import type { Activity, AppliesWhen, Department, Machine, Parameter, ParameterFrequency, ParameterType } from '../../types'
+import {
+  ArrowDown,
+  ArrowUp,
+  Briefcase,
+  Camera,
+  CircleSlash,
+  ClipboardList,
+  Clock3,
+  Cpu,
+  FileText,
+  Hash,
+  Info,
+  ListChecks,
+  Pencil,
+  Plus,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+  Video,
+  X
+} from 'lucide-react'
+import type { Activity, AppliesWhen, Department, Machine, Parameter, ParameterFrequency, ParameterType, QualityModule } from '../../types'
 import { api, errorText } from '../../lib/api'
+import { NotificationDevicesSection } from './NotificationDevicesSection'
 import { useApi } from '../../lib/useApi'
 import { useCanManage } from '../../lib/auth'
 import { PARAMETER_TYPE_LABEL } from '../../lib/format'
@@ -13,6 +35,9 @@ import { DataState } from '../../components/common/DataState'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { Field, FormError, MultiSelectList, Select, TextArea, TextInput, Toggle, inputClass } from '../../components/common/Form'
+import { Card, EmptyState } from '../../components/ui/Card'
+import { IconButton, ResultCount, SearchInput, Segmented, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
+import { Pagination, usePagination } from '../../components/ui/Pagination'
 import { ReasonsSection } from './ReasonsSection'
 
 interface FormParameter {
@@ -45,6 +70,7 @@ const frequencyChoice = (p: FormParameter) =>
 interface ActivityForm {
   name: string
   code: string
+  module: QualityModule
   departmentId: string
   description: string
   isActive: boolean
@@ -64,6 +90,7 @@ interface ActivityForm {
 interface ActivityBody {
   name: string
   code: string
+  module: QualityModule
   departmentId: string | null
   description: string | null
   requirePhoto: boolean
@@ -89,6 +116,7 @@ interface ParameterInfo {
 const emptyForm: ActivityForm = {
   name: '',
   code: '',
+  module: 'IPQC',
   departmentId: '',
   description: '',
   isActive: true,
@@ -105,6 +133,7 @@ const emptyForm: ActivityForm = {
 const formFromActivity = (a: Activity): ActivityForm => ({
   name: a.name,
   code: a.code,
+  module: a.module ?? 'IPQC',
   departmentId: a.departmentId ?? '',
   description: a.description ?? '',
   isActive: a.isActive,
@@ -128,31 +157,80 @@ const formFromActivity = (a: Activity): ActivityForm => ({
   machineIds: [...a.machineIds]
 })
 
-const EvidenceBadge: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, label }) => (
-  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-due-line bg-due-bg text-due text-[11px] lg:text-[10px] font-medium whitespace-nowrap">
-    {icon}
-    {label}
+/** A small neutral chip, e.g. a check type code. */
+const chip = 'inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[11px] text-ink-secondary whitespace-nowrap'
+
+/** IPQC (in-process) or QC (finished goods): the label says which, the tint only groups them. */
+const ModulePill: React.FC<{ module: QualityModule }> = ({ module }) => (
+  <span
+    className={`inline-flex items-center h-5 px-2 rounded-full text-[11px] font-semibold tracking-wide ring-1 ring-inset whitespace-nowrap ${
+      module === 'QC' ? 'bg-white text-ink ring-line-strong' : 'bg-accent-soft text-accent-strong ring-accent-line'
+    }`}
+    title={module === 'QC' ? 'QC (Finished / Pouch Quality)' : 'IPQC (In-Process Quality)'}
+  >
+    {module}
   </span>
 )
 
-const Section: React.FC<{ step: number; title: string; description?: string; children: React.ReactNode }> = ({
+/** How checks are created: from shift schedules or per job. */
+const ModePill: React.FC<{ mode: 'SHIFT' | 'JOB' }> = ({ mode }) => (
+  <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full bg-subtle text-ink-secondary ring-1 ring-inset ring-line text-[11px] font-medium whitespace-nowrap">
+    {mode === 'JOB' ? <Briefcase className="w-3 h-3" aria-hidden /> : <Clock3 className="w-3 h-3" aria-hidden />}
+    {mode === 'JOB' ? 'Job' : 'Shift'}
+  </span>
+)
+
+/** One required evidence item as an icon tile; the name is its tooltip and accessible text. */
+const EvidenceIcon: React.FC<{ icon: React.ReactNode; label: string }> = ({ icon, label }) => (
+  <span className="w-6 h-6 inline-flex items-center justify-center rounded-md bg-due-bg text-due ring-1 ring-inset ring-due-line" title={label}>
+    <span aria-hidden>{icon}</span>
+    <span className="sr-only">{label}</span>
+  </span>
+)
+
+/** One step of the check type form: a numbered heading, a short line and the fields. */
+const Section: React.FC<{ step: number; title: string; description?: string; icon?: React.ReactNode; children: React.ReactNode }> = ({
   step,
   title,
   description,
+  icon,
   children
 }) => (
-  <section className="space-y-2.5">
-    <div className="flex items-baseline gap-2 border-b border-line pb-1.5">
-      <span className="font-mono text-[11px] text-ink-faint">{step}.</span>
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">{title}</h4>
-      {description && <span className="text-[11px] text-ink-muted truncate">{description}</span>}
+  <section className="rounded-lg border border-line bg-white" aria-labelledby={`check-type-step-${step}`}>
+    <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-line bg-subtle/50 rounded-t-lg">
+      <span
+        className="w-6 h-6 shrink-0 rounded-full bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line text-[11.5px] font-semibold tabular-nums flex items-center justify-center"
+        aria-hidden
+      >
+        {step}
+      </span>
+      <div className="min-w-0 flex-1">
+        <h4 id={`check-type-step-${step}`} className="text-[13px] font-semibold text-ink leading-tight">
+          <span className="sr-only">Step {step}: </span>
+          {title}
+        </h4>
+        {description && <p className="text-[11.5px] text-ink-muted leading-snug">{description}</p>}
+      </div>
+      {icon && (
+        <span className="text-ink-faint shrink-0" aria-hidden>
+          {icon}
+        </span>
+      )}
     </div>
-    {children}
+    <div className="p-3.5 space-y-3">{children}</div>
   </section>
 )
 
+/** A short explanation under a group of fields. */
+const Hint: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <p className="flex items-start gap-1.5 text-[11.5px] text-ink-muted leading-snug">
+    <Info className="w-3.5 h-3.5 mt-px shrink-0 text-ink-faint" aria-hidden />
+    <span>{children}</span>
+  </p>
+)
+
 const iconButton =
-  'p-1 rounded text-ink-muted hover:text-ink hover:bg-subtle disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed'
+  'w-9 h-9 lg:w-6 lg:h-6 flex items-center justify-center rounded text-ink-muted hover:text-ink hover:bg-subtle disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed'
 
 export const ActivitiesPage: React.FC = () => {
   const canEdit = useCanManage('activities')
@@ -172,13 +250,20 @@ export const ActivitiesPage: React.FC = () => {
   const [addParameterId, setAddParameterId] = useState('')
 
   const [deleting, setDeleting] = useState<Activity | null>(null)
+  const [moduleFilter, setModuleFilter] = useState<'ALL' | 'IPQC' | 'QC'>('ALL')
 
   const activities = useMemo(() => data ?? [], [data])
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return activities
-    return activities.filter((a) => [a.name, a.code, a.departmentName ?? '', a.description ?? ''].some((s) => s.toLowerCase().includes(q)))
-  }, [activities, search])
+    return activities.filter((a) => {
+      if (moduleFilter !== 'ALL' && a.module !== moduleFilter) return false
+      if (!q) return true
+      return [a.name, a.code, a.departmentName ?? '', a.description ?? '', a.module].some((s) => s.toLowerCase().includes(q))
+    })
+  }, [activities, search, moduleFilter])
+  const page = usePagination(visible, 25, `${search}|${moduleFilter}`)
+  const activeCount = activities.filter((a) => a.isActive).length
+  const moduleCount = (m: QualityModule) => activities.filter((a) => (a.module ?? 'IPQC') === m).length
 
   const machineById = useMemo(() => new Map((machines ?? []).map((m) => [m.id, m])), [machines])
 
@@ -280,6 +365,7 @@ export const ActivitiesPage: React.FC = () => {
     const body: ActivityBody = {
       name: form.name.trim(),
       code: form.code.trim(),
+      module: form.module ?? 'IPQC',
       departmentId: form.departmentId || null,
       description: form.description.trim() || null,
       requirePhoto: form.requirePhoto,
@@ -331,10 +417,12 @@ export const ActivitiesPage: React.FC = () => {
   const enabledOnForm = form.parameters.filter((p) => p.isEnabled).length
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <PageHeader
+        icon={<ClipboardList className="w-4.5 h-4.5" />}
         title="Check Types"
-        description="What workers fill in for each quality check: parameters, evidence and machines. Changes apply to the worker app immediately."
+        description={data ? `${activeCount} active · ${activities.length} total` : 'Parameters, evidence and machines per check'}
+        info="What workers fill in for each quality check: parameters, evidence and machines. Changes apply to the worker app immediately."
         actions={
           canEdit && (
             <Button size="sm" variant="primary" onClick={openAdd} icon={<Plus className="w-3.5 h-3.5" />}>
@@ -344,133 +432,155 @@ export const ActivitiesPage: React.FC = () => {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-3 bg-white p-3 border border-line rounded-md shadow-2xs text-xs">
-        <div className="relative min-w-[220px] flex-1 max-w-sm">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 lg:top-2.5 lg:translate-y-0 text-ink-faint pointer-events-none" />
-          <input
-            type="text"
-            placeholder="Search name, code or department…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className={`${inputClass} pl-8`}
-          />
-        </div>
-        <div className="ml-auto text-ink-muted">
-          {activities.filter((a) => a.isActive).length} active · {activities.length} total
-        </div>
-      </div>
+      {/* Module Notification Devices Configuration Section */}
+      <NotificationDevicesSection />
 
       <DataState
         loading={loading}
         error={error}
         onRetry={reload}
-        empty={data === null ? undefined : visible.length === 0}
-        emptyText={activities.length === 0 ? 'No check types yet. Add the first one.' : 'No check types match the search.'}
+        empty={data === null ? undefined : activities.length === 0}
+        emptyText="No check types yet. Add the first one."
       >
-        <div className="bg-white border border-line rounded-md shadow-2xs overflow-x-auto">
-          <table className="stack-sm w-full text-left text-xs border-collapse">
-            <thead className="bg-slate-50 border-b border-line text-ink-secondary font-mono text-[11px] uppercase tracking-wider">
-              <tr>
-                <th className="py-2.5 px-3">Check type</th>
-                <th className="py-2.5 px-3">Department</th>
-                <th className="py-2.5 px-3">Parameters</th>
-                <th className="py-2.5 px-3">Evidence</th>
-                <th className="py-2.5 px-3">Machines</th>
-                <th className="py-2.5 px-3">Status</th>
-                {canEdit && <th className="py-2.5 px-3 text-right">Actions</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {visible.map((a) => {
-                const shown = a.parameters.filter((p) => p.isEnabled && p.parameterActive)
-                const machineNames = a.machineIds.map((id) => machineById.get(id)?.name).filter(Boolean)
-                const hasEvidence = a.requireJobNo || a.requirePhoto || a.requireVideo
-                return (
-                  <tr key={a.id} className="hover:bg-slate-50 transition-colors align-top">
-                    <td className="py-2.5 px-3">
-                      <span className={`font-semibold ${a.isActive ? 'text-ink' : 'text-ink-muted'}`}>{a.name}</span>
-                      <span className="block font-mono text-[11px] text-ink-secondary">{a.code}</span>
-                      {a.description && <span className="block text-[11px] text-ink-muted truncate max-w-xs">{a.description}</span>}
-                    </td>
-                    <td className="py-2.5 px-3 whitespace-nowrap text-slate-700">{a.departmentName ?? <span className="text-ink-faint">—</span>}</td>
-                    <td className="py-2.5 px-3">
-                      <span className="font-medium text-ink">{shown.length} on form</span>
-                      {shown.length !== a.parameters.length && (
-                        <span className="text-ink-muted"> · {a.parameters.length - shown.length} off</span>
-                      )}
-                      {shown.length > 0 && (
-                        <span className="block text-[11px] text-ink-muted max-w-xs truncate" title={shown.map((p) => p.name).join(', ')}>
-                          {shown.map((p) => p.name).join(', ')}
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      {hasEvidence || a.monitoring === 'JOB' ? (
-                        <div className="flex flex-wrap gap-1 max-w-[200px]">
-                          {a.monitoring === 'JOB' && <EvidenceBadge icon={<Briefcase className="w-3 h-3" />} label="Job-based" />}
-                          {a.requireJobNo && <EvidenceBadge icon={<Hash className="w-3 h-3" />} label="PO No." />}
-                          {a.requirePhoto && <EvidenceBadge icon={<Camera className="w-3 h-3" />} label="Photo" />}
-                          {a.requireVideo && <EvidenceBadge icon={<Video className="w-3 h-3" />} label="Video" />}
-                        </div>
-                      ) : (
-                        <span className="text-ink-faint">None required</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      {a.machineIds.length ? (
-                        <span className="text-ink" title={machineNames.join(', ')}>
-                          {a.machineIds.length} machine{a.machineIds.length === 1 ? '' : 's'}
-                        </span>
-                      ) : (
-                        <span className="text-ink-faint">No machines</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 whitespace-nowrap">
-                      <StatusBadge status={a.isActive ? 'ACTIVE' : 'DISABLED'} size="sm" />
-                    </td>
-                    {canEdit && (
-                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center gap-1">
-                          <Button size="sm" variant="outline" onClick={() => openEdit(a)} icon={<Pencil className="w-3 h-3" />}>
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setDeleting(a)}
-                            icon={<Trash2 className="w-3 h-3 text-failed" />}
-                            title="Delete check type"
-                            aria-label={`Delete ${a.name}`}
-                          />
-                        </div>
-                      </td>
-                    )}
+        <Card className="overflow-hidden">
+          <Toolbar>
+            <SearchInput value={search} onChange={setSearch} label="Search check types" placeholder="Search check types…" />
+            <Segmented
+              label="Filter by module"
+              value={moduleFilter}
+              onChange={setModuleFilter}
+              options={[
+                { value: 'ALL', label: 'All Modules', count: activities.length },
+                { value: 'IPQC', label: 'IPQC', count: moduleCount('IPQC') },
+                { value: 'QC', label: 'QC', count: moduleCount('QC') }
+              ]}
+            />
+            <ToolbarSpacer />
+            <ResultCount shown={visible.length} total={activities.length} noun="check types" />
+          </Toolbar>
+
+          {visible.length === 0 ? (
+            <EmptyState icon={<Search className="w-5 h-5" />} title="No check types match the search." compact />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="data-table stack-sm">
+                <thead>
+                  <tr>
+                    <th>Check type</th>
+                    <th>Module</th>
+                    <th>Mode</th>
+                    <th>Department</th>
+                    <th>Parameters</th>
+                    <th>Evidence</th>
+                    <th className="num">Machines</th>
+                    <th>Status</th>
+                    {canEdit && <th className="text-right">Actions</th>}
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody>
+                  {page.visible.map((a) => {
+                    const shown = a.parameters.filter((p) => p.isEnabled && p.parameterActive)
+                    const machineNames = a.machineIds.map((id) => machineById.get(id)?.name).filter(Boolean)
+                    const hasEvidence = a.requireJobNo || a.requirePhoto || a.requireVideo
+                    return (
+                      <tr key={a.id}>
+                        <td>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`font-semibold ${a.isActive ? 'text-ink' : 'text-ink-muted'}`}>{a.name}</span>
+                            <span className={`${chip} font-mono`} title="Code">
+                              {a.code}
+                            </span>
+                          </div>
+                          {a.description && <span className="block text-[11.5px] text-ink-muted truncate max-w-xs">{a.description}</span>}
+                        </td>
+                        <td>
+                          <ModulePill module={a.module ?? 'IPQC'} />
+                        </td>
+                        <td>
+                          <ModePill mode={a.monitoring ?? 'SHIFT'} />
+                        </td>
+                        <td className="whitespace-nowrap text-ink-secondary">{a.departmentName ?? <span className="text-ink-faint">—</span>}</td>
+                        <td>
+                          <span className="whitespace-nowrap">
+                            <span className="font-semibold text-ink tabular-nums">{shown.length}</span> <span className="text-ink-secondary">on form</span>
+                            {shown.length !== a.parameters.length && (
+                              <span className="text-ink-muted tabular-nums"> · {a.parameters.length - shown.length} off</span>
+                            )}
+                          </span>
+                          {shown.length > 0 && (
+                            <span className="block text-[11.5px] text-ink-muted max-w-[220px] truncate" title={shown.map((p) => p.name).join(', ')}>
+                              {shown.map((p) => p.name).join(', ')}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {hasEvidence ? (
+                            <div className="flex items-center gap-1">
+                              {a.requireJobNo && <EvidenceIcon icon={<Hash className="w-3.5 h-3.5" />} label="PO No. required" />}
+                              {a.requirePhoto && <EvidenceIcon icon={<Camera className="w-3.5 h-3.5" />} label="Overall photo required" />}
+                              {a.requireVideo && <EvidenceIcon icon={<Video className="w-3.5 h-3.5" />} label="Overall video required" />}
+                            </div>
+                          ) : (
+                            <span className="text-[12px] text-ink-muted">None required</span>
+                          )}
+                        </td>
+                        <td className="num whitespace-nowrap">
+                          {a.machineIds.length ? (
+                            <span className="text-ink" title={machineNames.join(', ')}>
+                              {a.machineIds.length} <span className="text-ink-muted">machine{a.machineIds.length === 1 ? '' : 's'}</span>
+                            </span>
+                          ) : (
+                            <span className="text-ink-faint">No machines</span>
+                          )}
+                        </td>
+                        <td>
+                          <StatusBadge status={a.isActive ? 'ACTIVE' : 'DISABLED'} size="sm" />
+                        </td>
+                        {canEdit && (
+                          <td className="text-right whitespace-nowrap" data-label="">
+                            <div className="inline-flex items-center gap-0.5">
+                              <IconButton label={`Edit ${a.name}`} onClick={() => openEdit(a)}>
+                                <Pencil className="w-3.5 h-3.5" />
+                              </IconButton>
+                              <IconButton label={`Delete ${a.name}`} tone="danger" onClick={() => setDeleting(a)}>
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </IconButton>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Pagination page={page.page} pages={page.pages} total={page.total} pageSize={page.pageSize} onPage={page.setPage} noun="check types" />
+        </Card>
       </DataState>
 
       {/* What a worker may pick when a parameter cannot be read, or a whole check cannot be done. */}
-      <ReasonsSection
-        title="N/A reasons"
-        description="Why a parameter could not be read. A check with Not Applicable parameters still counts as Completed, never as a failure."
-        endpoint="/api/monitoring-reasons"
-        noun="N/A Reason"
-        dialogSubtitle="Workers choose one of these when a parameter cannot be read"
-        placeholder="e.g. No production"
-      />
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+        <ReasonsSection
+          title="N/A reasons"
+          icon={<CircleSlash className="w-4 h-4" />}
+          description="Why a parameter could not be read. A check with Not Applicable parameters still counts as Completed, never as a failure."
+          endpoint="/api/monitoring-reasons"
+          noun="N/A Reason"
+          dialogSubtitle="Workers choose one of these when a parameter cannot be read"
+          placeholder="e.g. No production"
+        />
 
-      <ReasonsSection
-        title="Exception reasons"
-        description="Why a whole check could not be done. The worker raises an exception with one of these, and the check is recorded as an Exception for review."
-        endpoint="/api/exception-reasons"
-        noun="Exception Reason"
-        dialogSubtitle="Workers choose one of these when a check cannot be done at all"
-        placeholder="e.g. Power cut"
-      />
+        <ReasonsSection
+          title="Exception reasons"
+          icon={<ShieldAlert className="w-4 h-4" />}
+          description="Why a whole check could not be done. The worker raises an exception with one of these, and the check is recorded as an Exception for review."
+          endpoint="/api/exception-reasons"
+          noun="Exception Reason"
+          dialogSubtitle="Workers choose one of these when a check cannot be done at all"
+          placeholder="e.g. Power cut"
+        />
+      </div>
 
       {/* Create / edit */}
       <Modal
@@ -490,10 +600,10 @@ export const ActivitiesPage: React.FC = () => {
           </>
         }
       >
-        <form onSubmit={submit} className="space-y-5">
+        <form onSubmit={submit} className="space-y-4">
           <FormError message={formError} />
 
-          <Section step={1} title="Details">
+          <Section step={1} title="Details" description="Name, module and department" icon={<FileText className="w-4 h-4" />}>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Field label="Name" required className="sm:col-span-2">
                 <TextInput value={form.name} onChange={(e) => update('name', e.target.value)} placeholder="e.g. Printing Hourly Check" autoFocus />
@@ -503,7 +613,13 @@ export const ActivitiesPage: React.FC = () => {
               </Field>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <Field label="Department" hint="Only this department's workers do this check. No department: every worker.">
+              <Field label="Quality Module" required hint="IPQC or QC determines which dedicated phone receives due alerts">
+                <Select value={form.module} onChange={(e) => update('module', e.target.value as QualityModule)}>
+                  <option value="IPQC">IPQC (In-Process Quality)</option>
+                  <option value="QC">QC (Finished / Pouch Quality)</option>
+                </Select>
+              </Field>
+              <Field label="Department" hint="Only this department's jobs get this check (a job's Item Code decides its department). No department: every job.">
                 <Select value={form.departmentId} onChange={(e) => update('departmentId', e.target.value)}>
                   <option value="">No department</option>
                   {departmentOptions.map((d) => (
@@ -513,7 +629,7 @@ export const ActivitiesPage: React.FC = () => {
                   ))}
                 </Select>
               </Field>
-              <div className="sm:col-span-2 flex items-end pb-1.5">
+              <div className="flex items-end pb-1.5">
                 <Toggle
                   checked={form.isActive}
                   onChange={(v) => update('isActive', v)}
@@ -532,7 +648,7 @@ export const ActivitiesPage: React.FC = () => {
             </Field>
           </Section>
 
-          <Section step={2} title="Worker form requirements" description="What the worker must provide before submitting">
+          <Section step={2} title="Worker form requirements" description="What the worker must provide before submitting" icon={<ShieldCheck className="w-4 h-4" />}>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Toggle
                 checked={form.requireJobNo}
@@ -553,10 +669,10 @@ export const ActivitiesPage: React.FC = () => {
                 description="One extra video (up to 60 seconds) for the whole check."
               />
             </div>
-            <p className="text-[11px] text-ink-muted">
+            <Hint>
               Prefer per-parameter evidence: set Photo and Video on the parameters below so the worker captures each reading. The overall photo and video
               are captured once at the end of the form.
-            </p>
+            </Hint>
             <Toggle
               checked={form.allowManual}
               onChange={(v) => update('allowManual', v)}
@@ -565,21 +681,26 @@ export const ActivitiesPage: React.FC = () => {
             />
           </Section>
 
-          <Section step={3} title="When it is checked" description="Shift schedules, or per job with a frequency per parameter">
+          <Section step={3} title="When it is checked" description="Shift schedules, or per job with a frequency per parameter" icon={<Clock3 className="w-4 h-4" />}>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(
                 [
-                  { value: 'SHIFT', label: 'Shift schedules', hint: 'Every parameter at each scheduled check (Schedules page).' },
-                  { value: 'JOB', label: 'Job-based', hint: 'Job start, every N hours and job end: only the parameters due are asked.' }
+                  { value: 'SHIFT', label: 'Shift schedules', hint: 'Every parameter at each scheduled check (Schedules page).', icon: <Clock3 className="w-4 h-4" /> },
+                  { value: 'JOB', label: 'Job-based', hint: 'Job start, every N hours and job end: only the parameters due are asked.', icon: <Briefcase className="w-4 h-4" /> }
                 ] as const
               ).map((o) => (
                 <label
                   key={o.value}
-                  className={`flex items-start gap-2 rounded border px-3 py-2 cursor-pointer ${form.monitoring === o.value ? 'border-accent bg-accent/5' : 'border-line-strong'}`}
+                  className={`flex items-start gap-2.5 rounded-md border px-3 py-2.5 cursor-pointer transition-colors ${
+                    form.monitoring === o.value ? 'border-accent bg-accent-soft ring-1 ring-accent-line' : 'border-line-strong hover:bg-subtle'
+                  }`}
                 >
-                  <input type="radio" name="monitoring" className="mt-0.5" checked={form.monitoring === o.value} onChange={() => update('monitoring', o.value)} />
+                  <input type="radio" name="monitoring" className="mt-0.5 accent-accent" checked={form.monitoring === o.value} onChange={() => update('monitoring', o.value)} />
+                  <span className={`mt-px shrink-0 ${form.monitoring === o.value ? 'text-accent' : 'text-ink-muted'}`} aria-hidden>
+                    {o.icon}
+                  </span>
                   <span>
-                    <span className="block text-xs font-semibold text-ink">{o.label}</span>
+                    <span className="block text-[12.5px] font-semibold text-ink">{o.label}</span>
                     <span className="block text-[11px] text-ink-muted">{o.hint}</span>
                   </span>
                 </label>
@@ -590,7 +711,7 @@ export const ActivitiesPage: React.FC = () => {
                 <Field label="Grace (minutes)" hint="A scheduled job check counts as Missed this long after it is due.">
                   <TextInput type="number" min={5} max={240} value={form.graceMinutes} onChange={(e) => update('graceMinutes', e.target.value)} className="w-28 font-mono" />
                 </Field>
-                <p className="text-[11px] text-ink-muted pb-2 max-w-md">
+                <p className="text-[11.5px] text-ink-muted pb-2 max-w-md">
                   Set <span className="font-semibold">When checked</span> on each parameter below. The worker starts the job with the Job start parameters, gets
                   a notification when interval parameters are due (only those), and ends the job with the Job end parameters.
                 </p>
@@ -598,26 +719,34 @@ export const ActivitiesPage: React.FC = () => {
             )}
           </Section>
 
-          <Section step={4} title="Parameters on this form" description="Workers see them in this order">
-            <div className="border border-line-strong rounded divide-y divide-line bg-white">
+          <Section step={4} title="Parameters on this form" description="Workers see them in this order" icon={<ListChecks className="w-4 h-4" />}>
+            <div className="border border-line rounded-md divide-y divide-line bg-white overflow-hidden">
               {form.parameters.length === 0 ? (
-                <div className="px-3 py-3 text-[11px] text-ink-muted">No parameters yet. Add them below.</div>
+                <div className="px-3 py-4 text-center text-[12px] text-ink-muted">No parameters yet. Add them below.</div>
               ) : (
                 form.parameters.map((fp, index) => {
                   const info = parameterInfo.get(fp.parameterId)
                   return (
                     <div
                       key={fp.parameterId}
-                      className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-2 py-1.5 ${fp.isEnabled ? '' : 'bg-slate-50'}`}
+                      className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-2 py-2 ${fp.isEnabled ? '' : 'bg-subtle/70'}`}
                     >
                       <div className="flex items-center gap-0.5">
                         <span className="w-5 text-right font-mono text-[11px] text-ink-faint">{index + 1}</span>
-                        <button type="button" title="Move up" className={iconButton} disabled={index === 0} onClick={() => moveParameter(index, -1)}>
+                        <button
+                          type="button"
+                          title="Move up"
+                          aria-label={`Move ${info?.name ?? 'parameter'} up`}
+                          className={iconButton}
+                          disabled={index === 0}
+                          onClick={() => moveParameter(index, -1)}
+                        >
                           <ArrowUp className="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"
                           title="Move down"
+                          aria-label={`Move ${info?.name ?? 'parameter'} down`}
                           className={iconButton}
                           disabled={index === form.parameters.length - 1}
                           onClick={() => moveParameter(index, 1)}
@@ -627,13 +756,13 @@ export const ActivitiesPage: React.FC = () => {
                       </div>
 
                       <div className="flex-1 min-w-[160px]">
-                        <span className={`text-xs font-medium ${fp.isEnabled ? 'text-ink' : 'text-ink-muted'}`}>{info?.name ?? 'Unknown parameter'}</span>
+                        <span className={`text-[12.5px] font-medium ${fp.isEnabled ? 'text-ink' : 'text-ink-muted'}`}>{info?.name ?? 'Unknown parameter'}</span>
                         <span className="ml-1.5 text-[11px] text-ink-muted">
                           {info ? PARAMETER_TYPE_LABEL[info.type] : ''}
                           {info?.unit ? ` · ${info.unit}` : ''}
                         </span>
                         {info && !info.isActive && (
-                          <span className="ml-1.5 px-1 py-px rounded border border-exception-line bg-exception-bg text-exception text-[11px] lg:text-[10px] font-medium">
+                          <span className="ml-1.5 px-1.5 py-px rounded-full ring-1 ring-inset ring-exception-line bg-exception-bg text-exception text-[11px] font-medium">
                             Disabled globally
                           </span>
                         )}
@@ -644,7 +773,8 @@ export const ActivitiesPage: React.FC = () => {
                         <button
                           type="button"
                           title="Remove from this check type"
-                          className={`${iconButton} hover:text-failed`}
+                          aria-label={`Remove ${info?.name ?? 'parameter'} from this check type`}
+                          className={`${iconButton} hover:!text-missed hover:!bg-missed-bg`}
                           onClick={() => removeParameter(index)}
                         >
                           <X className="w-3.5 h-3.5" />
@@ -652,7 +782,7 @@ export const ActivitiesPage: React.FC = () => {
                       </div>
 
                       {/* Per-parameter rules: what the worker must provide for this reading. */}
-                      <div className="basis-full flex flex-wrap items-center gap-x-4 gap-y-1 pl-[26px]">
+                      <div className="basis-full flex flex-wrap items-center gap-x-4 gap-y-1 ml-[26px] pl-2.5 border-l-2 border-line">
                         <Toggle checked={fp.isRequired} onChange={(v) => updateParameter(index, { isRequired: v })} label="Required" />
                         <Toggle checked={fp.requirePhoto} onChange={(v) => updateParameter(index, { requirePhoto: v })} label="Photo" />
                         <Toggle checked={fp.requireVideo} onChange={(v) => updateParameter(index, { requireVideo: v })} label="Video" />
@@ -694,7 +824,7 @@ export const ActivitiesPage: React.FC = () => {
                                   aria-label={`Interval in minutes: ${info?.name ?? 'parameter'}`}
                                   value={fp.intervalMinutes}
                                   onChange={(e) => updateParameter(index, { intervalMinutes: Number(e.target.value) })}
-                                  className="h-[40px] w-[96px] lg:h-[34px] lg:w-[84px] rounded border border-line-strong bg-white px-2 text-center font-mono text-[16px] lg:text-[14px] tabular-nums text-ink focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+                                  className="h-[40px] w-[96px] lg:h-8 lg:w-[84px] rounded-md border border-line-strong bg-white px-2 text-center font-mono text-[16px] lg:text-[13px] tabular-nums text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
                                 />
                                 <span className="text-[11px] text-ink-muted">min</span>
                               </span>
@@ -709,7 +839,7 @@ export const ActivitiesPage: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
-              <Select value={addParameterId} onChange={(e) => setAddParameterId(e.target.value)} className="flex-1">
+              <Select value={addParameterId} onChange={(e) => setAddParameterId(e.target.value)} className="flex-1" aria-label="Parameter to add">
                 <option value="">
                   {allParameters === null
                     ? 'Loading parameters…'
@@ -730,27 +860,29 @@ export const ActivitiesPage: React.FC = () => {
                 Add
               </Button>
             </div>
-            <p className="text-[11px] text-ink-muted">
-              {enabledOnForm} of {form.parameters.length} enabled. Turn a parameter off to hide it from this form without losing its settings. Photo and
+            <Hint>
+              <span className="font-medium text-ink-secondary tabular-nums">
+                {enabledOnForm} of {form.parameters.length} enabled.
+              </span> Turn a parameter off to hide it from this form without losing its settings. Photo and
               Video are captured on that parameter's own card; Allow N/A lets the worker record a reason instead of a value, which never counts as a
               failure.
-            </p>
+            </Hint>
             {hiddenByDepartment > 0 && (
-              <p className="text-[11px] text-ink-muted">
+              <Hint>
                 {hiddenByDepartment} parameter{hiddenByDepartment === 1 ? ' is' : 's are'} not offered here because they belong to other departments.
                 Add this department to a parameter in Parameters to make it available.
-              </p>
+              </Hint>
             )}
           </Section>
 
-          <Section step={4} title="Machines" description="Which machines use this check type">
+          <Section step={5} title="Machines" description="Which machines use this check type" icon={<Cpu className="w-4 h-4" />}>
             <MultiSelectList
               items={machineItems}
               selected={form.machineIds}
               onChange={(ids) => update('machineIds', ids)}
               emptyText={machines === null ? 'Loading machines…' : 'No machines configured yet'}
             />
-            <p className="text-[11px] text-ink-muted">{form.machineIds.length} selected</p>
+            <p className="text-[11.5px] text-ink-muted tabular-nums">{form.machineIds.length} selected</p>
           </Section>
 
           {/* Allows Enter to submit */}

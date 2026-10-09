@@ -22,5 +22,9 @@ export async function downloadAndShare(path: string, fileName: string, query?: Q
 }
 
 export async function shareText(fileName: string, text: string, mimeType = 'text/csv') {
-  saveBlob(new Blob(['\uFEFF', text], { type: mimeType }), fileName)
+  // The byte order mark lets Excel read the text as UTF-8; CSV text from toCsv already has one.
+  saveBlob(new Blob(text.startsWith('\uFEFF') ? [text] : ['\uFEFF', text], { type: mimeType }), fileName)
 }
+
+/** Browser downloads go to the Downloads folder, outside the app: nothing to delete at sign out. */
+export function clearDownloads() {}

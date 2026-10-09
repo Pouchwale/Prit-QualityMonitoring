@@ -4,7 +4,9 @@ import { ZodError } from 'zod'
 export class HttpError extends Error {
   constructor(
     public status: number,
-    message: string
+    message: string,
+    /** A stable reason the apps can act on, e.g. SHIFT_ENDED; sent as `code` next to `error`. */
+    public code?: string
   ) {
     super(message)
   }
@@ -22,7 +24,7 @@ function pgCode(err: unknown): string | undefined {
 
 export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   if (err instanceof HttpError) {
-    res.status(err.status).json({ error: err.message })
+    res.status(err.status).json(err.code ? { error: err.message, code: err.code } : { error: err.message })
     return
   }
   if (err instanceof ZodError) {

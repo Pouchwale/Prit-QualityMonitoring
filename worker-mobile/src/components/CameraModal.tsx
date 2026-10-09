@@ -49,9 +49,13 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
   const [recording, setRecording] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [result, setResult] = useState<Capture | null>(null)
+  /** Why the last photo or video failed, shown over the camera until the next try. */
+  const [failure, setFailure] = useState<string | null>(null)
   const startedAt = useRef(0)
 
   useEffect(() => {
+    // A failure from the last time the camera was open is not shown again.
+    setFailure(null)
     if (!visible) {
       setResult(null)
       setRecording(false)
@@ -69,13 +73,15 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
   const takePhoto = async () => {
     if (!cameraRef.current || busy) return
     setBusy(true)
+    setFailure(null)
     try {
       const capturedAt = new Date().toISOString()
       // Taken at high quality and compressed once, to the size that is stored.
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.92 })
       if (photo?.uri) setResult(await compressPhoto({ uri: photo.uri, capturedAt }, { width: photo.width, height: photo.height }))
     } catch (err) {
-      console.error('Camera capture error', err)
+      if (__DEV__) console.error('Camera capture error', err)
+      setFailure('The photo could not be taken. Hold the phone steady and try again.')
     } finally {
       setBusy(false)
     }
@@ -87,6 +93,7 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
     startedAt.current = Date.now()
     setElapsed(0)
     setRecording(true)
+    setFailure(null)
     try {
       // Resolves when stopRecording() is called or the time limit is reached.
       // H.264 on iPhones too (plays everywhere); needed there for the bitrate to apply.
@@ -94,7 +101,8 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
       const durationSeconds = Math.min((Date.now() - startedAt.current) / 1000, maxVideoSeconds)
       if (video?.uri) setResult({ uri: video.uri, capturedAt, durationSeconds: Math.round(durationSeconds) })
     } catch (err) {
-      console.error('Video recording error', err)
+      if (__DEV__) console.error('Video recording error', err)
+      setFailure('The video could not be recorded. Please try again; if it keeps failing, close the camera and open it again.')
     } finally {
       setRecording(false)
     }
@@ -167,6 +175,11 @@ export const CameraModal: React.FC<Props> = ({ visible, mode, maxVideoSeconds, o
 
         {/* Shutter */}
         <View className="absolute bottom-0 left-0 right-0 items-center bg-black/40 pt-5" style={{ paddingBottom: insets.bottom + 20 }}>
+          {failure ? (
+            <View className="mx-5 mb-4 self-stretch rounded-xl bg-black/70 px-4 py-3" accessibilityLiveRegion="polite">
+              <Text className="text-center text-[15px] leading-[20px] text-white">{failure}</Text>
+            </View>
+          ) : null}
           {isPhoto ? (
             <Shutter kind="photo" label="Capture Photo" onPress={takePhoto} disabled={!ready || busy} />
           ) : recording ? (

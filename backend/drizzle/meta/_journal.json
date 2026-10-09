@@ -162,6 +162,76 @@
       "when": 1790504869654,
       "tag": "0022_corona_treatment_material",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790769978944,
+      "tag": "0023_item_code_prefixes_role_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790916271827,
+      "tag": "0024_department_mappings",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790935146847,
+      "tag": "0025_fcm_voice_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790940342765,
+      "tag": "0026_voice_notification_language",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791000000000,
+      "tag": "0027_module_notification_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791000000001,
+      "tag": "0028_schedule_based_ipqc_qc",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791215321601,
+      "tag": "0029_report_sharing",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791216529554,
+      "tag": "0030_custom_frequency",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791264932540,
+      "tag": "0031_audit_fixes",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791271861730,
+      "tag": "0032_worker_shift_logins",
+      "breakpoints": true
     }
   ]
 }

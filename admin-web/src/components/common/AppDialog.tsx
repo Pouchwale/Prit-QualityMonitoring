@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { AlertCircle, AlertTriangle, ArrowRight, CheckCircle2, HelpCircle, Info, type LucideIcon } from 'lucide-react'
 import { Button } from './Button'
+import { useDialogFocus } from '../../lib/useDialogFocus'
 
 export type DialogTone = 'error' | 'warning' | 'success' | 'info' | 'question'
 
@@ -32,7 +33,7 @@ const TONE: Record<DialogTone, { Icon: LucideIcon; icon: string; ring: string }>
   warning: { Icon: AlertTriangle, icon: 'text-exception', ring: 'bg-exception-bg' },
   success: { Icon: CheckCircle2, icon: 'text-success', ring: 'bg-success-bg' },
   info: { Icon: Info, icon: 'text-due', ring: 'bg-due-bg' },
-  question: { Icon: HelpCircle, icon: 'text-accent', ring: 'bg-blue-50' }
+  question: { Icon: HelpCircle, icon: 'text-accent', ring: 'bg-accent-soft' }
 }
 
 // ---- one host for the whole panel; dialogs opened anywhere are shown one after the other ----
@@ -92,6 +93,8 @@ function dismiss(entry: Entry) {
 
 const DialogCard: React.FC<{ entry: Entry }> = ({ entry }) => {
   const tone = TONE[entry.tone ?? 'info']
+  // Tab stays inside the dialog and focus returns to the page afterwards; Escape is handled below.
+  const dialogRef = useDialogFocus<HTMLDivElement>(true, () => dismiss(entry), false)
   const actions = entry.actions?.length ? entry.actions : [{ label: 'OK', variant: 'primary' as const }]
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -114,13 +117,15 @@ const DialogCard: React.FC<{ entry: Entry }> = ({ entry }) => {
   const main = ordered[ordered.length - 1]
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 animate-in fade-in duration-150" onMouseDown={(e) => e.target === e.currentTarget && dismiss(entry)}>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-[2px] animate-in fade-in duration-150" onMouseDown={(e) => e.target === e.currentTarget && dismiss(entry)}>
       <div
         role="alertdialog"
         aria-modal="true"
+        ref={dialogRef}
+        tabIndex={-1}
         aria-labelledby={`dialog-title-${entry.id}`}
         aria-describedby={`dialog-body-${entry.id}`}
-        className="w-full max-w-[420px] bg-white rounded-xl border border-line shadow-2xl flex flex-col max-h-[calc(100dvh-2rem)] overflow-hidden"
+        className="outline-none w-full max-w-[420px] bg-white rounded-xl border border-line shadow-[var(--shadow-pop)] flex flex-col max-h-[calc(100dvh-2rem)] overflow-hidden"
       >
         <div className="px-5 pt-5 pb-4 overflow-y-auto">
           <div className="flex items-start gap-3">
@@ -153,7 +158,7 @@ const DialogCard: React.FC<{ entry: Entry }> = ({ entry }) => {
             </div>
           </div>
         </div>
-        <div className="px-5 py-3 border-t border-line bg-slate-50 flex flex-wrap justify-end gap-2">
+        <div className="px-5 py-3 border-t border-line bg-panel flex flex-wrap justify-end gap-2">
           {ordered.map((action) => (
             <Button
               key={action.label}

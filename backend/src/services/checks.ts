@@ -29,6 +29,7 @@ export interface CheckFilters {
   shiftId?: string
   activityId?: string
   departmentId?: string
+  module?: 'IPQC' | 'QC'
   /** Item Code / PO No. of the check or of the job it ran in; case-insensitive, whole value. */
   itemCode?: string
   jobNo?: string
@@ -97,6 +98,7 @@ function buildWhere(filters: CheckFilters) {
   }
   if (filters.shiftId) where.push(eq(qualityChecks.shiftId, filters.shiftId))
   if (filters.activityId) where.push(eq(qualityChecks.activityId, filters.activityId))
+  if (filters.module) where.push(eq(qualityChecks.module, filters.module))
   // The department of the work, recorded on the check. Machines are shared between departments,
   // so the machine's own department says nothing about who the check belongs to.
   if (filters.departmentId) where.push(eq(qualityChecks.departmentId, filters.departmentId))
@@ -113,7 +115,7 @@ export async function countChecks(filters: CheckFilters) {
   const [row] = await db
     .select({ n: count() })
     .from(qualityChecks)
-    .innerJoin(machines, eq(qualityChecks.machineId, machines.id))
+    .leftJoin(machines, eq(qualityChecks.machineId, machines.id))
     .where(buildWhere(filters))
   return row?.n ?? 0
 }
@@ -131,6 +133,7 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
       departmentId: departments.id,
       departmentName: departments.name,
       activityName: activities.name,
+      activityModule: activities.module,
       workerName: worker.name,
       workerEmployeeId: worker.employeeId,
       shiftName: shifts.name,
@@ -143,7 +146,7 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
       jobEndedAt: jobs.endedAt
     })
     .from(qualityChecks)
-    .innerJoin(machines, eq(qualityChecks.machineId, machines.id))
+    .leftJoin(machines, eq(qualityChecks.machineId, machines.id))
     .leftJoin(departments, eq(qualityChecks.departmentId, departments.id))
     .innerJoin(activities, eq(qualityChecks.activityId, activities.id))
     .leftJoin(worker, eq(qualityChecks.workerId, worker.id))
@@ -186,6 +189,7 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
       departmentName: r.departmentName,
       activityId: r.check.activityId,
       activityName: r.activityName,
+      module: (r.check.module ?? r.activityModule ?? 'IPQC') as 'IPQC' | 'QC',
       workerId: r.check.workerId,
       workerName: r.workerName,
       workerEmployeeId: r.workerEmployeeId,

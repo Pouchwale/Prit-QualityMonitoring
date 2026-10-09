@@ -4,9 +4,19 @@ import { api } from '../../services/api'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
 import { Badge, DataState, FormError, FormSection, Input, List, PrimaryButton, Row, Screen, ToggleField, confirm, useToast } from '../ui'
-import { ActionGroup, ActionItem } from './adminParts'
+import { ActionGroup, ActionItem, facts } from './adminParts'
 
-/** Departments: plant departments used to group machines, check types and workers. */
+/** The department's Item Code prefixes for its list row, or null when it has none. */
+const prefixText = (d: Department) => {
+  const prefixes = d.itemCodePrefixes ?? []
+  return prefixes.length ? `Item Code prefix${prefixes.length === 1 ? '' : 'es'} ${prefixes.join(', ')}` : null
+}
+
+/**
+ * Departments: plant departments used to group machines, check types and workers. Each row also
+ * shows the Item Code prefixes that decide which department a job belongs to; they are set in the
+ * admin panel's Department Configuration, and read only here.
+ */
 export const DepartmentsScreen: React.FC<{ params: Record<string, unknown> }> = () => {
   const { can, push } = useStaff()
   const canEdit = can('departments', 'manage')
@@ -16,6 +26,7 @@ export const DepartmentsScreen: React.FC<{ params: Record<string, unknown> }> = 
   return (
     <Screen
       title="Departments"
+      subtitle="Item Code prefixes are set in Department Configuration"
       onRefresh={reload}
       refreshing={loading && !!data}
       right={canEdit ? { label: 'Add', icon: 'add', onPress: () => push('departmentForm', {}) } : null}
@@ -35,7 +46,7 @@ export const DepartmentsScreen: React.FC<{ params: Record<string, unknown> }> = 
               key={d.id}
               title={d.name}
               titleClassName={d.isActive ? '' : 'text-staff-muted'}
-              subtitle={d.code}
+              subtitle={facts(d.code, prefixText(d))}
               right={d.isActive ? undefined : <Badge label="Inactive" tone="neutral" />}
               onPress={canEdit ? () => push('departmentForm', { department: d }) : undefined}
               accessibilityLabel={canEdit ? `Edit ${d.name}` : undefined}
@@ -88,7 +99,7 @@ export const DepartmentFormScreen: React.FC<{ params: { department?: Department 
     if (!editing) return
     const ok = await confirm(
       'Delete department',
-      `Delete ${editing.name}? If machines, check types or users still belong to it, it will be marked inactive instead.`,
+      `Delete ${editing.name}? If machines, check types, users or Item Code mappings still belong to it, it will be marked inactive instead.`,
       'Delete',
       true
     )
@@ -119,6 +130,15 @@ export const DepartmentFormScreen: React.FC<{ params: { department?: Department 
       <FormSection title="Details">
         <Input label="Name" required value={name} onChangeText={setName} placeholder="e.g. Printing" maxLength={100} />
         <Input label="Code" required value={code} onChangeText={setCode} placeholder="e.g. PRT" maxLength={30} autoCapitalize="characters" />
+        {editing ? (
+          <Input
+            label="Item Code prefixes"
+            hint="Set in the admin panel's Department Configuration. A job whose Item Code starts with one of these belongs to this department."
+            value={(editing.itemCodePrefixes ?? []).join(', ') || 'None'}
+            onChangeText={() => {}}
+            editable={false}
+          />
+        ) : null}
       </FormSection>
       <FormSection title="Status">
         <ToggleField label="Active" description="Inactive departments are hidden from selection lists." value={isActive} onChange={setIsActive} disabled={!canEdit} />

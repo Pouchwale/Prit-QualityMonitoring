@@ -37,21 +37,43 @@ function labelTable(table: HTMLTableElement) {
   }
 }
 
-function labelAll() {
-  document.querySelectorAll<HTMLTableElement>('table.stack-sm').forEach(labelTable)
-}
-
+/*
+ * Relabels only the tables a change touched, once per frame. Changes outside tables (the Topbar
+ * clock ticks every second) cost one closest() lookup and relabel nothing. Text changes are still
+ * watched, but only for the table they happen in: a cell going from "—" to a value must lose its
+ * data-empty mark. Our own data-label writes are attribute changes and are not observed.
+ */
 export function startResponsiveTables() {
+  const pending = new Set<HTMLTableElement>()
   let queued = false
-  const schedule = () => {
+  const flush = () => {
+    queued = false
+    for (const table of pending) if (table.isConnected) labelTable(table)
+    pending.clear()
+  }
+  const add = (table: HTMLTableElement) => {
+    pending.add(table)
     if (queued) return
     queued = true
-    requestAnimationFrame(() => {
-      queued = false
-      labelAll()
-    })
+    requestAnimationFrame(flush)
   }
-  // Only structural changes matter; our own data-label writes are attribute changes and are ignored.
-  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, characterData: true })
-  schedule()
+  // The table a changed node sits in, or (for a newly added page or panel) the tables inside it.
+  const collect = (node: Node) => {
+    const el = node instanceof Element ? node : node.parentElement
+    const table = el?.closest<HTMLTableElement>('table.stack-sm')
+    if (table) add(table)
+    else if (node instanceof Element) node.querySelectorAll<HTMLTableElement>('table.stack-sm').forEach(add)
+  }
+
+  new MutationObserver((records) => {
+    for (const record of records) {
+      if (record.type === 'characterData') {
+        collect(record.target)
+        continue
+      }
+      if (record.target instanceof Element && record.target.closest('table.stack-sm')) collect(record.target)
+      else record.addedNodes.forEach(collect)
+    }
+  }).observe(document.body, { childList: true, subtree: true, characterData: true })
+  document.querySelectorAll<HTMLTableElement>('table.stack-sm').forEach(add)
 }

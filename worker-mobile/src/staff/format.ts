@@ -84,13 +84,19 @@ export function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-/** Rows as CSV text (same escaping as the web panel's exports). */
+/**
+ * Rows as CSV text, with a UTF-8 byte order mark so Excel shows Hindi/Gujarati names correctly.
+ * A cell that starts like a formula (=, +, -, @, tab, return) gets a leading ' so a spreadsheet
+ * shows it as text instead of running it (a remark like "=HYPERLINK(...)"); plain numbers such
+ * as -2.5 are left as they are. Cells with quotes, commas or line breaks are quoted.
+ */
 export function toCsv(headers: string[], rows: (string | number | null | undefined)[][]) {
   const escape = (v: string | number | null | undefined) => {
-    const s = v === null || v === undefined ? '' : String(v)
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    let s = v === null || v === undefined ? '' : String(v)
+    if (/^[=+\-@\t\r]/.test(s) && !/^[+-]?\d+(\.\d+)?$/.test(s)) s = `'${s}`
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
   }
-  return [headers, ...rows].map((r) => r.map(escape).join(',')).join('\n')
+  return '﻿' + [headers, ...rows].map((r) => r.map(escape).join(',')).join('\n')
 }
 
 export type Tone = 'neutral' | 'success' | 'due' | 'missed' | 'exception' | 'accent' | 'dark'

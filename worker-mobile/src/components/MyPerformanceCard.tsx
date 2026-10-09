@@ -82,21 +82,23 @@ export const MyPerformanceCard: React.FC = () => {
               <Text className={`text-[34px] font-bold leading-[40px] ${data.score < 0 ? 'text-missed' : 'text-success'}`}>{data.score}%</Text>
             </View>
             <Text className="pb-1.5 text-right text-[13px] leading-[18px] text-ink-muted">
-              {data.completionRate}% completed
+              {data.completionRate}% done
               {'\n'}
-              {100 - data.completionRate}% still to do
+              {100 - data.completionRate}% missed
             </Text>
           </View>
           <View className="mt-3 flex-row rounded-xl bg-subtle">
             <Figure label="Assigned" value={data.assigned} />
             <Figure label="Completed" value={data.completed} />
+            <Figure label="Exceptions" value={data.exceptions} />
             <Figure label="Missed" value={data.missed} last />
           </View>
-          {data.open > 0 ? (
-            <Text className="mt-2 text-[13px] leading-[18px] text-ink-muted">
-              {data.open} check{data.open === 1 ? ' is' : 's are'} still open in this period; submitting {data.open === 1 ? 'it' : 'them'} improves the score.
-            </Text>
-          ) : null}
+          <Text className="mt-2 text-[13px] leading-[18px] text-ink-muted">
+            Assigned are the checks whose time is over. Exceptions count as done; only missed checks lower the score.
+            {data.open > 0
+              ? ` ${data.open} check${data.open === 1 ? ' is' : 's are'} still open and not counted yet: submit ${data.open === 1 ? 'it' : 'them'} on time to keep the score.`
+              : ''}
+          </Text>
         </>
       ) : null}
     </View>

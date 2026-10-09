@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Quality Worker",
+    "name": "Quality Monitoring",
     "slug": "quality-worker",
-    "version": "1.0.0",
+    "version": "1.4.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,7 +22,7 @@
         "android.permission.CAMERA"
       ],
       "package": "com.pouchwale.qualityworker",
-      "versionCode": 1,
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#7F3D40"
@@ -51,6 +51,7 @@
         }
       ],
       "expo-sharing",
+      "expo-task-manager",
       [
         "expo-build-properties",
         {
@@ -58,7 +59,8 @@
             "usesCleartextTraffic": true
           }
         }
-      ]
+      ],
+      "expo-font"
     ],
     "scheme": "qualityworker",
     "web": {
@@ -78,6 +80,15 @@
         "projectId": "e50c616c-4751-4692-a391-569587f90018"
       }
     },
-    "owner": "prit1177"
+    "owner": "prit1177",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e50c616c-4751-4692-a391-569587f90018",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

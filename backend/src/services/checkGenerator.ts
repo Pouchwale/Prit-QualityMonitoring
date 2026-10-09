@@ -1,11 +1,11 @@
-import { and, asc, eq, gt, gte, inArray, isNull, lt, lte } from 'drizzle-orm'
+import { and, asc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, or } from 'drizzle-orm'
 import { randomBytes } from 'node:crypto'
 import { db } from '../db/client'
-import { activities, jobs, machines, qualityChecks, scheduleTimers, schedules, shifts } from '../db/schema'
+import { activities, jobs, machines, qualityChecks, scheduleTimers, schedules, shifts, users } from '../db/schema'
 import { MINUTE, addDays, atTime, dateKey, startOfDay } from '../lib/time'
 import { machineOffBetween, purgeClosedDays } from './plantCalendar'
 import { generateJobIntervalChecks } from './jobMonitoring'
-import { checkTypeInDepartment, userDepartments } from './checkTypeScope'
+import { checkTypeInDepartment } from './checkTypeScope'
 
 /**
  * The rolling scheduler: every schedule (machine + check type + shift) has **one open check at a
@@ -59,17 +59,19 @@ type ShiftRow = typeof shifts.$inferSelect
  * The schedule's windows (one per shift occurrence) that are still running or start within
  * `days` days, oldest first. Occurrences that ended before `from - 1 day` are left out.
  */
-export function occurrences(schedule: ScheduleRow, shift: ShiftRow, from: Date, days = 8): Occurrence[] {
+export function occurrences(schedule: ScheduleRow, shift: ShiftRow | null, from: Date, days = 8): Occurrence[] {
   const list: Occurrence[] = []
   const horizon = new Date(from.getTime() + days * 24 * 60 * MINUTE)
   const firstDay = addDays(startOfDay(from), -1)
+  const defaultStart = shift?.startTime ?? '00:00'
+  const defaultEnd = shift?.endTime ?? '23:59'
   for (let i = 0; i <= days + 1; i++) {
     const day = addDays(firstDay, i)
-    const shiftStart = atTime(day, shift.startTime)
-    let start = atTime(day, schedule.startTime ?? shift.startTime)
+    const shiftStart = atTime(day, defaultStart)
+    let start = atTime(day, schedule.startTime ?? defaultStart)
     // A custom window earlier than the shift start belongs to the part of an overnight shift after midnight.
     if (start < shiftStart) start = addDays(start, 1)
-    let end = atTime(start, schedule.endTime ?? shift.endTime)
+    let end = atTime(start, schedule.endTime ?? defaultEnd)
     if (end <= start) end = addDays(end, 1) // overnight
     if (end <= firstDay || start > horizon) continue
     list.push({ start, end })
@@ -78,7 +80,7 @@ export function occurrences(schedule: ScheduleRow, shift: ShiftRow, from: Date, 
 }
 
 /** The occurrence of this schedule that is running at `at`, if any. */
-export function occurrenceAt(schedule: ScheduleRow, shift: ShiftRow, at: Date): Occurrence | null {
+export function occurrenceAt(schedule: ScheduleRow, shift: ShiftRow | null, at: Date): Occurrence | null {
   return occurrences(schedule, shift, at, 1).find((o) => o.start <= at && at < o.end) ?? null
 }
 
@@ -87,13 +89,13 @@ export async function currentSchedule(machineId: string, activityId: string, at:
   const rows = await db
     .select({ schedule: schedules, shift: shifts })
     .from(schedules)
-    .innerJoin(shifts, eq(schedules.shiftId, shifts.id))
+    .leftJoin(shifts, eq(schedules.shiftId, shifts.id))
     .where(
       and(
         eq(schedules.machineId, machineId),
         eq(schedules.activityId, activityId),
         eq(schedules.isActive, true),
-        eq(shifts.isActive, true)
+        or(isNull(schedules.shiftId), eq(shifts.isActive, true))
       )
     )
   for (const row of rows) {
@@ -154,22 +156,28 @@ export async function planNextChecks(now = new Date()) {
   return planChecks(now, { ignoreOpen: true })
 }
 
-async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenerated?: boolean } = {}) {
+export async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenerated?: boolean } = {}) {
   const rows = await db
-    .select({ schedule: schedules, shift: shifts, activityDepartmentId: activities.departmentId })
+    .select({
+      schedule: schedules,
+      shift: shifts,
+      activityDepartmentId: activities.departmentId,
+      activityModule: activities.module,
+      activityGraceMinutes: activities.graceMinutes
+    })
     .from(schedules)
-    .innerJoin(shifts, eq(schedules.shiftId, shifts.id))
-    .innerJoin(machines, eq(schedules.machineId, machines.id))
     .innerJoin(activities, eq(schedules.activityId, activities.id))
+    .leftJoin(shifts, eq(schedules.shiftId, shifts.id))
+    .leftJoin(machines, eq(schedules.machineId, machines.id))
+    .leftJoin(users, eq(schedules.workerId, users.id))
     .where(
       and(
         eq(schedules.isActive, true),
-        eq(shifts.isActive, true),
-        eq(machines.isActive, true),
-        eq(machines.status, 'ACTIVE'),
         eq(activities.isActive, true),
-        // Job-based check types are checked per job (services/jobMonitoring.ts), not by shift schedules.
-        eq(activities.monitoring, 'SHIFT')
+        or(isNull(schedules.shiftId), eq(shifts.isActive, true)),
+        or(isNull(schedules.machineId), and(eq(machines.isActive, true), eq(machines.status, 'ACTIVE'))),
+        or(isNull(schedules.workerId), and(eq(users.isActive, true), eq(users.appAccess, true))),
+        or(isNotNull(schedules.workerId), eq(activities.monitoring, 'SHIFT'))
       )
     )
   if (options.markGenerated) lastGenerated = Date.now()
@@ -202,8 +210,6 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
     // A machine is only monitored while a job runs on it; the job's worker owns the checks.
     db.select().from(jobs).where(eq(jobs.status, 'ACTIVE'))
   ])
-  // A worker only does the check types of their own department (services/checkTypeScope.ts).
-  const departmentByWorker = await userDepartments(runningJobs.map((j) => j.assignedWorkerId))
 
   const open = options.ignoreOpen ? new Set<string | null>() : new Set(openRows.map((r) => r.scheduleId))
   const timerBySchedule = new Map(timers.map((t) => [t.scheduleId, t]))
@@ -219,26 +225,42 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
   const machineOff = await machineOffBetween(addDays(startOfDay(now), -1), addDays(startOfDay(now), 10))
 
   const inserts: (typeof qualityChecks.$inferInsert)[] = []
-  for (const { schedule, shift, activityDepartmentId } of rows) {
+  for (const { schedule, shift, activityDepartmentId, activityModule, activityGraceMinutes } of rows) {
     if (open.has(schedule.id)) continue
 
-    // The job running on the machine owns everything scheduled for it. No job: nothing is due.
-    const job = jobByMachine.get(schedule.machineId) ?? null
-    if (!job?.assignedWorkerId) continue
-    // Nothing is created for a check type of another department: that worker would never see it.
-    if (!checkTypeInDepartment(activityDepartmentId, departmentByWorker.get(job.assignedWorkerId) ?? null)) continue
+    const isWorkerSchedule = !!schedule.workerId
+    let targetWorkerId: string | null = null
+    let targetDepartmentId: string | null = schedule.departmentId ?? activityDepartmentId ?? null
+    let targetJobId: string | null = null
+
+    if (isWorkerSchedule) {
+      targetWorkerId = schedule.workerId
+    } else {
+      // Legacy machine schedule: requires running job on machine
+      if (!schedule.machineId) continue
+      const job = jobByMachine.get(schedule.machineId) ?? null
+      if (!job?.assignedWorkerId) continue
+      if (!checkTypeInDepartment(activityDepartmentId, job.departmentId)) continue
+      targetWorkerId = job.assignedWorkerId
+      targetDepartmentId = job.departmentId ?? activityDepartmentId ?? null
+      targetJobId = job.id
+    }
 
     const interval = Math.max(schedule.intervalMinutes, 5) * MINUTE
-    const grace = shift.graceMinutes * MINUTE
+    const grace = (shift?.graceMinutes ?? activityGraceMinutes ?? 15) * MINUTE
     const timer = timerBySchedule.get(schedule.id)
     const past = historyBySchedule.get(schedule.id) ?? []
 
     let created = false
     for (const occurrence of occurrences(schedule, shift, now)) {
       if (occurrence.end <= now) continue
-      // Nothing is counted from before the job started.
-      const jobFrom = job.activatedAt ?? job.startedAt ?? occurrence.start
-      const from = new Date(Math.max(occurrence.start.getTime(), jobFrom.getTime()))
+
+      let from = occurrence.start
+      if (!isWorkerSchedule && schedule.machineId) {
+        const job = jobByMachine.get(schedule.machineId)
+        const jobFrom = job?.activatedAt ?? job?.startedAt ?? occurrence.start
+        from = new Date(Math.max(occurrence.start.getTime(), jobFrom.getTime()))
+      }
       if (from >= occurrence.end) continue
 
       const events: AnchorEvent[] = []
@@ -259,7 +281,7 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
 
       let nextDue = from
       for (const event of events) {
-        if (event.at < from) continue // before the job started, or before this window opened
+        if (event.at < from) continue
         if (event.next > nextDue) nextDue = event.next
       }
       // Slots that were already over when the schedule was set up are not created (as before).
@@ -269,7 +291,7 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
       }
 
       while (nextDue < occurrence.end) {
-        if (machineOff(schedule.machineId, dateKey(nextDue))) {
+        if (schedule.machineId && machineOff(schedule.machineId, dateKey(nextDue))) {
           // An overnight window can run into a closed date; the part before midnight still counts.
           const nextDay = startOfDay(addDays(nextDue, 1))
           if (nextDay >= occurrence.end || machineOff(schedule.machineId, dateKey(nextDay))) break
@@ -281,13 +303,13 @@ async function planChecks(now: Date, options: { ignoreOpen?: boolean; markGenera
         inserts.push({
           code: makeCheckCode(nextDue),
           scheduleId: schedule.id,
-          machineId: schedule.machineId,
+          machineId: schedule.machineId ?? null,
           activityId: schedule.activityId,
-          workerId: job.assignedWorkerId,
-          // The department of the work: the job's, the check type's, else the worker's own.
-          departmentId: job.departmentId ?? activityDepartmentId ?? departmentByWorker.get(job.assignedWorkerId) ?? null,
-          shiftId: schedule.shiftId,
-          jobId: job.id,
+          module: schedule.module ?? activityModule ?? 'IPQC',
+          workerId: targetWorkerId,
+          departmentId: targetDepartmentId,
+          shiftId: schedule.shiftId ?? null,
+          jobId: targetJobId,
           scheduledAt: nextDue,
           windowEndsAt,
           status: missed ? 'MISSED' : nextDue <= now ? 'DUE' : 'PENDING'
@@ -342,8 +364,28 @@ export async function refreshStatuses() {
 /** Refreshes statuses, creates the next check of every schedule, and opens the ones that are due. */
 export async function prepareChecks(_days: Date[] = []) {
   await refreshStatuses()
-  await generateNextChecks()
+  await generateNextChecks(true)
   await updateStatuses()
+}
+
+/** How often a page that only reads checks brings them up to date itself (the scheduler does every minute). */
+const READ_PREPARE_MS = 15_000
+let lastReadPrepare = 0
+let readPreparing: Promise<void> | null = null
+
+/**
+ * prepareChecks for pages that only read (machine screen, dashboard, lists). Every worker's phone
+ * refreshes these, so they share one run at a time and run it at most every READ_PREPARE_MS; a
+ * submission still checks its own check's status at once (refreshStatuses).
+ */
+export function prepareChecksForRead(): Promise<void> {
+  if (readPreparing) return readPreparing
+  if (Date.now() - lastReadPrepare < READ_PREPARE_MS) return Promise.resolve()
+  readPreparing = prepareChecks().finally(() => {
+    lastReadPrepare = Date.now()
+    readPreparing = null
+  })
+  return readPreparing
 }
 
 type Scope = { scheduleId: string } | { machineId: string } | { activityId: string } | { shiftId: string }

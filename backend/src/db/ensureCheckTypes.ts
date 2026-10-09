@@ -1,6 +1,6 @@
 import { eq, max, sql } from 'drizzle-orm'
 import { db } from './client'
-import { activities, activityParameters, departments, machineActivities, machines, parameters, settings } from './schema'
+import { activities, activityParameters, departmentMappings, departments, machineActivities, machines, parameters, settings } from './schema'
 
 /** Set once the check types below have been created, so anything an admin later changes stays changed. */
 const MARKER = 'checktypes.label-sleeve.2026-09'
@@ -45,8 +45,11 @@ const CHECK_TYPES = [
     name: 'Label',
     code: 'LABEL-QC',
     description: 'Quality check for the Label department',
-    /** Matched against the existing departments by name or code, ignoring case; created if missing. */
-    department: { name: 'Label', code: 'LABEL', aliases: ['label'] },
+    /**
+     * Matched against the existing departments by name or code, ignoring case; created if missing,
+     * with the Item Code prefix of its jobs (services/itemCodeDepartment.ts).
+     */
+    department: { name: 'Label', code: 'LABEL', aliases: ['label'], itemCodePrefix: 'RMLA' },
     parameterNames: [
       'Artwork',
       'Corona Treatment',
@@ -67,7 +70,7 @@ const CHECK_TYPES = [
     code: 'SLEEVE-QC',
     description: 'Quality check for the Sleeve department',
     // "sleave" and "slive" are how this department has been spelled in the plant's own data.
-    department: { name: 'Sleeve', code: 'SLEEVE', aliases: ['sleeve', 'sleave', 'slive'] },
+    department: { name: 'Sleeve', code: 'SLEEVE', aliases: ['sleeve', 'sleave', 'slive'], itemCodePrefix: 'RMSL' },
     parameterNames: [
       'Artwork',
       'Corona Treatment',
@@ -99,11 +102,18 @@ export async function ensureCheckTypes() {
   const created = await db.transaction(async (tx) => {
     // ---------------------------------------------------------------- departments
     const departmentRows = await tx.select({ id: departments.id, name: departments.name, code: departments.code }).from(departments)
+    const mappedPrefixes = (await tx.select({ prefix: departmentMappings.prefix }).from(departmentMappings)).map((m) => m.prefix.toUpperCase())
     const departmentId = async (spec: (typeof CHECK_TYPES)[number]['department']) => {
       const found = departmentRows.find((d) => spec.aliases.includes(key(d.name)) || spec.aliases.includes(key(d.code)))
       if (found) return found.id
       const [row] = await tx.insert(departments).values({ name: spec.name, code: spec.code }).returning({ id: departments.id })
       departmentRows.push({ id: row.id, name: spec.name, code: spec.code })
+      // A new department gets its Item Code mapping, unless the prefix (or one that overlaps it) is already mapped.
+      const prefix = spec.itemCodePrefix
+      if (!mappedPrefixes.some((p) => p.startsWith(prefix) || prefix.startsWith(p))) {
+        await tx.insert(departmentMappings).values({ prefix, departmentId: row.id })
+        mappedPrefixes.push(prefix)
+      }
       return row.id
     }
 
@@ -143,6 +153,7 @@ export async function ensureCheckTypes() {
           name: spec.name,
           code: spec.code,
           description: spec.description,
+          module: 'IPQC',
           departmentId: await departmentId(spec.department),
           // Evidence is set per parameter in Check Types, so no single photo for the whole check.
           requirePhoto: false,

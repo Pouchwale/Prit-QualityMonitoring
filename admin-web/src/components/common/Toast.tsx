@@ -33,7 +33,13 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <ToastContext.Provider value={notify}>
       {children}
       <DialogHost />
-      <div className="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+      {/* A polite live region: new toasts are read out without moving focus. */}
+      <div
+        className="fixed bottom-4 right-4 left-4 sm:left-auto z-[60] flex flex-col gap-2 sm:max-w-sm sm:w-full pointer-events-none"
+        role="status"
+        aria-live="polite"
+        aria-relevant="additions"
+      >
         {toasts.map((t) => (
           <ToastItem key={t.id} toast={t} onDismiss={dismiss} />
         ))}
@@ -56,27 +62,31 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
   }, [onDismiss, toast.id, toast.type])
 
   const icons = {
-    success: <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />,
-    warning: <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />,
-    error: <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />,
-    info: <Info className="w-4 h-4 text-blue-600 shrink-0" />
+    success: <CheckCircle2 className="w-4 h-4 text-success shrink-0" />,
+    warning: <AlertTriangle className="w-4 h-4 text-exception shrink-0" />,
+    error: <AlertCircle className="w-4 h-4 text-missed shrink-0" />,
+    info: <Info className="w-4 h-4 text-accent shrink-0" />
   }
 
   const borderStyles = {
-    success: 'border-emerald-200 bg-emerald-50 text-emerald-950',
-    warning: 'border-amber-200 bg-amber-50 text-amber-950',
-    error: 'border-red-200 bg-red-50 text-red-950',
-    info: 'border-blue-200 bg-blue-50 text-blue-950'
+    success: 'border-line bg-white text-ink border-l-[3px] border-l-[var(--color-chart-completed)]',
+    warning: 'border-line bg-white text-ink border-l-[3px] border-l-[var(--color-chart-exception)]',
+    error: 'border-line bg-white text-ink border-l-[3px] border-l-[var(--color-chart-missed)]',
+    info: 'border-line bg-white text-ink border-l-[3px] border-l-[var(--color-chart-primary)]'
   }
 
   return (
-    <div className={`pointer-events-auto flex items-start gap-2.5 p-3 rounded border shadow-lg text-xs ${borderStyles[toast.type]}`}>
+    <div className={`pointer-events-auto flex items-start gap-2.5 p-3 rounded-lg border shadow-[var(--shadow-pop)] text-[12.5px] ${borderStyles[toast.type]}`}>
       {icons[toast.type]}
-      <div className="flex-1">
+      <div className="flex-1 min-w-0 [overflow-wrap:anywhere]">
         <div className="font-semibold">{toast.title}</div>
-        {toast.message && <div className="text-[11px] opacity-90 mt-0.5">{toast.message}</div>}
+        {toast.message && <div className="text-[12px] text-ink-muted mt-0.5">{toast.message}</div>}
       </div>
-      <button onClick={() => onDismiss(toast.id)} className="text-slate-400 hover:text-slate-700 p-0.5 rounded transition-colors">
+      <button
+        onClick={() => onDismiss(toast.id)}
+        className="-m-1.5 w-7 h-7 shrink-0 flex items-center justify-center text-ink-muted hover:text-ink hover:bg-subtle rounded transition-colors"
+        aria-label="Dismiss notification"
+      >
         <X className="w-3.5 h-3.5" />
       </button>
     </div>
