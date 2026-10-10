@@ -5,6 +5,7 @@ import { api } from '../../services/api'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
 import { addDaysKey, dateKey, formatDateTime, formatKey, plural, type Tone } from '../format'
+import { itemCodeError } from '../../utils/itemCode'
 import { DeleteSheet, SelectMark, SelectionFooter, deletedMessage, useDeletePermissions, useSelection } from '../deletion'
 import {
   AccessDenied,
@@ -398,12 +399,13 @@ const JobPlanScreen: React.FC<{ params: { id?: string } }> = ({ params }) => {
     if (!value.machineId) return setError('Choose the machine')
     if (!value.jobNo.trim()) return setError('Enter the PO No.')
     if (!value.itemCode.trim()) return setError('Enter the Item Code.')
+    if (itemCodeError(value.itemCode)) return setError(itemCodeError(value.itemCode))
     setSaving(true)
     setError(null)
     const body = {
       machineId: value.machineId,
       jobNo: value.jobNo.trim(),
-      itemCode: value.itemCode.trim(),
+      itemCode: value.itemCode.trim().toUpperCase(),
       plannedFor: value.plannedFor || null,
       note: value.note.trim() || null
     }
@@ -443,6 +445,7 @@ const JobPlanScreen: React.FC<{ params: { id?: string } }> = ({ params }) => {
             required
             hint="The department is set automatically from the Item Code prefix (see Department Configuration in the admin panel)."
             value={value.itemCode}
+            error={itemCodeError(value.itemCode)}
             onChangeText={(itemCode) => set({ itemCode })}
             autoCapitalize="characters"
             maxLength={60}

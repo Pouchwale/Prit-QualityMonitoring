@@ -39,6 +39,7 @@ import { Card, EmptyState } from '../../components/ui/Card'
 import { StatCard } from '../../components/ui/StatCard'
 import { IconButton, ResultCount, SearchInput, Segmented, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
 import { Pagination, usePagination } from '../../components/ui/Pagination'
+import { itemCodeError } from '../../lib/itemCode'
 
 /** Five KPI tiles with no empty cell: 2 + 2 + 1 (wide) on phones, 3 + 2 on tablets, one row on desktop. */
 const KPI_GRID =
@@ -195,13 +196,14 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
     if (!plan.machineId) return setPlanError('Choose the machine')
     if (!plan.jobNo.trim()) return setPlanError('Enter the PO No.')
     if (!plan.itemCode.trim()) return setPlanError('Enter the Item Code.')
+    if (itemCodeError(plan.itemCode)) return setPlanError(itemCodeError(plan.itemCode))
     setSaving(true)
     setPlanError(null)
     // No department: the server works it out from the Item Code, and refuses an Item Code it cannot place.
     const body = {
       machineId: plan.machineId,
       jobNo: plan.jobNo.trim(),
-      itemCode: plan.itemCode.trim(),
+      itemCode: plan.itemCode.trim().toUpperCase(),
       plannedFor: plan.plannedFor || null,
       note: plan.note.trim() || null
     }
@@ -646,7 +648,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
             <Field label="PO No." required>
               <TextInput value={plan.jobNo} onChange={(e) => setPlan({ ...plan, jobNo: e.target.value })} className="font-mono" maxLength={60} />
             </Field>
-            <Field label="Item Code" required hint="The department is set automatically from the Item Code prefix (see Department Configuration).">
+            <Field label="Item Code" required hint="The department is set automatically from the Item Code prefix (see Department Configuration)." error={itemCodeError(plan.itemCode) ?? undefined}>
               <TextInput value={plan.itemCode} onChange={(e) => setPlan({ ...plan, itemCode: e.target.value })} className="font-mono" maxLength={60} />
             </Field>
           </div>

@@ -1,6 +1,6 @@
 // npx tsx src/scripts/test-exception-details.ts — no database needed.
 import assert from 'node:assert/strict'
-import { exceptionDetailsError, isMachineReason } from '../lib/validate'
+import { exceptionDetailsError, isMachineReason, ITEM_CODE_ERROR, validItemCode } from '../lib/validate'
 
 const BOTH = 'Machine Name and PO No. / Item Code are required for an Exception.'
 const MACHINE = 'Machine Name is required for an Exception.'
@@ -22,4 +22,12 @@ assert.equal(exceptionDetailsError('m-1', '', true), null)
 assert.equal(exceptionDetailsError('m-1', null, true), null)
 assert.equal(exceptionDetailsError(null, 'PO-123', true), MACHINE)
 assert.equal(exceptionDetailsError('  ', '', true), MACHINE)
+// Item Code format (lib/validate.ts validItemCode).
+for (const ok of ['FGPO123', 'FGPO1234', 'FGLA123', 'FGLA1234', 'FGSL123', 'FGSL1234']) assert.equal(validItemCode(ok), ok)
+assert.equal(validItemCode('  fgpo123  '), 'FGPO123')
+assert.equal(validItemCode(''), '')
+assert.equal(validItemCode(null), '')
+for (const bad of ['FGXX123', 'FGPOABC', 'FGPO', '123FGPO', 'FGPO 123', 'FGPO-123', 'FGSL@123', 'ABC123', 'FGPO - 7441', 'FGPO12A']) {
+  assert.throws(() => validItemCode(bad), (e: Error) => e.message === ITEM_CODE_ERROR, bad)
+}
 console.log('exception details: all checks passed')

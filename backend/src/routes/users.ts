@@ -12,7 +12,7 @@ import { canManage, isAdminRole, requireAnyView, requireModule, type Role } from
 import { invalidateCheckGeneration } from '../services/checkGenerator'
 import { sendTestNotification } from '../services/notifications'
 import { clearDeletePermissions } from '../lib/deletePermissions'
-import { workerShiftStatuses } from '../services/workerShifts'
+import { recordShiftLogout, workerShiftStatuses } from '../services/workerShifts'
 
 export const usersRouter = Router()
 
@@ -179,6 +179,9 @@ usersRouter.put('/:id', accountManagers, async (req, res) => {
     })
     .where(eq(users.id, id))
     .returning(publicColumns)
+  // Signed out everywhere: the worker's shift sign-in ends now too, or the dashboard keeps showing
+  // "Signed in" until the shift ends.
+  if (signOut && before.role === 'WORKER') await recordShiftLogout(id)
   invalidateCheckGeneration()
   // A former Manager keeps no per-user rows: their module rows from before the Manager role got one
   // shared set (no longer read), and any old delete permission, which must not come back if they
@@ -252,6 +255,7 @@ usersRouter.delete('/:id', accountManagers, async (req, res) => {
     .update(users)
     .set({ isActive: false, tokenVersion: before.tokenVersion + 1 })
     .where(eq(users.id, id))
+  if (before.role === 'WORKER') await recordShiftLogout(id)
   await audit(req, 'DISABLE_USER', 'User', id, { oldValue: snapshot(before) })
   res.json({ result: 'disabled' })
 })

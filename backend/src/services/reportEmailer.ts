@@ -5,6 +5,10 @@ import type { Attachment } from 'nodemailer/lib/mailer'
 import { config } from '../config'
 import type { CrystalReportCheck } from './crystalReportPdf'
 import { formatDate, formatDateTime } from './reportData'
+import { asc, eq } from 'drizzle-orm'
+import { db } from '../db/client'
+import { departments, users } from '../db/schema'
+import { workerPerformance } from './performance'
 
 export interface SmtpConfig {
   host?: string | null
@@ -103,7 +107,112 @@ export async function verifySmtpConnection(custom?: SmtpConfig): Promise<{ ok: b
 }
 
 /** Builds a professional business HTML email body */
-function buildEmailHtml(opts: SendReportEmailOptions, videoCount: number): string {
+interface ScoreRow {
+  name: string
+  employeeId: string
+  department: string | null
+  assigned: number
+  completed: number
+  missed: number
+  exceptions: number
+  pending: number
+  completionRate: number
+  score: number
+}
+
+/**
+ * Every worker's figures for the report period, with the same rules and score as the Performance
+ * page (services/performance.ts): assigned = completed + missed + exceptions; pending checks are
+ * still inside their window and not counted yet. Workers without checks are listed with zeros.
+ */
+export async function scoreSummary(from?: Date, to?: Date): Promise<ScoreRow[] | null> {
+  if (!from || !to) return null
+  const [{ workers }, people] = await Promise.all([
+    workerPerformance({ from, to }),
+    db
+      .select({ id: users.id, name: users.name, employeeId: users.employeeId, isActive: users.isActive, department: departments.name })
+      .from(users)
+      .leftJoin(departments, eq(departments.id, users.departmentId))
+      .where(eq(users.role, 'WORKER'))
+      .orderBy(asc(users.name))
+  ])
+  const figures = new Map(workers.map((w) => [w.workerId, w]))
+  return people
+    // Active workers always; a disabled one only when they had checks in the period.
+    .filter((p) => p.isActive || figures.has(p.id))
+    .map((p) => {
+      const w = figures.get(p.id)
+      return {
+        name: p.name,
+        employeeId: p.employeeId,
+        department: p.department,
+        assigned: w?.assigned ?? 0,
+        completed: w?.completed ?? 0,
+        missed: w?.missed ?? 0,
+        exceptions: w?.exceptions ?? 0,
+        pending: w?.open ?? 0,
+        completionRate: w?.completionRate ?? 100,
+        score: w?.score ?? 0
+      }
+    })
+    .sort((a, b) => a.score - b.score || b.assigned - a.assigned || a.name.localeCompare(b.name))
+}
+
+/** The all-users table at the top of the email; empty when the period is unknown or failed to load. */
+function scoreSummaryHtml(rows: ScoreRow[] | null): string {
+  if (!rows) return ''
+  const th = 'padding: 8px 10px; text-align: right;'
+  const td = 'padding: 7px 10px; border-top: 1px solid #e2e8f0; text-align: right; font-variant-numeric: tabular-nums;'
+  const body = rows.length
+    ? rows
+        .map(
+          (r) => `
+            <tr style="font-size: 12px; color: #1e293b;">
+              <td style="${td} text-align: left;"><strong>${esc(r.name)}</strong></td>
+              <td style="${td} text-align: left; font-family: monospace;">${esc(r.employeeId)}</td>
+              <td style="${td} text-align: left;">${esc(r.department) || '—'}</td>
+              <td style="${td}">${r.assigned}</td>
+              <td style="${td}">${r.completed}</td>
+              <td style="${td} color: ${r.missed ? '#dc2626' : '#1e293b'};">${r.missed}</td>
+              <td style="${td}">${r.exceptions}</td>
+              <td style="${td} color: #64748b;">${r.pending}</td>
+              <td style="${td}">${r.assigned ? `${r.completionRate}%` : '—'}</td>
+              <td style="${td} font-weight: 700; color: ${r.score < 0 ? '#dc2626' : '#16a34a'};">${r.score}</td>
+            </tr>`
+        )
+        .join('')
+    : `<tr><td colspan="10" style="${td} text-align: center; color: #64748b;">No workers found.</td></tr>`
+  return `
+    <!-- All-users score summary (services/performance.ts rules) -->
+    <tr>
+      <td style="padding: 24px 32px 0 32px;">
+        <h3 style="font-size: 14px; font-weight: 700; color: #1e3a8a; margin: 0 0 8px 0;">ALL USERS: SCORE SUMMARY</h3>
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border: 1px solid #cbd5e1; border-collapse: collapse;">
+          <thead>
+            <tr style="background-color: #1e3a8a; color: #ffffff; font-size: 11px; font-weight: 700;">
+              <th style="${th} text-align: left;">Employee</th>
+              <th style="${th} text-align: left;">Employee ID</th>
+              <th style="${th} text-align: left;">Department</th>
+              <th style="${th}">Assigned</th>
+              <th style="${th}">Completed</th>
+              <th style="${th}">Missing</th>
+              <th style="${th}">Exceptions</th>
+              <th style="${th}">Pending</th>
+              <th style="${th}">Completion</th>
+              <th style="${th}">Score</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+        <p style="margin: 6px 0 0 0; font-size: 11px; color: #64748b; line-height: 1.5;">
+          Assigned = Completed + Missing + Exceptions (checks whose time is over). Pending checks are still open and not counted yet.
+          Completion and Score follow the Performance page: (completed + exceptions) / assigned; Score = completion % − 100, so only missed checks lower it.
+        </p>
+      </td>
+    </tr>`
+}
+
+export function buildEmailHtml(opts: SendReportEmailOptions, videoCount: number, summary: ScoreRow[] | null = null): string {
   const { checks, samplePercentage, totalEligible, periodFrom, periodTo, reportId } = opts
 
   const totalPassed = checks.filter((c) => c.status === 'COMPLETED' && !c.values.some((v) => v.result === 'FAIL')).length
@@ -172,6 +281,8 @@ function buildEmailHtml(opts: SendReportEmailOptions, videoCount: number): strin
         </table>
       </td>
     </tr>
+
+${scoreSummaryHtml(summary)}
 
     <!-- Summary Metrics Card -->
     <tr>
@@ -330,7 +441,12 @@ export async function sendReportEmail(options: SendReportEmailOptions): Promise<
       subject ||
       `Quality Inspection Report - ${checks.length} Check${checks.length === 1 ? '' : 's'} (${options.samplePercentage ?? 20}% Sample) - ${formatDate(new Date())}`
 
-    const html = buildEmailHtml(options, videoCount)
+    // The all-users summary must never stop the email: without it the rest is sent as before.
+    const summary = await scoreSummary(options.periodFrom, options.periodTo).catch((err) => {
+      console.error('[Report email] Score summary failed:', err)
+      return null
+    })
+    const html = buildEmailHtml(options, videoCount, summary)
 
     const info = await transporter.sendMail({
       from: resolved.from,

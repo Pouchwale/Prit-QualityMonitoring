@@ -160,6 +160,21 @@ export const machines = pgTable('machines', {
   ...timestamps
 })
 
+/**
+ * Every department a machine works for (Machines page). One machine record, many departments: a
+ * pair is stored once (primary key). `machines.department_id` stays as the machine's main department
+ * for older screens; the API keeps it equal to the first department chosen here.
+ */
+export const machineDepartments = pgTable(
+  'machine_departments',
+  {
+    machineId: uuid('machine_id').notNull().references(() => machines.id, { onDelete: 'cascade' }),
+    // Restrict: a department still in use by a machine is disabled, not deleted (lib/crud.ts).
+    departmentId: uuid('department_id').notNull().references(() => departments.id, { onDelete: 'restrict' })
+  },
+  (t) => [primaryKey({ columns: [t.machineId, t.departmentId] }), index('machine_departments_department_idx').on(t.departmentId)]
+)
+
 /** Machines a worker is allowed to check (worker access). */
 export const parameters = pgTable('parameters', {
   id: uuid('id').primaryKey().defaultRandom(),

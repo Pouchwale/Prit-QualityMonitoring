@@ -1,6 +1,7 @@
 import type { Request } from 'express'
 import { z } from 'zod'
 import { HHMM_REGEX } from './time'
+import { badRequest } from './http'
 
 export const idParam = (req: Request, name = 'id') => z.uuid('Invalid id').parse(req.params[name])
 
@@ -11,6 +12,23 @@ export const optionalText = (max = 200) =>
     .max(max)
     .nullish()
     .transform((v) => (v ? v : null))
+
+/**
+ * The one Item Code format: FGPO, FGLA or FGSL followed by digits, e.g. FGPO123. The worker app
+ * (utils/itemCode.ts) and the admin panel (lib/itemCode.ts) copy this pattern and message.
+ */
+export const ITEM_CODE_PATTERN = /^(FGPO|FGLA|FGSL)\d+$/
+export const ITEM_CODE_ERROR = 'Invalid Item Code. Only FGPO, FGLA, or FGSL followed by numbers are allowed. Example: FGPO123.'
+
+/**
+ * An Item Code as typed, trimmed and upper-cased ("fgpo123" -> "FGPO123"); empty stays empty.
+ * Anything else that does not match is refused (400), never corrected.
+ */
+export function validItemCode(raw: string | null | undefined): string {
+  const code = (raw ?? '').trim().toUpperCase()
+  if (code && !ITEM_CODE_PATTERN.test(code)) throw badRequest(ITEM_CODE_ERROR)
+  return code
+}
 
 /**
  * Exception reasons about the machine itself (stopped, maintenance, breakdown) need only the machine.

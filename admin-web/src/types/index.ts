@@ -132,8 +132,12 @@ export interface Machine {
   id: string
   name: string
   code: string
+  /** The main department (the first of `departments`), kept for older screens. */
   departmentId: string | null
   departmentName: string | null
+  /** Every department the machine works for; empty when none is set. */
+  departmentIds: string[]
+  departments: { id: string; code: string; name: string; isActive: boolean }[]
   line: string | null
   model: string | null
   status: MachineStatus

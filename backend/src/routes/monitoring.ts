@@ -22,7 +22,8 @@ import {
 import { idParam, optionalUuid } from '../lib/validate'
 import { badRequest, forbidden, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
-import { canView, requireAnyView, requireModule } from '../lib/permissions'
+import { canView, requireAnyView, requireModule, requireSuperAdmin } from '../lib/permissions'
+import { checkEditForm, checkEditInput, editCheck } from '../services/checkEdit'
 import { CHECK_RESULTS, RESULT_LABEL, RESULT_STATUSES, resultOf } from '../lib/result'
 import { addDays, dateKey, formatLocalDate, parseDateKey, startOfDay } from '../lib/time'
 import { countChecks, listChecks } from '../services/checks'
@@ -256,6 +257,20 @@ monitoringRouter.get('/quality-checks/:id', requireAnyView('checks', 'jobs', 'da
   const { departmentId, where } = await scopeFor(req)
   const [check] = await listChecks({ ids: [id], departmentId, where })
   if (!check) throw notFound('Quality check')
+  res.json(check)
+})
+
+/** Super Admin corrections of a submitted check (services/checkEdit.ts): the form, then the save. */
+const correctChecks = requireSuperAdmin('Only the Super Admin can correct quality checks')
+
+monitoringRouter.get('/quality-checks/:id/edit', correctChecks, async (req, res) => {
+  res.json(await checkEditForm(idParam(req)))
+})
+
+monitoringRouter.put('/quality-checks/:id', correctChecks, async (req, res) => {
+  const id = idParam(req)
+  await editCheck(req, id, checkEditInput.parse(req.body))
+  const [check] = await listChecks({ ids: [id] })
   res.json(check)
 })
 

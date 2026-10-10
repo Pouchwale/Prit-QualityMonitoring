@@ -73,10 +73,10 @@ export async function requireItemCodeDepartment(itemCode: string | null | undefi
   const found = await matchItemCode(itemCode, tx)
   if (!found) throw badRequest(UNKNOWN_ITEM_CODE_DEPARTMENT)
   if (!found.mappingActive) {
-    throw badRequest(`Item Code prefix ${found.prefix} (${found.name}) is inactive in Department Configuration, so jobs with this Item Code cannot be planned or started.`)
+    throw badRequest(`Item Code prefix ${found.prefix} (${found.name}) is inactive in Department Configuration, so this Item Code cannot be used for jobs or checks.`)
   }
   if (!found.departmentActive) {
-    throw badRequest(`The ${found.name} department (Item Code prefix ${found.prefix}) is inactive, so jobs with this Item Code cannot be planned or started.`)
+    throw badRequest(`The ${found.name} department (Item Code prefix ${found.prefix}) is inactive, so this Item Code cannot be used for jobs or checks.`)
   }
   const { id, code, name, prefix } = found
   return { id, code, name, prefix }

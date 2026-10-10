@@ -122,6 +122,9 @@ export interface Machine {
   code: string
   departmentId: string | null
   departmentName: string | null
+  /** Every department of the machine (newer servers); the first is departmentId. */
+  departmentIds?: string[]
+  departments?: { id: string; name: string }[]
   line: string | null
   model: string | null
   status: MachineStatus

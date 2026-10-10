@@ -17,6 +17,7 @@ import { MINUTE, addDays, dateKey, startOfDay } from '../lib/time'
 import { invalidateCheckGeneration, makeCheckCode } from './checkGenerator'
 import { checkTypeInDepartment, jobDepartmentOptions } from './checkTypeScope'
 import { normalizeItemCode, requireItemCodeDepartment, type ItemCodeDepartment } from './itemCodeDepartment'
+import { validItemCode } from '../lib/validate'
 import { machineOffBetween } from './plantCalendar'
 import { shiftAt, shiftFor } from './shiftTime'
 
@@ -279,7 +280,8 @@ export async function startJob(input: StartInput): Promise<{ job: JobRow; startC
     if (!jobNo) throw badRequest('Enter the PO No.')
     if (!input.itemCode?.trim()) throw badRequest('Enter the Item Code.')
   }
-  const itemCode = normalizeItemCode((planned ? planned.itemCode : input.itemCode) ?? '')
+  // A new job's Item Code must have the standard format; a planned job's was checked when planned.
+  const itemCode = planned ? normalizeItemCode(planned.itemCode ?? '') : validItemCode(input.itemCode)
   const department = await jobDepartmentFor(input.machineId, itemCode)
   const types = jobCheckTypesFor((await jobCheckTypes([input.machineId])).get(input.machineId) ?? [], department.id)
   const shiftId = (await shiftAt(new Date()))?.id ?? null

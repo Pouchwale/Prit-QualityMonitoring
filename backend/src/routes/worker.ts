@@ -6,6 +6,7 @@ import { db } from '../db/client'
 import {
   activities,
   activityParameters,
+  departmentMappings,
   departments,
   jobHandovers,
   machineActivities,
@@ -21,7 +22,7 @@ import {
   shifts,
   users,
 } from '../db/schema'
-import { exceptionDetailsError, idParam, isMachineReason } from '../lib/validate'
+import { exceptionDetailsError, idParam, isMachineReason, validItemCode } from '../lib/validate'
 import { badRequest, conflict, forbidden, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
 import { MINUTE, addDays, dateKey, parseDateKey, startOfDay } from '../lib/time'
@@ -54,7 +55,7 @@ import {
   startIntervalCheckNow,
   startJob
 } from '../services/jobMonitoring'
-import { normalizeItemCode } from '../services/itemCodeDepartment'
+import { normalizeItemCode, requireItemCodeDepartment } from '../services/itemCodeDepartment'
 import { checkTypeInDepartment, jobDepartmentOptions, userDepartmentId } from '../services/checkTypeScope'
 import { VOICE_LANGUAGES, sendToUser } from '../services/notifications'
 import { resetScheduleTimer, settleNextDue } from '../services/monitoringTimer'
@@ -107,12 +108,38 @@ async function assertQualityRole(userId: string, module: 'IPQC' | 'QC', checkTyp
   }
 }
 
-/** Every machine a worker may pick from: the ones that are running today. */
-export async function workableMachineIds(): Promise<string[]> {
+/**
+ * The machines a worker may use: active machines that Check Types link to an active check type of
+ * the worker's quality role (IPQC, QC or both). That link is where admins split IPQC and QC
+ * machines, so a change there or to the worker's role applies on the next request.
+ */
+export async function roleMachineIds(userId: string): Promise<string[]> {
+  const [user] = await db.select({ role: users.workerQualityRole }).from(users).where(eq(users.id, userId))
+  const modules = (QUALITY_ROLE_MODULES[user?.role ?? 'IPQC'] ?? ['IPQC']) as ('IPQC' | 'QC')[]
+  const rows = await db
+    .selectDistinct({ id: machines.id })
+    .from(machines)
+    .innerJoin(machineActivities, eq(machineActivities.machineId, machines.id))
+    .innerJoin(activities, eq(activities.id, machineActivities.activityId))
+    .where(and(eq(machines.isActive, true), eq(activities.isActive, true), inArray(activities.module, modules)))
+  return rows.map((r) => r.id)
+}
+
+/** Refuses a machine outside the worker's IPQC / QC machines (roleMachineIds). */
+async function assertRoleMachine(userId: string, machineId: string) {
+  if (!(await roleMachineIds(userId)).includes(machineId)) {
+    throw forbidden('This machine is not one of your machines. Ask your administrator to assign it.')
+  }
+}
+
+/** Every machine a worker may pick from: their IPQC / QC machines that are running today. */
+export async function workableMachineIds(userId: string): Promise<string[]> {
+  const mine = await roleMachineIds(userId)
+  if (!mine.length) return []
   const rows = await db
     .select({ id: machines.id })
     .from(machines)
-    .where(and(eq(machines.isActive, true), eq(machines.status, 'ACTIVE')))
+    .where(and(inArray(machines.id, mine), eq(machines.status, 'ACTIVE')))
   return rows.map((r) => r.id)
 }
 
@@ -306,11 +333,12 @@ workerRouter.delete('/push-token', async (req, res) => {
   res.status(204).end()
 })
 
-/** The machine has to exist and be running; a worker may pick any of them. */
-async function assertMachineUsable(machineId: string) {
+/** The machine has to exist, be running and be one of the worker's IPQC / QC machines. */
+async function assertMachineUsable(machineId: string, userId: string) {
   const [machine] = await db.select({ isActive: machines.isActive, status: machines.status }).from(machines).where(eq(machines.id, machineId))
   if (!machine) throw notFound('Machine')
   if (!machine.isActive || machine.status !== 'ACTIVE') throw badRequest('This machine is not running.')
+  await assertRoleMachine(userId, machineId)
 }
 
 /** Why a machine cannot run today, in the worker's words. */
@@ -335,7 +363,7 @@ async function assertMachineRuns(machineId: string, at: Date) {
  * the next check is due.
  */
 workerRouter.get('/machines', async (req, res) => {
-  const ids = await workableMachineIds()
+  const ids = await workableMachineIds(req.user!.id)
   if (ids.length === 0) return res.json([])
   await prepareChecksForRead()
 
@@ -591,7 +619,7 @@ workerRouter.get('/machines', async (req, res) => {
 workerRouter.get('/machines/:machineId/job-plan', async (req, res) => {
   const machineId = idParam(req, 'machineId')
   const q = z.object({ itemCode: z.string().trim().max(60).optional(), plannedJobId: z.uuid().optional() }).parse(req.query)
-  await assertMachineUsable(machineId)
+  await assertMachineUsable(machineId, req.user!.id)
   await assertMachineRuns(machineId, new Date())
   if (await runningJob(machineId)) throw conflict('A job is already running on this machine. End it before starting a new one.')
   let itemCode = q.itemCode ?? ''
@@ -603,7 +631,8 @@ workerRouter.get('/machines/:machineId/job-plan', async (req, res) => {
     if (!planned.itemCode?.trim()) throw badRequest('This planned job has no Item Code. Ask your supervisor to add it.')
     itemCode = planned.itemCode
   }
-  itemCode = normalizeItemCode(itemCode)
+  // A typed Item Code must have the standard format; a planned job's was checked when planned.
+  itemCode = q.plannedJobId ? normalizeItemCode(itemCode) : validItemCode(itemCode)
   if (!itemCode) throw badRequest('Enter the Item Code.')
   const department = await jobDepartmentFor(machineId, itemCode)
   const types = jobCheckTypesFor((await jobCheckTypes([machineId])).get(machineId) ?? [], department.id)
@@ -653,6 +682,7 @@ workerRouter.post('/machines/:machineId/jobs', async (req, res) => {
   const [machine] = await db.select().from(machines).where(eq(machines.id, machineId))
   if (!machine) throw notFound('Machine')
   if (!machine.isActive || machine.status !== 'ACTIVE') throw badRequest('This machine is not running.')
+  await assertRoleMachine(req.user!.id, machineId)
   await assertMachineRuns(machineId, new Date())
 
   const { job, startCheckIds, department } = await startJob({
@@ -807,7 +837,7 @@ workerRouter.get('/jobs/:id', async (req, res) => {
 workerRouter.post('/machines/:machineId/checks', async (req, res) => {
   const machineId = idParam(req, 'machineId')
   const body = z.object({ activityId: z.uuid('Choose a check type') }).parse(req.body)
-  await assertMachineUsable(machineId)
+  await assertMachineUsable(machineId, req.user!.id)
 
   const [machine] = await db.select().from(machines).where(eq(machines.id, machineId))
   if (!machine) throw notFound('Machine')
@@ -965,8 +995,8 @@ workerRouter.post('/machines/:machineId/checks', async (req, res) => {
  * machine day plan exists for today it decides for this worker's machines: the worker is "closed"
  * only when none of their machines runs, and open when one does, even on a closed plant day.
  */
-workerRouter.get('/plant-status', async (_req, res) => {
-  const ids = await workableMachineIds()
+workerRouter.get('/plant-status', async (req, res) => {
+  const ids = await workableMachineIds(req.user!.id)
   const { plan, closure } = await machineClosuresOn(ids, new Date())
   const plantClosed = closure
     ? { closed: true, date: closure.date, type: closure.type, label: closure.label, reason: closure.reason, weeklyOff: closure.weeklyOff }
@@ -1141,11 +1171,7 @@ workerRouter.get('/checks/:id', async (req, res) => {
     activeExceptionReasons(),
     // A job check belongs to its own job; any other check to the job running now.
     check.jobId && check.kind !== 'SCHEDULED' ? jobDtoById(check.jobId) : (check.machineId ? runningJob(check.machineId) : Promise.resolve(null)),
-    db
-      .select({ id: machines.id, name: machines.name, code: machines.code })
-      .from(machines)
-      .where(eq(machines.isActive, true))
-      .orderBy(asc(machines.name))
+    roleMachineRows(req.user!.id)
   ])
 
   res.json({
@@ -1174,19 +1200,34 @@ workerRouter.get('/checks/:id', async (req, res) => {
     job,
     overallEvidence: { photo: activity.requirePhoto, video: activity.requireVideo },
     exceptionReasons: exceptionReasonRows.map((r) => r.label),
+    /**
+     * Item Code prefixes in use (Department Configuration), so the form shows the department a typed
+     * Item Code will give the check before it is sent (the server decides it again on submit).
+     */
+    itemCodeDepartments: await db
+      .select({ prefix: departmentMappings.prefix, name: departments.name })
+      .from(departmentMappings)
+      .innerJoin(departments, eq(departmentMappings.departmentId, departments.id))
+      .where(and(eq(departmentMappings.isActive, true), eq(departments.isActive, true))),
     maxVideoSeconds: config.maxVideoSeconds,
     captureFreshnessMinutes: config.captureFreshnessMinutes
   })
 })
 
-/** Active machines list for worker selection */
-workerRouter.get('/machines-list', async (_req, res) => {
-  const rows = await db
+/** The worker's IPQC / QC machines for a machine picker, by name. */
+async function roleMachineRows(userId: string) {
+  const ids = await roleMachineIds(userId)
+  if (!ids.length) return []
+  return db
     .select({ id: machines.id, name: machines.name, code: machines.code })
     .from(machines)
-    .where(eq(machines.isActive, true))
+    .where(inArray(machines.id, ids))
     .orderBy(asc(machines.name))
-  res.json(rows)
+}
+
+/** The worker's machines for selection (roleMachineIds). */
+workerRouter.get('/machines-list', async (req, res) => {
+  res.json(await roleMachineRows(req.user!.id))
 })
 
 async function assertOpen(userId: string, checkId: string) {
@@ -1295,6 +1336,7 @@ workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
       .where(eq(machines.id, machineId))
     if (!mach) throw badRequest('Selected machine does not exist')
     if (!check.machineId && (!mach.isActive || mach.status !== 'ACTIVE')) throw badRequest('This machine is not running.')
+    if (!check.machineId) await assertRoleMachine(req.user!.id, machineId)
 
     const [activity] = await db.select().from(activities).where(eq(activities.id, check.activityId))
     const isJobCheck = check.kind !== 'SCHEDULED' && !!check.jobId
@@ -1329,7 +1371,10 @@ workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
 
     // During a job the Item Code and PO No. are the job's, whatever the app sends; only a check done
     // with no job running records what the worker typed.
-    const itemCode = job ? (job.itemCode ?? '') : body.itemCode
+    const itemCode = job ? (job.itemCode ?? '') : validItemCode(body.itemCode)
+    // A typed Item Code decides the check's department (FGPO -> Pouch, FGLA -> Label, FGSL -> Sleeve:
+    // Department Configuration), as it does for a job; a job's check keeps the job's department.
+    const itemDepartment = !job && itemCode ? await requireItemCodeDepartment(itemCode) : null
     const jobNo = job ? job.jobNo : body.jobNo
     const missing: string[] = []
     const missingMedia: string[] = []
@@ -1427,6 +1472,7 @@ workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
           itemCode: itemCode || null,
           jobNo: jobNo || null,
           jobId: job?.id ?? check.jobId ?? null,
+          ...(itemDepartment ? { departmentId: itemDepartment.id } : {}),
           submissionType,
           submittedAt,
           submittedById: req.user!.id,
@@ -1552,7 +1598,10 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
     }
     const machineId = check.machineId ?? body.machineId ?? null
     const job = check.kind !== 'SCHEDULED' && check.jobId ? await jobDtoById(check.jobId) : machineId ? await runningJob(machineId) : null
-    const itemCode = job ? (job.itemCode ?? '') : body.itemCode
+    const itemCode = job ? (job.itemCode ?? '') : validItemCode(body.itemCode)
+    // A typed Item Code decides the check's department (FGPO -> Pouch, FGLA -> Label, FGSL -> Sleeve:
+    // Department Configuration), as it does for a job; a job's check keeps the job's department.
+    const itemDepartment = !job && itemCode ? await requireItemCodeDepartment(itemCode) : null
     const jobNo = job ? job.jobNo : body.jobNo
     const missingDetails = exceptionDetailsError(machineId, jobNo || itemCode, isMachineReason(body.reason))
     if (missingDetails) throw badRequest(missingDetails)
@@ -1561,6 +1610,7 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
     const [mach] = await db.select({ isActive: machines.isActive }).from(machines).where(eq(machines.id, machineId!))
     if (!mach) throw badRequest('Selected machine does not exist')
     if (!check.machineId && !mach.isActive) throw badRequest('This machine is switched off in Machines.')
+    if (!check.machineId) await assertRoleMachine(req.user!.id, machineId!)
 
     const photo = filesByField(files).get('photo')
     if (!photo) throw badRequest('Please take a photo')
@@ -1579,7 +1629,8 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
           deviceInfo: body.deviceInfo ?? null,
           machineId,
           itemCode: itemCode || null,
-          jobNo: jobNo || null
+          jobNo: jobNo || null,
+          ...(itemDepartment ? { departmentId: itemDepartment.id } : {})
         })
         .where(and(eq(qualityChecks.id, checkId), inArray(qualityChecks.status, ['PENDING', 'DUE', 'IN_PROGRESS'])))
         .returning({ id: qualityChecks.id })

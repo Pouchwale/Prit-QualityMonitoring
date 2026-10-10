@@ -288,6 +288,8 @@ export interface CheckForm {
   allowException?: boolean
   overallEvidence: { photo: boolean; video: boolean }
   exceptionReasons: string[]
+  /** Active Item Code prefixes and their departments (Department Configuration); absent on older servers. */
+  itemCodeDepartments?: { prefix: string; name: string }[]
   maxVideoSeconds: number
   captureFreshnessMinutes?: number
   machines?: { id: string; name: string; code?: string }[]

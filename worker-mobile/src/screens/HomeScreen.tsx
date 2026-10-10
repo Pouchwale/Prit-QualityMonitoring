@@ -272,7 +272,8 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
             icon="play-circle-outline"
             variant="secondary"
             loading={startingManual}
-            disabled={!machines?.length}
+            // Enabled once loaded, even with no machines: the picker then says none are assigned.
+            disabled={machines === null}
             accessibilityLabel="Manual Start: choose a machine and start its check now"
             onPress={() => setPickingMachine(true)}
           />

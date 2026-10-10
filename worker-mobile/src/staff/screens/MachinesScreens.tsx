@@ -114,10 +114,10 @@ export const MachinesScreen: React.FC<{ params: Record<string, unknown> }> = () 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return machines.filter((m) => {
-      if (deptFilter === NO_DEPARTMENT && m.departmentId) return false
-      if (deptFilter && deptFilter !== NO_DEPARTMENT && m.departmentId !== deptFilter) return false
+      if (deptFilter === NO_DEPARTMENT && deptIds(m).length) return false
+      if (deptFilter && deptFilter !== NO_DEPARTMENT && !deptIds(m).includes(deptFilter)) return false
       if (!q) return true
-      return [m.name, m.code, m.line, m.model, m.departmentName].some((v) => v?.toLowerCase().includes(q))
+      return [m.name, m.code, m.line, m.model, deptNames(m)].some((v) => v?.toLowerCase().includes(q))
     })
   }, [machines, search, deptFilter])
 
@@ -158,7 +158,7 @@ export const MachinesScreen: React.FC<{ params: Record<string, unknown> }> = () 
                 key={m.id}
                 title={m.name}
                 titleClassName={m.isActive ? '' : 'text-staff-muted'}
-                subtitle={facts(m.code, m.departmentName, typesLabel(m.activityIds.length))}
+                subtitle={facts(m.code, deptNames(m), typesLabel(m.activityIds.length))}
                 right={flag ? <Badge label={flag.label} tone={flag.tone} /> : undefined}
                 onPress={() => push('machineDetail', { id: m.id })}
               />
@@ -207,13 +207,13 @@ export const MachineDetailScreen: React.FC<{ params: { id: string } }> = ({ para
           <>
             <SummaryHeader
               title={machine.name}
-              caption={facts(machine.code, machine.departmentName, typesLabel(machine.activityIds.length))}
+              caption={facts(machine.code, deptNames(machine), typesLabel(machine.activityIds.length))}
               status={machineFlag(machine)}
             />
 
             <Section title="Details">
               <Card>
-                <KV label="Department" value={machine.departmentName} />
+                <KV label="Departments" value={deptNames(machine)} />
                 <KV label="Line" value={machine.line} />
                 <KV label="Model" value={machine.model} />
                 {machine.notes ? <KV stacked label="Notes" value={machine.notes} /> : null}
@@ -412,4 +412,12 @@ export const MACHINES_SCREENS = {
   machines: MachinesScreen,
   machineDetail: MachineDetailScreen,
   machineForm: MachineFormScreen
+}
+
+/** All the machine's departments (newer servers list several), else its one department. */
+function deptIds(m: Machine) {
+  return m.departmentIds ?? (m.departmentId ? [m.departmentId] : [])
+}
+function deptNames(m: Machine) {
+  return m.departments?.length ? m.departments.map((d) => d.name).join(', ') : m.departmentName
 }

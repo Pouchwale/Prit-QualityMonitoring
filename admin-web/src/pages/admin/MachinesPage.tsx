@@ -20,7 +20,7 @@ import { Pagination, usePagination } from '../../components/ui/Pagination'
 interface FormState {
   name: string
   code: string
-  departmentId: string
+  departmentIds: string[]
   line: string
   model: string
   status: MachineStatus
@@ -32,7 +32,7 @@ interface FormState {
 const emptyForm: FormState = {
   name: '',
   code: '',
-  departmentId: '',
+  departmentIds: [],
   line: '',
   model: '',
   status: 'ACTIVE',
@@ -75,10 +75,10 @@ export const MachinesPage: React.FC = () => {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return machines.filter((m) => {
-      if (deptFilter === 'NONE' && m.departmentId) return false
-      if (deptFilter !== 'ALL' && deptFilter !== 'NONE' && m.departmentId !== deptFilter) return false
+      if (deptFilter === 'NONE' && m.departmentIds.length) return false
+      if (deptFilter !== 'ALL' && deptFilter !== 'NONE' && !m.departmentIds.includes(deptFilter)) return false
       if (!q) return true
-      return [m.name, m.code, m.line, m.model, m.departmentName].some((v) => v?.toLowerCase().includes(q))
+      return [m.name, m.code, m.line, m.model, ...m.departments.map((d) => d.name)].some((v) => v?.toLowerCase().includes(q))
     })
   }, [machines, search, deptFilter])
   const page = usePagination(filtered, 25, `${search}|${deptFilter}`)
@@ -101,7 +101,7 @@ export const MachinesPage: React.FC = () => {
     setForm({
       name: m.name,
       code: m.code,
-      departmentId: m.departmentId ?? '',
+      departmentIds: m.departmentIds,
       line: m.line ?? '',
       model: m.model ?? '',
       status: m.status,
@@ -127,7 +127,8 @@ export const MachinesPage: React.FC = () => {
       const body = {
         name: form.name.trim(),
         code: form.code.trim(),
-        departmentId: form.departmentId || null,
+        // The first one is the main department (the server keeps departmentId in step).
+        departmentIds: form.departmentIds,
         line: form.line.trim() || null,
         model: form.model.trim() || null,
         status: form.status,
@@ -166,8 +167,10 @@ export const MachinesPage: React.FC = () => {
     }
   }
 
-  // Active departments, plus the machine's current one if it has since been deactivated.
-  const departmentOptions = departments.filter((d) => d.isActive || d.id === form.departmentId)
+  // Active departments, plus any of the machine's own that have since been deactivated.
+  const departmentItems = departments
+    .filter((d) => d.isActive || form.departmentIds.includes(d.id))
+    .map((d) => ({ id: d.id, label: d.isActive ? d.name : `${d.name} (inactive)`, detail: d.code }))
   const activityItems = activities
     .filter((a) => a.isActive || form.activityIds.includes(a.id))
     .map((a) => ({
@@ -265,7 +268,9 @@ export const MachinesPage: React.FC = () => {
                           {m.notes && <span className="block text-[11.5px] text-ink-muted truncate max-w-xs">{m.notes}</span>}
                         </td>
                         <td>
-                          <span className="whitespace-nowrap text-ink-secondary">{m.departmentName ?? <span className="text-ink-faint">—</span>}</span>
+                          <span className="text-ink-secondary">
+                            {m.departments.length ? m.departments.map((d) => d.name).join(', ') : <span className="text-ink-faint">—</span>}
+                          </span>
                           {(m.line || m.model) && (
                             <span className="block text-[11.5px] text-ink-muted whitespace-nowrap">
                               {[m.line && `Line: ${m.line}`, m.model && `Model: ${m.model}`].filter(Boolean).join(' · ')}
@@ -350,16 +355,6 @@ export const MachinesPage: React.FC = () => {
             <Field label="Code" required>
               <TextInput value={form.code} onChange={(e) => set('code', e.target.value)} placeholder="e.g. PRT-03" maxLength={40} className="font-mono" />
             </Field>
-            <Field label="Department">
-              <Select value={form.departmentId} onChange={(e) => set('departmentId', e.target.value)}>
-                <option value="">No department</option>
-                {departmentOptions.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.isActive ? d.name : `${d.name} (inactive)`}
-                  </option>
-                ))}
-              </Select>
-            </Field>
             <Field label="Line">
               <TextInput value={form.line} onChange={(e) => set('line', e.target.value)} placeholder="e.g. Line 2" maxLength={200} />
             </Field>
@@ -388,6 +383,20 @@ export const MachinesPage: React.FC = () => {
               </span>
             </div>
           )}
+
+          <div>
+            <div className="flex items-baseline justify-between mb-1.5">
+              <span className="text-[12.5px] font-medium text-ink-secondary">Departments</span>
+              <span className="text-[11px] text-ink-muted tabular-nums">{form.departmentIds.length} selected</span>
+            </div>
+            <MultiSelectList
+              items={departmentItems}
+              selected={form.departmentIds}
+              onChange={(ids) => set('departmentIds', ids)}
+              emptyText={departmentsApi.loading ? 'Loading departments…' : 'No departments configured yet'}
+            />
+            <span className="block text-[11px] text-ink-muted mt-1">Every department this machine works for. One machine can serve several.</span>
+          </div>
 
           <Field label="Notes">
             <TextArea value={form.notes} onChange={(e) => set('notes', e.target.value)} rows={2} maxLength={500} placeholder="Optional notes for supervisors" />

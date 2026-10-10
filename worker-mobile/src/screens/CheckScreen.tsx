@@ -10,6 +10,7 @@ import { describeError } from '../utils/friendlyError'
 import { syncLocalAlerts } from '../services/notifications'
 import { Capture, CheckForm, EvidenceUpload, FormParameter, SubmitResult, SubmitValue } from '../types'
 import { formatTime } from '../utils/format'
+import { ITEM_CODE_ERROR, itemCodeError } from '../utils/itemCode'
 import { NavBar } from '../components/ui/NavBar'
 import { SectionHeader } from '../components/ui/SectionHeader'
 import { ListGroup } from '../components/ui/ListGroup'
@@ -302,6 +303,8 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     // Same rule as the server: a manually started check does not ask for the PO No.
     if (form.activity.requireJobNo && form.check.submissionType !== 'MANUAL' && !jobNo.trim()) overall.push('PO No.')
     if (!form.check.machineId && !selectedMachineId) overall.push('Machine')
+    // A typed Item Code must have the standard format (a job's own Item Code is not typed here).
+    if (!form.job && !(form.check.jobId && form.check.jobNo) && itemCodeError(itemCode)) overall.push('Item Code')
     if (form.activity.requirePhoto && !media.photo) overall.push('Check photo')
     if (form.activity.requireVideo && !media.video) overall.push('Check video')
 
@@ -396,6 +399,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     const readings: DialogItem[] = [
       ...(overall.includes('Machine') ? [{ label: 'Machine', detail: 'Select a machine for this check', icon: 'construct-outline' as const }] : []),
       ...(overall.includes('PO No.') ? [{ label: 'PO No.', detail: 'Enter the job number', icon: 'create-outline' as const }] : []),
+      ...(overall.includes('Item Code') ? [{ label: 'Item Code', detail: ITEM_CODE_ERROR, icon: 'create-outline' as const }] : []),
       ...parameters.filter((p) => (perParameter[p.id] ?? []).includes('Value')).map((p) => ({ label: p.name, detail: 'Reading required', icon: 'create-outline' as const }))
     ]
     const photos = files.filter((f) => f.target.mode === 'photo').length
@@ -451,6 +455,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     const needMachine = !form?.check.machineId && !selectedMachineId
     const machineProblem = isMachineReason(reason)
     const needPoItem = !machineProblem && !jobNo.trim() && !itemCode.trim()
+    const badItemCode = !machineProblem && !form?.job && !(form?.check.jobId && form?.check.jobNo) && !!itemCodeError(itemCode)
     const detailsMessage =
       needMachine && needPoItem
         ? 'Machine Name and PO No. / Item Code are required for an Exception.'
@@ -458,8 +463,10 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
         ? 'Machine Name is required for an Exception.'
         : needPoItem
         ? 'PO No. / Item Code is required for an Exception.'
+        : badItemCode
+        ? ITEM_CODE_ERROR
         : null
-    setMissingOverall([...(needMachine ? ['Machine'] : []), ...(needPoItem ? ['PO No. / Item Code'] : [])])
+    setMissingOverall([...(needMachine ? ['Machine'] : []), ...(needPoItem ? ['PO No. / Item Code'] : []), ...(badItemCode ? ['Item Code'] : [])])
     if (items.length || !reason || !exceptionPhoto || detailsMessage) {
       showMissingItems({
         title: detailsMessage && !items.length ? detailsMessage : !exceptionPhoto && items.length === 1 && !detailsMessage ? 'Photo required' : 'Some details are missing',
@@ -467,6 +474,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
         items: [
           ...(needMachine ? [{ label: 'Machine', detail: 'Select the machine', icon: 'construct-outline' as const }] : []),
           ...(needPoItem ? [{ label: 'PO No. / Item Code', detail: 'Enter the PO No. or Item Code', icon: 'create-outline' as const }] : []),
+          ...(badItemCode ? [{ label: 'Item Code', detail: ITEM_CODE_ERROR, icon: 'create-outline' as const }] : []),
           ...(!reason ? [{ label: 'Reason', detail: 'Choose why the check could not be done', icon: 'list-outline' as const }] : []),
           ...(reason === 'Other' && !remark.trim() ? [{ label: 'Remark', detail: 'Describe the problem', icon: 'create-outline' as const }] : []),
           ...(!exceptionPhoto ? [{ label: 'Exception photo', detail: 'Photo required', icon: 'camera-outline' as const }] : [])
@@ -617,9 +625,22 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
   const clearPoItem = (key: string) => setMissingOverall((prev) => prev.filter((m) => m !== key && m !== 'PO No. / Item Code'))
   /** Machine stopped / maintenance / breakdown: the exception form asks for the machine only. */
   const machineOnly = mode === 'exception' && isMachineReason(reason)
+  /** The typed Item Code is not in the standard format (marked after a submit attempt). */
+  const itemCodeBad = missingOverall.includes('Item Code')
+
+  /**
+   * The department the check will be saved with: a typed Item Code's (FGSL -> Sleeve, from Department
+   * Configuration), as the server decides on submit; otherwise the check's own. Never chosen by hand.
+   */
+  const typed = !jobFixed && !machineOnly ? itemCode.trim().toUpperCase() : ''
+  const itemDepartment = typed
+    ? (form.itemCodeDepartments ?? []).filter((m) => typed.startsWith(m.prefix.toUpperCase())).sort((a, b) => b.prefix.length - a.prefix.length)[0]
+    : undefined
+  const departmentShown = itemDepartment?.name ?? check.departmentName
 
   /** Item Code, PO No. and machine: the same rows on the check form and the exception form. */
   const detailsGroup = (
+    <>
     <ListGroup>
       {machineOnly ? null : jobFixed ? (
         <LockedRow key="item" label="Item Code" value={jobFixed.itemCode || '—'} note="fixed by the job" />
@@ -629,7 +650,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
           label="Item Code"
           placeholder="Enter Item Code"
           value={itemCode}
-          invalid={poItemMissing}
+          invalid={poItemMissing || itemCodeBad}
           onChangeText={(text) => {
             setItemCode(text)
             clearPoItem('Item Code')
@@ -665,8 +686,12 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
           onPress={() => setMachineModalOpen(true)}
         />
       )}
-      {check.departmentName ? <LockedRow key="department" label="Department" value={check.departmentName} /> : null}
+      {departmentShown ? (
+        <LockedRow key="department" label="Department" value={departmentShown} note={itemDepartment ? 'set from the Item Code' : 'set by the check type'} />
+      ) : null}
     </ListGroup>
+    {itemCodeBad && !machineOnly ? <Text className="mt-2 px-4 text-[13px] font-medium text-missed">{ITEM_CODE_ERROR}</Text> : null}
+    </>
   )
 
   return (
@@ -1124,8 +1149,8 @@ export const MachinePickerModal: React.FC<{
                 {filtered.length === 0 && (
                   <View className="py-12 items-center justify-center">
                     <Icon name="construct-outline" size={32} color="faint" />
-                    <Text className="mt-2 text-[15px] font-medium text-ink-muted">
-                      {search ? 'No matching machines' : 'No machines available'}
+                    <Text className="mt-2 px-6 text-center text-[15px] font-medium text-ink-muted">
+                      {search ? 'No matching machines' : 'No machines are assigned to your department. Please contact the administrator.'}
                     </Text>
                   </View>
                 )}

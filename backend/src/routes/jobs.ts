@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { and, eq } from 'drizzle-orm'
 import { db } from '../db/client'
 import { jobs, machines, qualityChecks, users } from '../db/schema'
-import { idParam, optionalText } from '../lib/validate'
+import { idParam, optionalText, validItemCode } from '../lib/validate'
 import { badRequest, conflict, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
 import { requireModule } from '../lib/permissions'
@@ -102,7 +102,7 @@ const planInput = z.object({
  * a known department; whether the machine has that department's checks is checked at Start Job.
  */
 async function plannedDepartment(rawItemCode: string | null | undefined) {
-  const itemCode = normalizeItemCode(rawItemCode ?? '')
+  const itemCode = validItemCode(rawItemCode)
   if (!itemCode) throw badRequest('Enter the Item Code.')
   return { itemCode, department: await requireItemCodeDepartment(itemCode) }
 }

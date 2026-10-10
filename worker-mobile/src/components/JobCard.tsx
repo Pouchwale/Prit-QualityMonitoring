@@ -10,6 +10,7 @@ import { Button } from './ui/Button'
 import { TextField } from './ui/TextField'
 import { FieldLabel } from './ui/FieldLabel'
 import { Icon } from './ui/Icon'
+import { itemCodeError as itemCodeFormatError } from '../utils/itemCode'
 
 interface Props {
   machine: AssignedMachine
@@ -97,13 +98,14 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
         setPlanLoading(null)
       }
     }
-    /** The Item Code and the PO No. are both needed, for the plan and for Start Job. */
+    /** The Item Code (standard format) and the PO No. are both needed, for the plan and for Start Job. */
     const validNew = () => {
-      const code = itemCode.trim()
+      const code = itemCode.trim().toUpperCase()
       const no = jobNo.trim()
-      setItemCodeError(code ? null : 'Enter the Item Code.')
+      const codeError = code ? itemCodeFormatError(code) : 'Enter the Item Code.'
+      setItemCodeError(codeError)
       setJobError(no ? null : 'Enter the PO No.')
-      return code && no ? { code, no } : null
+      return !codeError && no ? { code, no } : null
     }
     const showPlan = () => {
       const valid = validNew()

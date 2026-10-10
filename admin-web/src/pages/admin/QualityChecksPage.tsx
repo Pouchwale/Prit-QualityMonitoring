@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, ClipboardCheck, ClipboardList, Clock3, Download, Eye, FlaskConical, RefreshCw, SearchX, Trash2, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ClipboardCheck, ClipboardList, Clock3, Download, Eye, FlaskConical, Pencil, RefreshCw, SearchX, Trash2, XCircle } from 'lucide-react'
 import type { CheckResult, QualityCheck, QualityCheckStatus } from '../../types'
 import { useApi } from '../../lib/useApi'
 import { useAuth, useCanManage } from '../../lib/auth'
 import { CreateTestCheckModal } from './CreateTestCheckModal'
+import { EditCheckModal } from './EditCheckModal'
 import { api, mediaUrl, type Page } from '../../lib/api'
 import { CHECK_STATUSES, RESULT_HINT, RESULT_LABEL, checkStatusLabel, dateKey, downloadCsv, formatDateKey, formatDateTime, formatTime } from '../../lib/format'
 import { Button } from '../../components/common/Button'
@@ -67,6 +68,9 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
   const canEdit = useCanManage('checks')
   // The CSV needs the Export Reports module.
   const canExport = useAuth().can('export')
+  // Correcting a submitted check is the Super Admin's alone; the server refuses everyone else.
+  const canCorrect = useAuth().isSuperAdmin
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   // Status is applied client-side so the summary chips can show counts for every status.
   // Loaded with the total too: the server caps the list and says so (X-Truncated).
@@ -317,6 +321,11 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
                           <IconButton label={`View check ${c.code}`} onClick={() => onViewCheck(c.id)}>
                             <Eye className="w-4 h-4" />
                           </IconButton>
+                          {canCorrect && (c.status === 'COMPLETED' || c.status === 'EXCEPTION') && (
+                            <IconButton label={`Correct check ${c.code}`} onClick={() => setEditingId(c.id)}>
+                              <Pencil className="w-4 h-4" />
+                            </IconButton>
+                          )}
                           {canDeleteChecks && (
                             <IconButton label={`Delete check ${c.code} permanently`} tone="danger" onClick={() => setDeleting({ ids: [c.id], bulk: false })}>
                               <Trash2 className="w-4 h-4" />
@@ -333,6 +342,15 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
           <Pagination page={paging.page} pages={paging.pages} total={paging.total} pageSize={paging.pageSize} onPage={paging.setPage} noun="checks" />
         </Card>
       </DataState>
+      <EditCheckModal
+        checkId={editingId}
+        onClose={() => setEditingId(null)}
+        onSaved={() => {
+          setEditingId(null)
+          notify('success', 'Check corrected', 'The old and new values are recorded in the audit log.')
+          reload()
+        }}
+      />
       <DeleteRecordsModal
         type={deleting ? 'checks' : null}
         ids={deleting?.ids ?? []}

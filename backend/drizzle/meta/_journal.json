@@ -232,6 +232,13 @@
       "when": 1791271861730,
       "tag": "0032_worker_shift_logins",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791547002992,
+      "tag": "0033_machine_departments",
+      "breakpoints": true
     }
   ]
 }
