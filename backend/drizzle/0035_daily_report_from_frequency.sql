@@ -1,0 +1,1 @@
+ALTER TABLE "report_email_settings" DROP COLUMN "daily_report_enabled";

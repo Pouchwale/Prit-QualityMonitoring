@@ -239,6 +239,20 @@
       "when": 1791547002992,
       "tag": "0033_machine_departments",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791702160683,
+      "tag": "0034_daily_task_report",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791702826793,
+      "tag": "0035_daily_report_from_frequency",
+      "breakpoints": true
     }
   ]
 }

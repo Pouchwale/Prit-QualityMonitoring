@@ -42,7 +42,8 @@ const FREQUENCY_OPTIONS = [
   { value: '720', label: 'Every 12 hours' },
   { value: '1440', label: 'Daily (every 24 hours)' },
   { value: 'custom_interval', label: 'Custom interval (hours / minutes)' },
-  { value: 'daily_at', label: 'Daily at a specific time' }
+  { value: 'daily_at', label: 'Daily at a specific time' },
+  { value: 'daily_report', label: 'Daily previous-day task report' }
 ]
 
 const PERCENTAGE_PRESETS = [10, 20, 30, 50, 100]
@@ -71,11 +72,13 @@ export const ReportSharingSection: React.FC = () => {
   const [isEnabled, setIsEnabled] = useState(false)
   const [frequencyHours, setFrequencyHours] = useState(1)
   const [frequencySelection, setFrequencySelection] = useState<string>('60')
-  const [frequencyMode, setFrequencyMode] = useState<'INTERVAL' | 'DAILY_AT'>('INTERVAL')
+  const [frequencyMode, setFrequencyMode] = useState<'INTERVAL' | 'DAILY_AT' | 'DAILY_REPORT'>('INTERVAL')
   const [frequencyMinutes, setFrequencyMinutes] = useState<number>(60)
   const [customIntervalValue, setCustomIntervalValue] = useState<number>(3)
   const [customIntervalUnit, setCustomIntervalUnit] = useState<'hours' | 'minutes'>('hours')
   const [scheduledTime, setScheduledTime] = useState<string>('18:00')
+  // Send time of the daily previous-day task report (backend services/dailyTaskReport.ts).
+  const [dailyReportTime, setDailyReportTime] = useState('08:30')
 
   const [percentage, setPercentage] = useState(20)
   const [recipientInput, setRecipientInput] = useState('')
@@ -115,6 +118,8 @@ export const ReportSharingSection: React.FC = () => {
     setFrequencySelection(val)
     if (val === 'daily_at') {
       setFrequencyMode('DAILY_AT')
+    } else if (val === 'daily_report') {
+      setFrequencyMode('DAILY_REPORT')
     } else if (val === 'custom_interval') {
       setFrequencyMode('INTERVAL')
       const mins = customIntervalUnit === 'hours' ? customIntervalValue * 60 : customIntervalValue
@@ -143,11 +148,15 @@ export const ReportSharingSection: React.FC = () => {
       setSmtpUser(data.smtpUser || '')
       setSmtpPass(data.smtpPass || '')
       setSmtpFrom(data.smtpFrom || '')
+      setDailyReportTime(data.dailyReportTime || '08:30')
       if (manualRecipients.length === 0 && data.recipients?.length) {
         setManualRecipients(data.recipients)
       }
 
-      if (data.frequencyMode === 'DAILY_AT') {
+      if (data.frequencyMode === 'DAILY_REPORT') {
+        setFrequencyMode('DAILY_REPORT')
+        setFrequencySelection('daily_report')
+      } else if (data.frequencyMode === 'DAILY_AT') {
         setFrequencyMode('DAILY_AT')
         setFrequencySelection('daily_at')
         setScheduledTime(data.scheduledTime || '18:00')
@@ -199,7 +208,7 @@ export const ReportSharingSection: React.FC = () => {
     try {
       setSavingSettings(true)
       const finalMinutes =
-        frequencyMode === 'DAILY_AT'
+        frequencyMode === 'DAILY_AT' || frequencyMode === 'DAILY_REPORT'
           ? 1440
           : frequencySelection === 'custom_interval'
             ? customIntervalUnit === 'hours'
@@ -220,7 +229,8 @@ export const ReportSharingSection: React.FC = () => {
         smtpSecure,
         smtpUser: smtpUser.trim() || null,
         smtpPass: smtpPass || null,
-        smtpFrom: smtpFrom.trim() || null
+        smtpFrom: smtpFrom.trim() || null,
+        dailyReportTime
       }
       const updated = await api.put<ReportSharingSettings>('/api/reports/sharing/settings', payload)
       setSettings(updated)
@@ -396,7 +406,9 @@ export const ReportSharingSection: React.FC = () => {
   }
 
   const scheduleText =
-    frequencyMode === 'DAILY_AT'
+    frequencyMode === 'DAILY_REPORT'
+      ? `Daily task report at ${dailyReportTime}`
+      : frequencyMode === 'DAILY_AT'
       ? `Daily at ${scheduledTime || '18:00'}`
       : frequencySelection === 'custom_interval'
         ? `Every ${customIntervalValue} ${customIntervalUnit}`
@@ -561,6 +573,27 @@ export const ReportSharingSection: React.FC = () => {
                         </div>
                       </div>
                       <p className="text-[11.5px] text-ink-muted">Reports will be generated once per day at {scheduledTime} covering the completed day.</p>
+                    </div>
+                  )}
+
+                  {/* Daily previous-day task report: every worker's checks of the day before. */}
+                  {frequencySelection === 'daily_report' && (
+                    <div className="mt-2.5 p-2.5 rounded-lg border border-line bg-subtle/60 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-[11.5px] font-semibold text-ink-secondary">Send at</span>
+                        <input
+                          type="time"
+                          aria-label="Daily report time"
+                          value={dailyReportTime}
+                          onChange={(e) => setDailyReportTime(e.target.value || '08:30')}
+                          className={`${inputClass} !w-auto`}
+                        />
+                      </div>
+                      <p className="text-[11.5px] text-ink-muted">
+                        Every day at {dailyReportTime}, each worker's checks of the previous day: assigned, completed, exceptions, missed and performance %,
+                        with the workers who missed checks listed first. While this is chosen, the sampled inspection reports are not sent on a schedule
+                        (Manual send still works).
+                      </p>
                     </div>
                   )}
                 </div>
@@ -908,7 +941,7 @@ export const ReportSharingSection: React.FC = () => {
               <tbody>
                 {logs.map((log) => {
                   const isSuccess = log.status === 'SUCCESS'
-                  const isAuto = log.trigger === 'AUTO'
+                  const isAuto = log.trigger !== 'MANUAL'
                   return (
                     <tr key={log.id}>
                       <td className="whitespace-nowrap">
@@ -932,7 +965,7 @@ export const ReportSharingSection: React.FC = () => {
                       <td className="whitespace-nowrap">
                         <span className={`${pillBase} gap-1 ${isAuto ? 'bg-subtle text-ink-secondary ring-line' : 'bg-accent-soft text-accent-strong ring-accent-line'}`}>
                           {isAuto ? <Clock className="w-3 h-3" aria-hidden /> : <Send className="w-3 h-3" aria-hidden />}
-                          {isAuto ? 'Auto' : 'Manual'}
+                          {log.trigger === 'DAILY' ? 'Daily' : isAuto ? 'Auto' : 'Manual'}
                         </span>
                       </td>
                       <td className="max-w-[280px]" title={log.recipients.join(', ')}>

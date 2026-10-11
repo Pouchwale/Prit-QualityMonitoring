@@ -465,3 +465,24 @@ export interface CheckRecord extends CheckSummary {
   exception: ExceptionInfo | null
   submittedByName: string | null
 }
+
+/** One day (or the whole week) of the worker's own weekly report (GET /api/worker/performance/weekly). */
+export interface WeekDayScore {
+  assigned: number
+  /** Completed + exceptions. */
+  done: number
+  completed: number
+  exceptions: number
+  missed: number
+  pending: number
+  /** Completion % minus 100; null on a day with no checks counted. */
+  score: number | null
+}
+
+export interface MyWeek {
+  weekStart: string
+  /** Monday to Saturday, YYYY-MM-DD. */
+  dates: string[]
+  days: WeekDayScore[]
+  week: WeekDayScore | null
+}

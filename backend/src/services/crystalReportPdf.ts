@@ -10,6 +10,8 @@ import { activities, checkExceptions, departments, jobs, machines, media, qualit
 import { config } from '../config'
 import { formatDateTime, formatDate, formatTime } from './reportData'
 import { resultOf } from '../lib/result'
+import { weeklyScores, type DayScore } from './performance'
+import { formatDateKey } from '../lib/time'
 
 /*
  * The Quality Inspection Report (PDF): one sheet per check, with a batch summary in front when the
@@ -136,7 +138,11 @@ export interface CrystalReportBatchData {
   samplePercentage?: number
   totalEligible?: number
   checks: CrystalReportCheck[]
+  /** Day-wise scores of every worker for the report's week (services/performance.ts weeklyScores). */
+  weekly?: WeeklyReport | null
 }
+
+type WeeklyReport = Awaited<ReturnType<typeof weeklyScores>>
 
 const photoOf = (m: typeof media.$inferSelect): CrystalReportPhoto => ({
   id: m.id,
@@ -871,6 +877,127 @@ function buildBatchSummary(data: CrystalReportBatchData): Content[] {
   return content
 }
 
+// ------------------------------------------------------------------------------- weekly report
+
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+/** Green for 0%, orange down to -20%, red below (the same colours as the admin panel). */
+const scoreColor = (score: number | null) => (score === null ? C.faint : score === 0 ? C.pass : score >= -20 ? C.warn : C.fail)
+const scoreText = (d: DayScore) => (d.score === null ? '—' : `${d.score}%`)
+
+const weeklyTableLayout = {
+  hLineWidth: (i: number, node: ContentTable) => (i === 0 || i === 1 || i === node.table.body.length ? 0.8 : 0.5),
+  vLineWidth: () => 0,
+  hLineColor: (i: number, node: ContentTable) => (i === 0 || i === 1 || i === node.table.body.length ? C.line : C.hair),
+  fillColor: (i: number, node: ContentTable) => (i === 0 ? C.headBg : i === node.table.body.length - 1 ? C.band : null),
+  paddingLeft: () => 5,
+  paddingRight: () => 5,
+  paddingTop: () => 4,
+  paddingBottom: () => 4
+}
+
+const headCell = (t: string, align: 'left' | 'center' | 'right' = 'center'): TableCell => ({
+  text: t.toUpperCase(),
+  fontSize: 6.5,
+  bold: true,
+  color: C.muted,
+  characterSpacing: 0.3,
+  alignment: align
+})
+
+/**
+ * Every worker's week, Monday to Saturday: per day the checks assigned, completed, exceptions and
+ * missed, and the score; then the week. Missed checks are in red so the coordinator can ask why.
+ * Counts and score are the Performance page's (services/performance.ts): assigned = completed +
+ * exceptions + missed; pending checks are not counted yet; exceptions count as done.
+ */
+function buildWeeklySheet(data: CrystalReportBatchData, weekly: WeeklyReport): Content[] {
+  const sum = (key: 'assigned' | 'completed' | 'exceptions' | 'missed') => weekly.rows.reduce((n, r) => n + r.week[key], 0)
+  const period = `${formatDateKey(weekly.days[0])} – ${formatDateKey(weekly.days[5])}`
+  const content: Content[] = [
+    titleBlock(data, `Weekly worker report · ${period}`, statusPill('Weekly report', C.brand, C.band)),
+    {
+      margin: [0, 12, 0, 0],
+      ...(figureStrip([
+        { label: 'Workers', value: String(weekly.rows.length) },
+        { label: 'Assigned', value: String(sum('assigned')) },
+        { label: 'Completed', value: String(sum('completed')), color: C.pass },
+        { label: 'Exceptions', value: String(sum('exceptions')), color: sum('exceptions') ? C.warn : C.ink },
+        { label: 'Missed', value: String(sum('missed')), color: sum('missed') ? C.fail : C.ink },
+        { label: 'Team average', value: weekly.teamAverage === null ? '—' : `${weekly.teamAverage}%`, color: scoreColor(weekly.teamAverage) }
+      ]) as object)
+    } as Content,
+    {
+      text: 'Score = done ÷ assigned as a percentage, minus 100: 0% is every check done, -20% is 80% done. Done = completed + exceptions. Assigned counts checks whose time is over; checks still open are not counted yet.',
+      fontSize: 7.5,
+      color: C.muted,
+      margin: [0, 6, 0, 0]
+    },
+    sectionTitle('Week overview')
+  ]
+
+  // One line per worker: the score of each day and of the week.
+  content.push({
+    table: {
+      headerRows: 1,
+      dontBreakRows: true,
+      widths: ['*', ...weekly.days.map(() => 42), 46],
+      body: [
+        [headCell('Worker', 'left'), ...weekly.days.map((d, i) => headCell(`${DAY_NAMES[i].slice(0, 3)} ${formatDateKey(d).slice(0, 5)}`)), headCell('Week')],
+        ...weekly.rows.map((r) => [
+          { stack: [{ text: r.name, bold: true, fontSize: 8 }, { text: [r.employeeId.toLowerCase() === r.name.toLowerCase() ? null : r.employeeId, r.department].filter(Boolean).join(' · ') || ' ', fontSize: 6.5, color: C.muted }] },
+          ...r.days.map((d) => ({ text: scoreText(d), fontSize: 8, bold: d.score !== null, color: scoreColor(d.score), alignment: 'center' as const })),
+          { text: scoreText(r.week), fontSize: 9, bold: true, color: scoreColor(r.week.score), alignment: 'center' as const }
+        ]),
+        [
+          { text: 'Team average', bold: true, fontSize: 8 },
+          ...weekly.days.map(() => ({ text: '' })),
+          { text: weekly.teamAverage === null ? '—' : `${weekly.teamAverage}%`, fontSize: 9, bold: true, color: scoreColor(weekly.teamAverage), alignment: 'center' as const }
+        ]
+      ]
+    },
+    layout: weeklyTableLayout
+  })
+
+  // Then each worker's days in full.
+  for (const r of weekly.rows) {
+    // The employee ID only when it differs from the name (some accounts use the name as ID).
+    const id = r.employeeId.toLowerCase() === r.name.toLowerCase() ? '' : `  ·  ${r.employeeId}`
+    content.push(sectionTitle(`${r.name}${id}${r.department ? `  ·  ${r.department}` : ''}`, [0, 18, 0, 6]))
+    if (r.week.assigned === 0 && r.week.pending === 0) {
+      content.push({ text: 'No checks this week.', fontSize: 8, italics: true, color: C.muted })
+      continue
+    }
+    const num = (n: number, color?: string): TableCell => ({ text: String(n), fontSize: 8, alignment: 'center', color: n ? (color ?? C.ink) : C.faint, bold: !!n && !!color })
+    const line = (label: string, d: DayScore, bold = false): TableCell[] => [
+      { text: label, fontSize: 8, bold },
+      num(d.assigned),
+      num(d.completed, C.pass),
+      num(d.exceptions, C.warn),
+      num(d.missed, C.fail),
+      { text: d.assigned ? `${d.done}/${d.assigned} · ${Math.round((d.done / d.assigned) * 100)}%` : '—', fontSize: 8, alignment: 'center', color: d.assigned ? C.ink : C.faint },
+      { text: scoreText(d), fontSize: 8.5, bold: true, color: scoreColor(d.score), alignment: 'center' }
+    ]
+    content.push({
+      table: {
+        headerRows: 1,
+        dontBreakRows: true,
+        widths: ['*', 52, 60, 60, 50, 80, 50],
+        body: [
+          [headCell('Day', 'left'), headCell('Assigned'), headCell('Completed'), headCell('Exceptions'), headCell('Missed'), headCell('Done'), headCell('Score')],
+          ...r.days.map((d, i) => line(`${DAY_NAMES[i]} ${formatDateKey(weekly.days[i])}`, d)),
+          line('Week', r.week, true)
+        ]
+      },
+      layout: weeklyTableLayout
+    })
+    if (r.week.pending) {
+      content.push({ text: `${r.week.pending} check${r.week.pending === 1 ? ' is' : 's are'} still open and not counted yet.`, fontSize: 7, color: C.muted, margin: [0, 3, 0, 0] })
+    }
+  }
+  return content
+}
+
 // ------------------------------------------------------------------------------------- document
 
 /** The complete report document. `photos` comes from prepareReportPhotos (no photos without it). */
@@ -878,11 +1005,16 @@ export function buildCrystalReportDocument(data: CrystalReportBatchData, photos:
   const content: Content[] = []
   const batch = data.checks.length > 1
   if (batch) content.push(...buildBatchSummary(data))
+  // The weekly worker report follows the summary, on its own page.
+  if (data.weekly) {
+    const sheet = buildWeeklySheet(data, data.weekly)
+    content.push(content.length ? { stack: sheet, pageBreak: 'before' } : { stack: sheet })
+  }
 
   data.checks.forEach((check, index) => {
     // Every check starts on its own page.
     const sheet = buildCheckSheet(check, data, photos)
-    if (batch || index > 0) content.push({ stack: sheet, pageBreak: 'before' })
+    if (batch || index > 0 || data.weekly) content.push({ stack: sheet, pageBreak: 'before' })
     else content.push(...sheet)
   })
 
@@ -918,6 +1050,15 @@ export function buildCrystalReportDocument(data: CrystalReportBatchData, photos:
 /** Renders the report PDF to a Buffer, with the checks' photos. */
 export async function renderCrystalReportPdf(data: CrystalReportBatchData): Promise<Buffer> {
   const photos = await prepareReportPhotos(data.checks)
-  const pdf = pdfmake.createPdf(buildCrystalReportDocument(data, photos))
+  // Every emailed and previewed report carries the week of its period. If the figures cannot be
+  // loaded, the report is made exactly as before, without the weekly section.
+  const weekly =
+    data.weekly !== undefined
+      ? data.weekly
+      : await weeklyScores(data.periodTo ?? data.generatedAt).catch((err) => {
+          console.error('[Report PDF] Weekly worker report failed:', err)
+          return null
+        })
+  const pdf = pdfmake.createPdf(buildCrystalReportDocument({ ...data, weekly }, photos))
   return pdf.getBuffer()
 }

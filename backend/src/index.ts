@@ -20,6 +20,7 @@ import { adoptExistingFutureEntries } from './services/calendarYears'
 import { checkPushReceipts, notifyDueChecks } from './services/notifications'
 import { cleanOldTempFiles, kickVideoOptimization, videoOptimizationEnabled } from './services/mediaOptimizer'
 import { executeAutomatedReportRun } from './services/automatedReports'
+import { executeDailyTaskReport } from './services/dailyTaskReport'
 import { purgeExpiredRevokedTokens } from './routes/auth'
 import { runShiftLoginTick } from './services/workerShifts'
 
@@ -59,6 +60,8 @@ async function tick() {
       console.log(`Shift sign-in: ${shiftLogin.reminders} reminder(s) sent, ${shiftLogin.autoLoggedOut} worker(s) logged out at shift end`)
     }
     await executeAutomatedReportRun()
+    // Its own try: a failing daily report never stops the rest of the tick, and the other way round.
+    await executeDailyTaskReport().catch((err) => console.error('[Daily task report] failed', err))
   } catch (err) {
     console.error('Scheduler tick failed', err)
   } finally {

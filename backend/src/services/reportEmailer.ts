@@ -159,7 +159,7 @@ export async function scoreSummary(from?: Date, to?: Date): Promise<ScoreRow[] |
 }
 
 /** The all-users table at the top of the email; empty when the period is unknown or failed to load. */
-function scoreSummaryHtml(rows: ScoreRow[] | null): string {
+export function scoreSummaryHtml(rows: ScoreRow[] | null, heading = 'ALL USERS: SCORE SUMMARY'): string {
   if (!rows) return ''
   const th = 'padding: 8px 10px; text-align: right;'
   const td = 'padding: 7px 10px; border-top: 1px solid #e2e8f0; text-align: right; font-variant-numeric: tabular-nums;'
@@ -186,7 +186,7 @@ function scoreSummaryHtml(rows: ScoreRow[] | null): string {
     <!-- All-users score summary (services/performance.ts rules) -->
     <tr>
       <td style="padding: 24px 32px 0 32px;">
-        <h3 style="font-size: 14px; font-weight: 700; color: #1e3a8a; margin: 0 0 8px 0;">ALL USERS: SCORE SUMMARY</h3>
+        <h3 style="font-size: 14px; font-weight: 700; color: #1e3a8a; margin: 0 0 8px 0;">${heading}</h3>
         <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border: 1px solid #cbd5e1; border-collapse: collapse;">
           <thead>
             <tr style="background-color: #1e3a8a; color: #ffffff; font-size: 11px; font-weight: 700;">

@@ -23,7 +23,8 @@ export interface ReportSharingSettingsDto {
   isEnabled: boolean
   frequencyHours: number
   frequencyMinutes: number
-  frequencyMode: 'INTERVAL' | 'DAILY_AT'
+  /** DAILY_REPORT: the schedule sends the daily previous-day task report instead of inspection reports. */
+  frequencyMode: 'INTERVAL' | 'DAILY_AT' | 'DAILY_REPORT'
   scheduledTime: string | null
   percentage: number
   recipients: string[]
@@ -35,17 +36,20 @@ export interface ReportSharingSettingsDto {
   smtpUser: string | null
   smtpPass: string | null
   smtpFrom: string | null
+  /** Send time of the daily previous-day task report (frequencyMode DAILY_REPORT). */
+  dailyReportTime: string
   updatedAt?: Date
 }
 
 /** Calculates the next execution timestamp based on frequency mode and settings */
 export function calculateNextRunAt(
-  mode: 'INTERVAL' | 'DAILY_AT',
+  mode: 'INTERVAL' | 'DAILY_AT' | 'DAILY_REPORT',
   minutes: number,
   scheduledTime?: string | null,
   fromTime: Date = new Date()
 ): Date {
-  if (mode === 'DAILY_AT' && scheduledTime && HHMM_REGEX.test(scheduledTime)) {
+  // DAILY_REPORT runs once a day too: `scheduledTime` is then the daily report's send time.
+  if ((mode === 'DAILY_AT' || mode === 'DAILY_REPORT') && scheduledTime && HHMM_REGEX.test(scheduledTime)) {
     // The time of day is the plant's (PLANT_TIMEZONE), whatever timezone the server runs in.
     const today = atTime(fromTime, scheduledTime)
     // If target time for today has already passed, schedule for tomorrow
@@ -115,7 +119,7 @@ function settingsDto(row: SettingsRow): ReportSharingSettingsDto {
     isEnabled: row.isEnabled,
     frequencyHours: row.frequencyHours,
     frequencyMinutes: row.frequencyMinutes ?? row.frequencyHours * 60,
-    frequencyMode: (row.frequencyMode as 'INTERVAL' | 'DAILY_AT') || 'INTERVAL',
+    frequencyMode: (row.frequencyMode as 'INTERVAL' | 'DAILY_AT' | 'DAILY_REPORT') || 'INTERVAL',
     scheduledTime: row.scheduledTime || null,
     percentage: row.percentage,
     recipients: row.recipients || [],
@@ -127,6 +131,7 @@ function settingsDto(row: SettingsRow): ReportSharingSettingsDto {
     smtpUser: row.smtpUser || process.env.SMTP_USER || null,
     smtpPass: readSmtpPass(row.smtpPass) || process.env.SMTP_PASS || null,
     smtpFrom: row.smtpFrom || process.env.SMTP_FROM || null,
+    dailyReportTime: row.dailyReportTime,
     updatedAt: row.updatedAt
   }
 }
@@ -165,13 +170,18 @@ export async function updateReportSharingSettings(
   const schedTime = input.scheduledTime !== undefined ? input.scheduledTime : current.scheduledTime
   const pct = Math.min(100, Math.max(1, input.percentage ?? current.percentage))
   const isEnabled = input.isEnabled ?? current.isEnabled
+  const dailyTime = input.dailyReportTime ?? current.dailyReportTime
 
   // A changed schedule takes effect now (not after the old due time); otherwise the next run stays.
   const scheduleChanged =
-    freqMode !== current.frequencyMode || freqMinutes !== current.frequencyMinutes || schedTime !== current.scheduledTime || !current.isEnabled
+    freqMode !== current.frequencyMode ||
+    freqMinutes !== current.frequencyMinutes ||
+    schedTime !== current.scheduledTime ||
+    dailyTime !== current.dailyReportTime ||
+    !current.isEnabled
   let nextRunAt = current.nextRunAt
   if (isEnabled && (scheduleChanged || !nextRunAt || nextRunAt < new Date())) {
-    nextRunAt = calculateNextRunAt(freqMode, freqMinutes, schedTime)
+    nextRunAt = calculateNextRunAt(freqMode, freqMinutes, freqMode === 'DAILY_REPORT' ? dailyTime : schedTime)
   } else if (!isEnabled) {
     nextRunAt = null
   }
@@ -194,6 +204,7 @@ export async function updateReportSharingSettings(
       // Encrypted at rest; an empty value clears it (the environment's SMTP_PASS is used then).
       ...(input.smtpPass !== undefined ? { smtpPass: input.smtpPass ? encryptPassword(input.smtpPass) : null } : {}),
       ...(input.smtpFrom !== undefined ? { smtpFrom: input.smtpFrom } : {}),
+      dailyReportTime: dailyTime,
       updatedAt: new Date()
     })
     .where(eq(reportEmailSettings.id, current.id!))
@@ -316,6 +327,8 @@ export async function sampleEligibleChecks(options: {
 export async function executeAutomatedReportRun(): Promise<boolean> {
   const settings = await getReportSharingSettings()
   if (!settings.isEnabled || !settings.recipients.length) return false
+  // "Daily previous-day task report" is chosen: services/dailyTaskReport.ts sends that instead.
+  if (settings.frequencyMode === 'DAILY_REPORT') return false
 
   const now = new Date()
   if (settings.nextRunAt && settings.nextRunAt > now) {

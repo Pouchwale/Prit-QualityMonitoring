@@ -12,6 +12,7 @@ import {
   HistoryPage,
   HistoryQuery,
   MyPerformance,
+  MyWeek,
   Job,
   JobDetail,
   JobPlanPreview,
@@ -551,6 +552,8 @@ export const getProfile = () => request<Profile>('GET', '/api/worker/profile')
 /** This worker's own performance; the backend only ever answers with the signed-in worker's figures. */
 export const getMyPerformance = (query: { from: string; to: string }) =>
   request<MyPerformance>('GET', withQuery('/api/worker/performance', query))
+/** This worker's own week, Monday to Saturday; the backend only ever answers for the signed-in worker. */
+export const getMyWeek = (week?: string) => request<MyWeek>('GET', withQuery('/api/worker/performance/weekly', week ? { week } : {}))
 export const getTodayChecks = () => request<CheckSummary[]>('GET', '/api/worker/checks/today')
 
 /** Whether the plant is closed today (Plant Calendar). */

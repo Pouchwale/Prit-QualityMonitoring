@@ -2,6 +2,7 @@ import { and, eq, gte, lt, sql, type SQL } from 'drizzle-orm'
 import { db } from '../db/client'
 import { departments, jobs, machines, qualityChecks, shifts, users } from '../db/schema'
 import { UNRESTRICTED, type DepartmentScope } from './departmentScope'
+import { addDays, dateKey, startOfDay, weekdayOf } from '../lib/time'
 
 /**
  * Worker performance: how many checks a worker was given, how many they did, and the score that
@@ -183,4 +184,76 @@ export async function performanceFilterValues(scope: PerformanceScope) {
       .orderBy(users.name)
   ])
   return { machines: machineRows, shifts: shiftRows, departments: departmentRows, workers: workerRows, scope }
+}
+
+// ------------------------------------------------------------------------------- weekly report
+
+export interface DayScore {
+  /** Checks whose time is over (completed + exceptions + missed); pending ones are not counted yet. */
+  assigned: number
+  /** Completed + exceptions: an exception is a reasoned "could not do it", never a miss. */
+  done: number
+  completed: number
+  exceptions: number
+  missed: number
+  pending: number
+  /** Completion % minus 100 (0 = everything done); null on a day with nothing counted. */
+  score: number | null
+}
+
+const dayScore = (w: WorkerPerformance | undefined): DayScore => {
+  const assigned = w?.assigned ?? 0
+  const done = (w?.completed ?? 0) + (w?.exceptions ?? 0)
+  return {
+    assigned,
+    done,
+    completed: w?.completed ?? 0,
+    exceptions: w?.exceptions ?? 0,
+    missed: w?.missed ?? 0,
+    pending: w?.open ?? 0,
+    score: assigned ? scoreOf(done, assigned) : null
+  }
+}
+
+/**
+ * Day-wise scores of every worker for one week, Monday to Saturday (plant time), with the same
+ * counts and score as the Performance page. The week score is worked out from the whole week's
+ * checks (not an average of the days), so a busy day weighs more than a quiet one. The team average
+ * is the mean week score of the workers who had checks.
+ */
+/** `onlyWorkerId`: one worker's own week (the worker app); without it every worker (Admins). */
+export async function weeklyScores(anyDay: Date, onlyWorkerId?: string) {
+  const day = startOfDay(anyDay)
+  const monday = addDays(day, -((weekdayOf(day) + 6) % 7))
+  const days = Array.from({ length: 6 }, (_, i) => addDays(monday, i))
+  const [daily, week, people] = await Promise.all([
+    Promise.all(days.map((d) => workerPerformance({ from: d, to: addDays(d, 1), workerId: onlyWorkerId }))),
+    workerPerformance({ from: monday, to: addDays(monday, 6), workerId: onlyWorkerId }),
+    db
+      .select({ id: users.id, name: users.name, employeeId: users.employeeId, isActive: users.isActive, department: departments.name })
+      .from(users)
+      .leftJoin(departments, eq(departments.id, users.departmentId))
+      .where(onlyWorkerId ? eq(users.id, onlyWorkerId) : eq(users.role, 'WORKER'))
+  ])
+  const byDay = daily.map((r) => new Map(r.workers.map((w) => [w.workerId, w])))
+  const byWeek = new Map(week.workers.map((w) => [w.workerId, w]))
+  const rows = people
+    // Every active worker; a disabled one only when they had checks this week.
+    .filter((p) => p.isActive || byWeek.has(p.id))
+    .map((p) => ({
+      workerId: p.id,
+      name: p.name,
+      employeeId: p.employeeId,
+      department: p.department,
+      days: byDay.map((m) => dayScore(m.get(p.id))),
+      week: dayScore(byWeek.get(p.id))
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const scored = rows.map((r) => r.week.score).filter((s): s is number => s !== null)
+  return {
+    weekStart: dateKey(monday),
+    days: days.map((d) => dateKey(d)),
+    rows,
+    teamAverage: scored.length ? Math.round(scored.reduce((a, b) => a + b, 0) / scored.length) : null
+  }
 }

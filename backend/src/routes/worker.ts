@@ -74,7 +74,7 @@ import {
   type UploadedFiles
 } from '../services/uploads'
 import { kickVideoOptimization } from '../services/mediaOptimizer'
-import { performanceOf } from '../services/performance'
+import { performanceOf, weeklyScores } from '../services/performance'
 import { performanceRange } from './performance'
 import { shiftAt } from '../services/shiftTime'
 import { loadProfile } from './auth'
@@ -1037,6 +1037,25 @@ workerRouter.get('/performance', async (req, res) => {
   const q = z.object({ date: z.string().optional(), from: z.string().optional(), to: z.string().optional() }).parse(req.query)
   const { from, to } = performanceRange(q)
   res.json({ from, to, ...(await performanceOf(req.user!.id, { from, to })) })
+})
+
+/**
+ * The signed-in worker's own week, Monday to Saturday (services/performance.ts weeklyScores). The
+ * worker is always the one signed in: no worker id is read from the request, so nobody else's
+ * scores can be asked for. `?week=YYYY-MM-DD` is any day of the week; nothing means this week.
+ */
+workerRouter.get('/performance/weekly', async (req, res) => {
+  const q = z.object({ week: z.string().optional() }).parse(req.query)
+  let day: Date
+  try {
+    day = q.week ? parseDateKey(q.week) : startOfDay(new Date())
+  } catch {
+    throw badRequest('Invalid week date')
+  }
+  const report = await weeklyScores(day, req.user!.id)
+  const mine = report.rows[0]
+  // `dates`: the six days; `days`: this worker's score on each of them; `week`: the whole week.
+  res.json({ weekStart: report.weekStart, dates: report.days, days: mine?.days ?? [], week: mine?.week ?? null })
 })
 
 /** Filter options for the history screen: only machines this worker has records for. */

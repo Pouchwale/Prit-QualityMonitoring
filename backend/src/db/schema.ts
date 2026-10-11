@@ -859,9 +859,16 @@ export const reportEmailSettings = pgTable('report_email_settings', {
   isEnabled: boolean('is_enabled').notNull().default(false),
   frequencyHours: integer('frequency_hours').notNull().default(1),
   frequencyMinutes: integer('frequency_minutes').default(60),
-  frequencyMode: text('frequency_mode').default('INTERVAL'), // 'INTERVAL' | 'DAILY_AT'
+  frequencyMode: text('frequency_mode').default('INTERVAL'), // 'INTERVAL' | 'DAILY_AT' | 'DAILY_REPORT'
   scheduledTime: text('scheduled_time'), // e.g. "18:00"
   percentage: integer('percentage').notNull().default(20),
+  /**
+   * Send time of the daily previous-day task report (services/dailyTaskReport.ts), used when the
+   * Email frequency is "Daily previous-day task report" (frequency_mode DAILY_REPORT).
+   */
+  dailyReportTime: text('daily_report_time').notNull().default('08:30'),
+  /** Plant date (YYYY-MM-DD) the daily report was last sent on, so it goes out once a day. */
+  dailyReportLastDate: text('daily_report_last_date'),
   recipients: text('recipients').array().notNull().default(sql`ARRAY[]::text[]`),
   lastRunAt: timestamp('last_run_at', { withTimezone: true }),
   nextRunAt: timestamp('next_run_at', { withTimezone: true }),

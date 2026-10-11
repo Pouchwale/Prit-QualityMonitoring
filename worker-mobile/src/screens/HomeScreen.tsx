@@ -135,12 +135,15 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
     () => filteredChecks.filter((c) => c.status === 'PENDING' && !c.canSubmit),
     [filteredChecks]
   )
+  // An exception is a reasoned "could not do it": counted as done, never as missed (the same rule as
+  // the score, backend services/performance.ts). It is listed with the done checks, marked Exception.
+  const isException = (c: CheckSummary) => c.status === 'EXCEPTION' || c.result === 'EXCEPTION'
   const completedChecks = useMemo(
-    () => filteredChecks.filter((c) => c.status === 'COMPLETED' || c.result === 'COMPLETED'),
+    () => filteredChecks.filter((c) => c.status === 'COMPLETED' || c.result === 'COMPLETED' || isException(c)),
     [filteredChecks]
   )
   const missedChecks = useMemo(
-    () => filteredChecks.filter((c) => c.status === 'MISSED' || c.status === 'EXCEPTION' || c.result === 'MISSED' || c.result === 'EXCEPTION'),
+    () => filteredChecks.filter((c) => !isException(c) && (c.status === 'MISSED' || c.result === 'MISSED')),
     [filteredChecks]
   )
 
@@ -394,8 +397,8 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
                     const mod = c.module ?? 'IPQC'
                     return (
                       <View key={c.id} className="min-h-[64px] flex-row items-center py-3 pl-4 pr-3">
-                        <View className="mr-3 h-5 w-5 items-center justify-center rounded-full bg-success-bg">
-                          <Icon name="checkmark" size={12} color="success" />
+                        <View className={`mr-3 h-5 w-5 items-center justify-center rounded-full ${isException(c) ? 'bg-exception-bg' : 'bg-success-bg'}`}>
+                          <Icon name={isException(c) ? 'alert' : 'checkmark'} size={12} color={isException(c) ? 'exception' : 'success'} />
                         </View>
                         <View className="flex-1">
                           <View className="flex-row items-center gap-2">
@@ -418,9 +421,15 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
                             {c.jobNo ? ` · PO: ${c.jobNo}` : ''}
                           </Text>
                         </View>
-                        <View className="rounded px-2 py-0.5 bg-success-bg">
-                          <Text className="text-[11px] font-bold text-success">Done</Text>
-                        </View>
+                        {isException(c) ? (
+                          <View className="rounded px-2 py-0.5 bg-exception-bg">
+                            <Text className="text-[11px] font-bold text-exception">Exception</Text>
+                          </View>
+                        ) : (
+                          <View className="rounded px-2 py-0.5 bg-success-bg">
+                            <Text className="text-[11px] font-bold text-success">Done</Text>
+                          </View>
+                        )}
                       </View>
                     )
                   })}

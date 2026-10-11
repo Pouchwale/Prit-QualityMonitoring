@@ -20,6 +20,7 @@ import {
   type VoiceTraceEntry
 } from '../services/voiceAlerts'
 import { MyPerformanceCard } from '../components/MyPerformanceCard'
+import { MyWeekCard } from '../components/MyWeekCard'
 
 interface Props {
   profile: Profile
@@ -181,6 +182,8 @@ export const ProfileScreen: React.FC<Props> = ({ profile, onLogout }) => {
           </View>
 
           <MyPerformanceCard />
+
+          <MyWeekCard />
 
           <ListGroup>
             <Row label="Employee ID" value={profile.employeeId} />

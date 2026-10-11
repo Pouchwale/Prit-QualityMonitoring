@@ -125,7 +125,7 @@ export const EditCheckModal: React.FC<{ checkId: string | null; onClose: () => v
       }
     >
       {!form ? (
-        error ? <p className="text-sm text-danger">{error}</p> : <p className="text-sm text-ink-muted">Loading…</p>
+        error ? <p className="text-sm text-missed">{error}</p> : <p className="text-sm text-ink-muted">Loading…</p>
       ) : (
         <div className="space-y-4">
           {form.values.map((v) => (
@@ -165,7 +165,7 @@ export const EditCheckModal: React.FC<{ checkId: string | null; onClose: () => v
           <Field label="Reason for the correction" hint="Saved in the audit log with the old and new values.">
             <TextArea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500} placeholder="e.g. Worker typed 220 instead of 22" />
           </Field>
-          {error ? <p className="text-sm text-danger">{error}</p> : null}
+          {error ? <p className="text-sm text-missed">{error}</p> : null}
         </div>
       )}
     </Modal>

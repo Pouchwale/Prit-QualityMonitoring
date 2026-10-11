@@ -30,7 +30,7 @@ const updateSettingsSchema = z.object({
   isEnabled: z.boolean().optional(),
   frequencyHours: z.number().int().min(1).max(168).optional(),
   frequencyMinutes: z.number().int().min(10).max(10080).optional(),
-  frequencyMode: z.enum(['INTERVAL', 'DAILY_AT']).optional(),
+  frequencyMode: z.enum(['INTERVAL', 'DAILY_AT', 'DAILY_REPORT']).optional(),
   scheduledTime: z.string().regex(/^\d{2}:\d{2}$/, 'Time must be in HH:MM format').nullable().optional(),
   percentage: z.number().int().min(1).max(100).optional(),
   recipients: z.array(z.string().regex(emailRegex, 'Invalid email address')).optional(),
@@ -39,7 +39,8 @@ const updateSettingsSchema = z.object({
   smtpSecure: z.boolean().optional(),
   smtpUser: z.string().trim().max(255).nullable().optional(),
   smtpPass: z.string().max(500).nullable().optional(),
-  smtpFrom: z.string().trim().max(255).nullable().optional()
+  smtpFrom: z.string().trim().max(255).nullable().optional(),
+  dailyReportTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Daily report time must be in HH:MM format').optional()
 })
 
 /** An instant with its timezone (what the admin panel sends), e.g. 2026-10-06T00:00:00+05:30. */

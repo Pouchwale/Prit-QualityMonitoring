@@ -737,7 +737,7 @@ export interface ReportSharingSettings {
   isEnabled: boolean
   frequencyHours: number
   frequencyMinutes: number
-  frequencyMode: 'INTERVAL' | 'DAILY_AT'
+  frequencyMode: 'INTERVAL' | 'DAILY_AT' | 'DAILY_REPORT'
   scheduledTime: string | null
   percentage: number
   recipients: string[]
@@ -749,12 +749,14 @@ export interface ReportSharingSettings {
   smtpUser: string | null
   smtpPass: string | null
   smtpFrom: string | null
+  /** Send time (HH:MM) of the daily previous-day task report (frequencyMode DAILY_REPORT). */
+  dailyReportTime?: string
   updatedAt?: string
 }
 
 export interface ReportEmailLog {
   id: string
-  trigger: 'AUTO' | 'MANUAL'
+  trigger: 'AUTO' | 'MANUAL' | 'DAILY'
   status: 'SUCCESS' | 'FAILED'
   recipients: string[]
   subject: string

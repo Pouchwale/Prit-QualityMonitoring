@@ -13,6 +13,8 @@ import { StatCard } from '../../components/ui/StatCard'
 import { BarList, ChartLegend, DonutChart, ProgressBar, STATUS_SERIES, type BarListRow } from '../../components/ui/charts'
 import { IconButton, ResultCount, Segmented } from '../../components/ui/Toolbar'
 import { Pagination, usePagination } from '../../components/ui/Pagination'
+import { useAuth } from '../../lib/auth'
+import { WeeklyScores } from './WeeklyScores'
 
 /** The score is a percentage, and always carries its sign. */
 const scoreText = (score: number) => `${score}%`
@@ -46,6 +48,7 @@ const filterLabel = 'block text-[11px] font-medium text-ink-muted mb-1'
 const activeClass = (on: boolean) => (on ? 'border-accent bg-accent-soft/40' : '')
 
 export const PerformancePage: React.FC = () => {
+  const { isAdmin } = useAuth()
   const [from, setFrom] = useState(() => addDaysKey(dateKey(), -6))
   const [to, setTo] = useState(dateKey)
   const [workerId, setWorkerId] = useState('')
@@ -124,6 +127,9 @@ export const PerformancePage: React.FC = () => {
           </IconButton>
         }
       />
+
+      {/* Everyone's day-wise scores: Admins and the Super Admin only (the API refuses Managers). */}
+      {isAdmin && <WeeklyScores />}
 
       {scope?.restricted ? (
         <div className="card flex items-start gap-2 px-3 py-2.5 text-[12.5px] text-ink-secondary" role="status">
