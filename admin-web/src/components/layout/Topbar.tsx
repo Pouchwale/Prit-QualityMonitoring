@@ -39,8 +39,11 @@ export const Topbar: React.FC<TopbarProps> = ({ user, plantName, pageTitle, miss
 
   const alerts = missedCount + exceptionCount
 
+  // The header has its own layer above the page (relative z-30): backdrop-blur makes it a stacking context,
+  // so without one the account menu (z-50 inside it) would draw under positioned page content such as a
+  // date field. It stays below the phone navigation drawer (z-40), dialogs and toasts.
   return (
-    <header className="h-14 bg-white/95 backdrop-blur border-b border-line pl-1.5 pr-2 sm:px-5 flex items-center justify-between gap-2 shrink-0 no-print select-none">
+    <header className="relative z-30 h-14 bg-white/95 backdrop-blur border-b border-line pl-1.5 pr-2 sm:px-5 flex items-center justify-between gap-2 shrink-0 no-print select-none">
       {/* Phone and tablet: menu button and the current page */}
       <div className="flex lg:hidden items-center gap-1 min-w-0">
         <button

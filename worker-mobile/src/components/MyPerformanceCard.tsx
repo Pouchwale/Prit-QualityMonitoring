@@ -1,30 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { ActivityIndicator, Pressable, Text, View } from 'react-native'
+import { ActivityIndicator, Text, View } from 'react-native'
 import { getMyPerformance } from '../services/api'
 import { MyPerformance } from '../types'
 import { dateKey } from '../utils/dates'
 import { friendlyMessage } from '../utils/friendlyError'
 import { Icon } from './ui/Icon'
 
-const PERIODS = [
-  { key: 'today', label: 'Today', days: 0 },
-  { key: 'week', label: '7 days', days: 6 },
-  { key: 'month', label: '30 days', days: 29 }
-] as const
-
-const rangeFor = (days: number) => {
-  const to = new Date()
-  const from = new Date()
-  from.setDate(from.getDate() - days)
-  return { from: dateKey(from), to: dateKey(to) }
+/** Today only: the week is on "My week" and everything so far on "Overall score". */
+const todayRange = () => {
+  const today = dateKey(new Date())
+  return { from: today, to: today }
 }
 
 /**
- * "My performance" on the worker's Profile: only this worker's own figures, from the backend
+ * "My performance" on the worker's Profile: today's figures of this worker only, from the backend
  * (GET /api/worker/performance). The score is the backend's; nothing is calculated here.
  */
 export const MyPerformanceCard: React.FC = () => {
-  const [period, setPeriod] = useState<(typeof PERIODS)[number]>(PERIODS[1])
   const [data, setData] = useState<MyPerformance | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -33,13 +25,13 @@ export const MyPerformanceCard: React.FC = () => {
     setLoading(true)
     setError(null)
     try {
-      setData(await getMyPerformance(rangeFor(period.days)))
+      setData(await getMyPerformance(todayRange()))
     } catch (err) {
       setError(friendlyMessage(err))
     } finally {
       setLoading(false)
     }
-  }, [period])
+  }, [])
 
   useEffect(() => {
     load()
@@ -49,19 +41,8 @@ export const MyPerformanceCard: React.FC = () => {
     <View className="rounded-2xl bg-surface p-4">
       <View className="flex-row items-center justify-between">
         <Text className="text-[17px] font-semibold text-ink">My performance</Text>
-        <View className="flex-row rounded-lg bg-subtle p-0.5">
-          {PERIODS.map((p) => (
-            <Pressable
-              key={p.key}
-              onPress={() => setPeriod(p)}
-              accessibilityRole="button"
-              accessibilityState={{ selected: p.key === period.key }}
-              accessibilityLabel={`Show ${p.label}`}
-              className={`min-h-[32px] justify-center rounded-md px-2.5 ${p.key === period.key ? 'bg-surface' : ''}`}
-            >
-              <Text className={`text-[13px] ${p.key === period.key ? 'font-semibold text-ink' : 'text-ink-muted'}`}>{p.label}</Text>
-            </Pressable>
-          ))}
+        <View className="rounded-lg bg-subtle px-2.5 py-1">
+          <Text className="text-[13px] font-semibold text-ink">Today</Text>
         </View>
       </View>
 
