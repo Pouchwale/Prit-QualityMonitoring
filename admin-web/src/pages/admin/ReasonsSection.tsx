@@ -40,16 +40,22 @@ interface ReasonsSectionProps {
   noun: string
   dialogSubtitle: string
   placeholder: string
+  /**
+   * The exception reasons list: also whether the exception must name the PO No. / Item Code.
+   * Shown to everyone who sees the list; only the Super Admin may change it (the backend enforces it).
+   */
+  jobDetails?: boolean
 }
 
 interface ReasonForm {
   label: string
   requiresRemark: boolean
+  requiresJobDetails: boolean
   isActive: boolean
   sortOrder: string
 }
 
-const emptyReasonForm: ReasonForm = { label: '', requiresRemark: false, isActive: true, sortOrder: '0' }
+const emptyReasonForm: ReasonForm = { label: '', requiresRemark: false, requiresJobDetails: true, isActive: true, sortOrder: '0' }
 
 /** Yes / no cell. The phone card shows the column name in front of it. */
 const Flag: React.FC<{ on: boolean }> = ({ on }) =>
@@ -65,9 +71,11 @@ const Flag: React.FC<{ on: boolean }> = ({ on }) =>
     </span>
   )
 
-export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, description, icon, endpoint, noun, dialogSubtitle, placeholder }) => {
-  const { can } = useAuth()
+export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, description, icon, endpoint, noun, dialogSubtitle, placeholder, jobDetails = false }) => {
+  const { can, user } = useAuth()
   const canEdit = useCanManage('activities')
+  /** Whether a reason needs the PO No. / Item Code is the Super Admin's decision. */
+  const canSetJobDetails = user?.role === 'SUPER_ADMIN'
   const notify = useToast()
 
   // Readable with check types, quality checks or exceptions view.
@@ -92,7 +100,7 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
 
   const openEdit = (r: MonitoringReason) => {
     setEditing(r)
-    setForm({ label: r.label, requiresRemark: r.requiresRemark, isActive: r.isActive, sortOrder: String(r.sortOrder) })
+    setForm({ label: r.label, requiresRemark: r.requiresRemark, requiresJobDetails: r.requiresJobDetails ?? true, isActive: r.isActive, sortOrder: String(r.sortOrder) })
     setFormError(null)
     setFormOpen(true)
   }
@@ -104,6 +112,8 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
     const body = {
       label,
       requiresRemark: form.requiresRemark,
+      // Sent only by the Super Admin; for anyone else the stored setting stays as it is.
+      ...(jobDetails && canSetJobDetails ? { requiresJobDetails: form.requiresJobDetails } : {}),
       isActive: form.isActive,
       sortOrder: Number(form.sortOrder) || 0
     }
@@ -162,6 +172,7 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
                       <th className="num w-12">Order</th>
                       <th>Reason</th>
                       <th>Requires remark</th>
+                      {jobDetails && <th title="The exception must name the PO No. / Item Code as well as the machine">PO No. / Item Code</th>}
                       <th>Status</th>
                       {canEdit && <th className="text-right">Actions</th>}
                     </tr>
@@ -174,6 +185,15 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
                         <td>
                           <Flag on={r.requiresRemark} />
                         </td>
+                        {jobDetails && (
+                          <td>
+                            {r.requiresJobDetails === false ? (
+                              <span className="text-[12px] text-ink-muted">Machine only</span>
+                            ) : (
+                              <Flag on />
+                            )}
+                          </td>
+                        )}
                         <td>
                           <StatusBadge status={r.isActive ? 'ACTIVE' : 'DISABLED'} size="sm" />
                         </td>
@@ -239,6 +259,19 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
             label="Requires remark"
             description="The worker must type an explanation when choosing this reason."
           />
+          {jobDetails && (
+            <Toggle
+              checked={form.requiresJobDetails}
+              onChange={(v) => setForm((f) => ({ ...f, requiresJobDetails: v }))}
+              disabled={!canSetJobDetails}
+              label="Requires PO No. / Item Code"
+              description={
+                canSetJobDetails
+                  ? 'On: the exception must name the PO No. / Item Code as well as the machine. Off: the machine is enough (e.g. Machine stopped).'
+                  : 'Only the Super Admin can change this.'
+              }
+            />
+          )}
           <Toggle
             checked={form.isActive}
             onChange={(v) => setForm((f) => ({ ...f, isActive: v }))}

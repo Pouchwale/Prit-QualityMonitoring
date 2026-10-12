@@ -2,12 +2,10 @@ import React, { useMemo, useState } from 'react'
 import {
   AlertTriangle,
   BarChart3,
-  Building2,
   CalendarDays,
   Check,
   CheckCircle2,
   ClipboardList,
-  Cpu,
   FileBarChart,
   FileSpreadsheet,
   FileText,
@@ -29,13 +27,12 @@ import { RESULT_HINT, checkStatusLabel, RESULT_LABEL, RESULT_OPTIONS, addDaysKey
 import { Button } from '../../components/common/Button'
 import { PageHeader } from '../../components/common/PageHeader'
 import { DataState, TruncatedNotice } from '../../components/common/DataState'
-import { StatusBadge } from '../../components/common/StatusBadge'
 import { FilterBar, type MonitoringFilters } from '../../components/common/FilterBar'
 import { useToast } from '../../components/common/Toast'
 import { DateInput } from '../../components/common/DateTimeInputs'
 import { Card, CardHeader, EmptyState } from '../../components/ui/Card'
 import { StatCard } from '../../components/ui/StatCard'
-import { BarList, ChartLegend, DonutChart, ProgressBar, STATUS_SERIES, StackedBarChart, type BarListRow, type StackedBarDatum } from '../../components/ui/charts'
+import { ChartLegend, DonutChart, ProgressBar, STATUS_SERIES, StackedBarChart, type StackedBarDatum } from '../../components/ui/charts'
 import { IconButton, Segmented } from '../../components/ui/Toolbar'
 import { DetailedRecords, TraceChanges, TraceGroupTable, TraceSummary, TraceWorkers } from './reports/TraceSections'
 import { ReportSharingSection } from './reports/ReportSharingSection'
@@ -144,32 +141,10 @@ const weekdayOf = (key: string) => WEEKDAY[new Date(`${key}T12:00:00Z`).getUTCDa
 const MAX_DAY_COLUMNS = 31
 
 /**
- * Checks of the period by status for the trend chart: one column per hour for a single day, per
- * day up to a month, per week beyond that. Every step of the range gets a column, empty or not.
+ * Checks of the period by status for the trend chart: one column per day (a single day is one
+ * column) up to a month, per week beyond that. Every step of the range gets a column, empty or not.
  */
-function trendColumns(checks: QualityCheck[], from: string, to: string): { data: StackedBarDatum[]; unit: 'hour' | 'day' | 'week' } {
-  if (from === to) {
-    const byHour = new Map<number, ReturnType<typeof emptyBuckets>>()
-    for (const c of checks) {
-      const hour = Number(toPlantInput(new Date(c.scheduledAt)).slice(11, 13))
-      const row = byHour.get(hour) ?? emptyBuckets()
-      row[bucketOf(c)]++
-      byHour.set(hour, row)
-    }
-    const hours = [...byHour.keys()]
-    if (hours.length === 0) return { data: [], unit: 'hour' }
-    const first = Math.min(...hours)
-    const last = Math.max(...hours)
-    return {
-      unit: 'hour',
-      data: Array.from({ length: last - first + 1 }, (_, i) => {
-        const h = first + i
-        const label = `${String(h).padStart(2, '0')}:00`
-        return { label, fullLabel: `${formatDateKey(from)} ${label}–${String(h + 1).padStart(2, '0')}:00`, values: byHour.get(h) ?? emptyBuckets() }
-      })
-    }
-  }
-
+function trendColumns(checks: QualityCheck[], from: string, to: string): { data: StackedBarDatum[]; unit: 'day' | 'week' } {
   const days: string[] = []
   for (let d = from; d <= to && days.length < 400; d = addDaysKey(d, 1)) days.push(d)
   const perDay = new Map<string, ReturnType<typeof emptyBuckets>>()
@@ -201,26 +176,6 @@ function trendColumns(checks: QualityCheck[], from: string, to: string): { data:
     weeks.push({ label: `${span[0].slice(8)}/${span[0].slice(5, 7)}`, fullLabel: `${formatDateKey(span[0])} – ${formatDateKey(span[span.length - 1])}`, values })
   }
   return { unit: 'week', data: weeks }
-}
-
-/** Checks grouped for a BarList, counted per status, most missed first. */
-function barRows(checks: QualityCheck[], pick: (c: QualityCheck) => { key: string; label: string; detail?: string | null } | null, limit = 6): BarListRow[] {
-  const map = new Map<string, BarListRow & { total: number }>()
-  for (const c of checks) {
-    const g = pick(c)
-    if (!g) continue
-    const row = map.get(g.key) ?? { key: g.key, label: g.label, detail: g.detail ?? null, values: emptyBuckets(), value: '', total: 0 }
-    row.values[bucketOf(c)]++
-    row.total++
-    map.set(g.key, row)
-  }
-  return [...map.values()]
-    .map((r) => {
-      const rate = r.total ? Math.round((r.values.completed / r.total) * 100) : 0
-      return { ...r, value: `${rate}%`, valueTone: r.values.missed > 0 ? 'text-missed' : 'text-ink' }
-    })
-    .sort((a, b) => b.values.missed - a.values.missed || b.total - a.total || a.label.localeCompare(b.label))
-    .slice(0, limit)
 }
 
 /** Loads the checks with the total the filters match and whether the server capped the list. */
@@ -321,14 +276,6 @@ export const ReportsPage: React.FC = () => {
     return t
   }, [checks])
 
-  const byMachine = useMemo(
-    () =>
-      groupBy(
-        checks.filter((c) => Boolean(c.machineId)),
-        (c) => ({ key: c.machineId!, name: c.machineName ?? '—', detail: c.machineCode ?? null })
-      ),
-    [checks]
-  )
   const byWorker = useMemo(
     () =>
       groupBy(checks, (c) => ({
@@ -338,23 +285,9 @@ export const ReportsPage: React.FC = () => {
       })),
     [checks]
   )
-  const nonConformances = useMemo(() => checks.filter((c) => c.result === 'MISSED' || c.result === 'EXCEPTION'), [checks])
 
-  // Charts of the same checks: the trend over the period and who / where checks were missed.
+  // The trend over the period, from the same checks.
   const trend = useMemo(() => trendColumns(checks, filters.from, filters.to), [checks, filters.from, filters.to])
-  const departmentBars = useMemo(() => barRows(checks, (c) => ({ key: c.departmentId ?? 'none', label: c.departmentName ?? 'No department' })), [checks])
-  const machineBars = useMemo(
-    () => barRows(checks, (c) => (c.machineId ? { key: c.machineId, label: c.machineName ?? '—', detail: c.machineCode ?? null } : null)),
-    [checks]
-  )
-  const workerBars = useMemo(
-    () =>
-      barRows(checks, (c) => {
-        const id = c.submittedById ?? c.workerId
-        return id ? { key: id, label: workerLabel(c), detail: c.submittedByEmployeeId ?? c.workerEmployeeId } : null
-      }),
-    [checks]
-  )
 
   const hasOtherFilters = !!(
     filters.shiftId ||
@@ -451,7 +384,7 @@ export const ReportsPage: React.FC = () => {
     return filters.from === range.from && filters.to === range.to
   })?.label ?? ''
   const pct = completion(totals)
-  const trendTitle = trend.unit === 'hour' ? 'Checks per hour' : trend.unit === 'week' ? 'Checks per week' : 'Checks per day'
+  const trendTitle = trend.unit === 'week' ? 'Checks per week' : 'Checks per day'
 
   return (
     <div className="space-y-5">
@@ -713,20 +646,7 @@ export const ReportsPage: React.FC = () => {
               </Card>
             </div>
 
-            {/* Where checks were missed: departments, machines, workers */}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 no-print">
-              <BarCard icon={<Building2 className="w-4 h-4" />} title="By department" header="Department" rows={departmentBars} empty="No department checks" />
-              <BarCard icon={<Cpu className="w-4 h-4" />} title="By machine" header="Machine" rows={machineBars} empty="No machine checks" />
-              <BarCard
-                icon={<Users className="w-4 h-4" />}
-                title="By worker"
-                header="Worker"
-                rows={workerBars}
-                empty="No worker checks"
-                className="md:col-span-2 xl:col-span-1"
-              />
-            </div>
-
+            {/* By department, machine and worker, and the machine summary, are in the downloaded PDF only. */}
             {traced && trace.data && (
               <>
                 <TraceSummary trace={trace.data} scope={traceScope} />
@@ -743,62 +663,9 @@ export const ReportsPage: React.FC = () => {
               </p>
             )}
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-              <BreakdownTable icon={<Cpu className="w-4 h-4" />} title="Machine summary" nameHeader="Machine" rows={byMachine} />
-              <BreakdownTable icon={<Users className="w-4 h-4" />} title="Worker summary" nameHeader="Worker" rows={byWorker} />
-            </div>
+            <BreakdownTable icon={<Users className="w-4 h-4" />} title="Worker summary" nameHeader="Worker" rows={byWorker} />
 
-            <Card className="overflow-hidden printable-card">
-              <CardHeader
-                icon={<XCircle className="w-4 h-4" />}
-                title="Missed and exception checks"
-                subtitle={`Result Missed or Exception · ${period}`}
-                info={RESULT_HINT}
-                actions={<CountPill value={nonConformances.length} tone={nonConformances.length > 0 ? 'missed' : 'neutral'} />}
-              />
-              {nonConformances.length === 0 ? (
-                <EmptyState icon={<CheckCircle2 className="w-5 h-5" />} title="No missed or exception checks." compact />
-              ) : (
-                <div className="overflow-x-auto lg:max-h-[440px] lg:overflow-y-auto print:max-h-none print:overflow-visible">
-                  <table className="data-table stack-sm">
-                    <thead>
-                      <tr>
-                        <th>Scheduled</th>
-                        <th>Machine</th>
-                        <th>Worker</th>
-                        <th title={RESULT_HINT}>Result</th>
-                        <th>Details</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {nonConformances.map((c) => (
-                        <tr key={c.id}>
-                          <td className="whitespace-nowrap">
-                            <div className="tabular-nums text-ink">{formatDateTime(c.scheduledAt)}</div>
-                            <div className="text-[11.5px] text-ink-muted font-mono">{c.code}</div>
-                          </td>
-                          <td className="whitespace-nowrap">
-                            <div className="font-medium text-ink">{c.machineName ?? '—'}</div>
-                            <div className="text-[11.5px] text-ink-muted">{c.activityName}</div>
-                          </td>
-                          <td className="whitespace-nowrap">
-                            <div className="text-ink">{workerLabel(c)}</div>
-                            <div className="text-[11.5px] text-ink-muted">{c.shiftName ?? 'No shift'}</div>
-                          </td>
-                          <td className="whitespace-nowrap">{c.result && <StatusBadge status={c.result} size="sm" />}</td>
-                          <td className="text-ink-secondary min-w-[180px]">
-                            {c.result === 'EXCEPTION'
-                              ? [c.exception?.reason, c.exception?.remark].filter(Boolean).join(' — ') || 'Exception'
-                              : `Window closed ${formatDateTime(c.windowEndsAt)}`}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </Card>
-
+            {/* Missed checks and exception checks are in the downloaded PDF only (sections 11 and 12). */}
             {traced || checks.length <= MAX_RECORDS_ON_SCREEN ? (
               <DetailedRecords checks={checks} />
             ) : (
@@ -832,33 +699,6 @@ const ViewTab: React.FC<{ active: boolean; onClick: () => void; icon: React.Reac
     {children}
     {active && <span className="absolute left-2 right-2 -bottom-px h-[2px] rounded-full bg-accent" aria-hidden />}
   </button>
-)
-
-const CountPill: React.FC<{ value: number; tone: 'missed' | 'neutral' }> = ({ value, tone }) => (
-  <span
-    className={`h-5 min-w-5 px-1.5 inline-flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums ring-1 ring-inset ${
-      tone === 'missed' ? 'bg-missed-bg text-missed ring-missed-line' : 'bg-subtle text-ink-muted ring-line'
-    }`}
-  >
-    {value}
-  </span>
-)
-
-/** A ranked list card: checks by status per department, machine or worker, most missed first. */
-const BarCard: React.FC<{ icon: React.ReactNode; title: string; header: string; rows: BarListRow[]; empty: string; className?: string }> = ({
-  icon,
-  title,
-  header,
-  rows,
-  empty,
-  className = ''
-}) => (
-  <Card className={className}>
-    <CardHeader icon={icon} title={title} subtitle="Completion rate · most missed first" />
-    <div className="px-4 py-3">
-      <BarList rows={rows} series={STATUS_SERIES} labelHeader={header} valueLabel="Completion" emptyText={empty} />
-    </div>
-  </Card>
 )
 
 const BreakdownTable: React.FC<{ icon: React.ReactNode; title: string; nameHeader: string; rows: GroupRow[] }> = ({ icon, title, nameHeader, rows }) => (

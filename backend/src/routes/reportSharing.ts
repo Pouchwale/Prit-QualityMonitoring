@@ -13,6 +13,7 @@ import {
   executeManualReportRun
 } from '../services/automatedReports'
 import { verifySmtpConnection } from '../services/reportEmailer'
+import { resendDailyTaskReport } from '../services/dailyTaskReport'
 import {
   getChecksForCrystalReport,
   renderCrystalReportPdf,
@@ -235,6 +236,18 @@ reportSharingRouter.post('/send-now', requireModule('reports', 'manage'), async 
     const msg = err instanceof Error ? err.message : String(err)
     throw badRequest(msg)
   }
+})
+
+/**
+ * Report Sharing → "Resend today's report": the previous day's Daily Task Report with its Quality
+ * Inspection Report PDF, again, to the configured recipients (services/dailyTaskReport.ts). Same right
+ * as Manual send. The daily schedule is not changed.
+ */
+reportSharingRouter.post('/daily-report/resend', requireModule('reports', 'manage'), async (req, res) => {
+  const result = await resendDailyTaskReport({ id: req.user?.id, name: req.user?.name })
+  await audit(req, 'RESEND_DAILY_TASK_REPORT', 'ReportSharing', null, { newValue: { subject: result.subject, ok: result.success } })
+  if (!result.success) throw badRequest(result.error || 'The daily report could not be sent.')
+  res.json(result)
 })
 
 /** Stream Crystal Reports PDF directly in browser. A PDF is an export: it needs Export Reports too. */

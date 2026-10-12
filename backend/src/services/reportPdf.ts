@@ -13,9 +13,14 @@ import {
   type ParameterRow,
   type QualityReport
 } from './reportData'
+import { C, figureStrip, logoDataUri } from './crystalReportPdf'
 
 /**
- * Renders the Quality Monitoring Report.
+ * Renders the Quality Monitoring Report (Reports page → Download PDF).
+ *
+ * It has the look of the Quality Inspection Report (services/crystalReportPdf.ts): the same palette,
+ * logo title block with the brand rule, figure strips, brand section titles, tables with
+ * horizontal hairlines only, and the same running header and footer.
  *
  * Every page is A4 portrait with the same margins, header and footer — there are no
  * landscape pages. Wide tables are fitted to the portrait width by stacking related
@@ -24,8 +29,9 @@ import {
  * never split across pages, and every page carries the footer with "Page X of Y".
  */
 
-/** A4 portrait, minus the left and right page margins. Every table must fit inside this. */
-const CONTENT_WIDTH = 523
+/** A4 portrait, minus the left and right page margins (as the inspection report). Every table must fit inside this. */
+const PAGE_MARGIN_X = 40
+const CONTENT_WIDTH = 595.28 - 2 * PAGE_MARGIN_X
 
 /** The evidence appendix: two photos to a row, each boxed to the same size so the grid lines up. */
 const PHOTO_GAP = 14
@@ -41,17 +47,18 @@ pdfmake.addFonts({
   }
 })
 
-const INK = '#111827'
-const MUTED = '#4B5563'
-const FAINT = '#6B7280'
-const LINE = '#9CA3AF'
-const HAIRLINE = '#D1D5DB'
-const HEADER_FILL = '#F3F4F6'
+// The inspection report's palette (services/crystalReportPdf.ts).
+const INK = C.ink
+const MUTED = C.muted
+const FAINT = C.muted
+const LINE = C.line
+const HAIRLINE = C.hair
+const HEADER_FILL = C.headBg
 
 const STATUS_COLOR: Record<string, string> = {
-  COMPLETED: '#15803D',
-  MISSED: '#B91C1C',
-  EXCEPTION: '#B45309'
+  COMPLETED: C.pass,
+  MISSED: C.fail,
+  EXCEPTION: C.warn
 }
 
 /** Status is only Completed, Missed or Exception; a check not finished yet shows a dash. */
@@ -62,7 +69,8 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 const CELL_PAD = 3
-const V_LINE = 0.4
+/** Tables have horizontal rules only, as in the inspection report. */
+const V_LINE = 0
 
 /**
  * How much width a grid table's columns may actually declare.
@@ -89,31 +97,17 @@ function gridWidths(widths: (number | '*')[]): (number | '*')[] {
   return widths
 }
 
-/** Thin corporate table: hairline grid, grey header band, compact padding. */
+/** The inspection report's table: grey header band, horizontal hairlines, no vertical rules. */
 const tableLayout = {
   hLineWidth: (i: number, node: { table: { body: unknown[]; headerRows?: number } }) =>
-    i === 0 || i === node.table.body.length ? 0.8 : i === (node.table.headerRows ?? 1) ? 0.8 : 0.4,
+    i === 0 || i === node.table.body.length ? 0.8 : i === (node.table.headerRows ?? 1) ? 0.8 : 0.5,
   vLineWidth: () => V_LINE,
   hLineColor: (i: number, node: { table: { body: unknown[]; headerRows?: number } }) =>
     i === 0 || i === node.table.body.length || i === (node.table.headerRows ?? 1) ? LINE : HAIRLINE,
-  vLineColor: () => HAIRLINE,
   fillColor: (rowIndex: number, node: { table: { headerRows?: number } }) =>
     rowIndex < (node.table.headerRows ?? 1) ? HEADER_FILL : null,
   paddingLeft: () => CELL_PAD,
   paddingRight: () => CELL_PAD,
-  paddingTop: () => 3,
-  paddingBottom: () => 3
-}
-
-/** The cover's report-identity block: a light frame with comfortable padding. */
-const META_COLUMNS = 4
-const metaLayout = {
-  hLineWidth: (i: number, node: { table: { body: unknown[] } }) => (i === 0 || i === node.table.body.length ? 0.6 : 0),
-  vLineWidth: (i: number) => (i === 0 || i === META_COLUMNS ? 0.6 : 0),
-  hLineColor: () => HAIRLINE,
-  vLineColor: () => HAIRLINE,
-  paddingLeft: (i: number) => (i === 0 ? 8 : 0),
-  paddingRight: (i: number) => (i === META_COLUMNS - 1 ? 8 : 10),
   paddingTop: () => 4,
   paddingBottom: () => 4
 }
@@ -128,30 +122,42 @@ const plainLayout = {
   paddingBottom: () => 1.5
 }
 
-/** A numbered section rule. */
+/** A numbered section title in the brand colour, as in the inspection report; never left alone at a page bottom. */
 const section = (number: number | string, title: string, note?: string): Content => ({
   stack: [
-    {
-      table: {
-        widths: ['*'],
-        body: [[{ text: `${number}.  ${title.toUpperCase()}`, style: 'sectionTitle', border: [false, false, false, true] }]]
-      },
-      layout: {
-        hLineWidth: () => 0.8,
-        vLineWidth: () => 0,
-        hLineColor: () => INK,
-        paddingLeft: () => 0,
-        paddingRight: () => 0,
-        paddingTop: () => 0,
-        paddingBottom: () => 2
-      }
-    },
-    ...(note ? [{ text: note, style: 'note', margin: [0, 3, 0, 0] as [number, number, number, number] }] : [])
+    { text: `${number}.  ${title.toUpperCase()}`, style: 'sectionTitle' },
+    ...(note ? [{ text: note, style: 'note', margin: [0, 2, 0, 0] as [number, number, number, number] }] : [])
   ],
-  margin: [0, 14, 0, 6]
+  margin: [0, 16, 0, 6],
+  headlineLevel: 1
 })
 
-const header = (cells: string[]): TableCell[] => cells.map((text) => ({ text, style: 'th' }))
+/** Label / value pairs, two to a row on hairlines: the inspection report's "Inspection details". */
+function detailsGrid(pairs: [string, string | TableCell][]): Content {
+  const body: TableCell[][] = []
+  for (let i = 0; i < pairs.length; i += 2) {
+    body.push(
+      [pairs[i], pairs[i + 1]].flatMap((pair): TableCell[] =>
+        pair ? [{ text: pair[0], style: 'metaLabel' }, typeof pair[1] === 'string' ? { text: pair[1] || '—', color: INK } : pair[1]] : [{ text: '' }, { text: '' }]
+      )
+    )
+  }
+  return {
+    table: { widths: [62, '*', 62, '*'], body },
+    layout: {
+      hLineWidth: (i: number, node: { table: { body: unknown[] } }) => (i === 0 || i === node.table.body.length ? 0.8 : 0.5),
+      vLineWidth: () => 0,
+      hLineColor: (i: number, node: { table: { body: unknown[] } }) => (i === 0 || i === node.table.body.length ? LINE : HAIRLINE),
+      paddingLeft: (i: number) => (i === 0 ? 0 : 6),
+      paddingRight: () => 6,
+      paddingTop: () => 3,
+      paddingBottom: () => 3
+    }
+  }
+}
+
+/** Table header cells: small grey capitals on the grey band. */
+const header = (cells: string[]): TableCell[] => cells.map((text) => ({ text: text.toUpperCase(), style: 'th' }))
 
 const statusText = (status: string): Content =>
   STATUS_LABEL[status]
@@ -182,12 +188,12 @@ const codeCell = (code: string): TableCell => ({ text: code, fontSize: 6, color:
 const CODE_WIDTH = 80
 
 /** Small horizontal bar, used for the status breakdown and the trend charts. */
-function bar(percent: number, width = 90, color = '#374151'): Content {
+function bar(percent: number, width = 90, color: string = C.brand): Content {
   const filled = Math.max(0, Math.min(100, percent)) / 100
   return {
     canvas: [
-      { type: 'rect', x: 0, y: 0, w: width, h: 5, lineWidth: 0.4, lineColor: HAIRLINE, color: '#F3F4F6' },
-      ...(filled > 0 ? [{ type: 'rect' as const, x: 0, y: 0, w: width * filled, h: 5, color }] : [])
+      { type: 'rect', x: 0, y: 1, w: width, h: 5, r: 2.5, color: C.hair },
+      ...(filled > 0 ? [{ type: 'rect' as const, x: 0, y: 1, w: Math.max(5, width * filled), h: 5, r: 2.5, color }] : [])
     ]
   }
 }
@@ -217,8 +223,8 @@ function groupTable(rows: GroupRow[], firstColumn: string, extra: { lastCheck?: 
           },
           { text: String(r.counts.scheduled), alignment: 'center' as const },
           { text: String(r.counts.completed), alignment: 'center' as const },
-          { text: String(r.counts.missed), alignment: 'center' as const, color: r.counts.missed ? '#B91C1C' : INK },
-          { text: String(r.counts.exception), alignment: 'center' as const, color: r.counts.exception ? '#B45309' : INK },
+          { text: String(r.counts.missed), alignment: 'center' as const, color: r.counts.missed ? C.fail : INK },
+          { text: String(r.counts.exception), alignment: 'center' as const, color: r.counts.exception ? C.warn : INK },
           { text: percentText(r.completionRate), alignment: 'right' as const },
           extra.lastCheck ? { text: formatDateTime(r.lastCheckAt) } : { text: r.remark, style: 'sub' }
         ])
@@ -256,7 +262,7 @@ function parameterTable(rows: ParameterRow[]): Content {
             text: p.notApplicable ? 'Not applicable' : p.result === 'NA' ? 'No limit' : p.result,
             alignment: 'center' as const,
             bold: !p.notApplicable && p.result !== 'NA',
-            color: p.result === 'FAIL' ? '#B91C1C' : p.result === 'PASS' ? '#15803D' : FAINT
+            color: p.result === 'FAIL' ? C.fail : p.result === 'PASS' ? C.pass : FAINT
           }
         ])
       ]
@@ -312,9 +318,9 @@ function traceGroupTable(rows: TraceGroup[], first: 'Item Code' | 'PO No.'): Con
           { text: listText(first === 'Item Code' ? r.jobNos : r.itemCodes), style: 'sub' },
           countCell(r.checks),
           countCell(r.completed),
-          countCell(r.missed, '#B91C1C'),
-          countCell(r.exceptions, '#B45309'),
-          { text: `${r.outsideLimits} of ${r.readings}`, alignment: 'center' as const, color: r.outsideLimits ? '#B91C1C' : INK },
+          countCell(r.missed, C.fail),
+          countCell(r.exceptions, C.warn),
+          { text: `${r.outsideLimits} of ${r.readings}`, alignment: 'center' as const, color: r.outsideLimits ? C.fail : INK },
           { text: `${r.changes} / ${r.corrections}`, alignment: 'center' as const },
           { stack: [{ text: formatDateTime(r.firstAt), style: 'sub' }, { text: formatDateTime(r.lastAt), style: 'sub' }] },
           { stack: [{ text: listText(r.workers) }, { text: listText(r.machines), style: 'sub' }] }
@@ -331,14 +337,14 @@ function traceSections(trace: TraceReport): Content[] {
   return [
     { text: '', pageBreak: 'before' },
     section(
-      '7.1',
+      '8.1',
       'Item Code Traceability',
       `${c.checks} checks · ${c.completed} completed · ${c.missed} missed · ${c.exceptions} exception · ${c.readings} readings (${c.outsideLimits} outside limits, ${c.notApplicable} not applicable) · ${c.changes} changes, ${c.corrections} corrections.`
     ),
     traceGroupTable(trace.items, 'Item Code'),
-    section('7.2', 'PO No. Traceability'),
+    section('8.2', 'PO No. Traceability'),
     traceGroupTable(trace.jobs, 'PO No.'),
-    section('7.3', 'Worker Activity by Item Code', 'Checks are counted for the worker who submitted them, or the worker they were assigned to.'),
+    section('8.3', 'Worker Activity by Item Code', 'Checks are counted for the worker who submitted them, or the worker they were assigned to.'),
     ...(trace.workers.length === 0
       ? [empty('No records.')]
       : trace.workers.map(
@@ -364,8 +370,8 @@ function traceSections(trace: TraceReport): Content[] {
                       { text: listText(i.jobNos) },
                       countCell(i.checks),
                       countCell(i.completed),
-                      countCell(i.missed, '#B91C1C'),
-                      countCell(i.exceptions, '#B45309'),
+                      countCell(i.missed, C.fail),
+                      countCell(i.exceptions, C.warn),
                       countCell(i.changes)
                     ])
                   ]
@@ -376,7 +382,7 @@ function traceSections(trace: TraceReport): Content[] {
           })
         )),
     section(
-      '7.4',
+      '8.4',
       'Changes and Corrections',
       'A change is a reading that differs from the previous reading of the same parameter for the same item, job and machine. A correction is a change from outside limits back within limits.'
     ),
@@ -404,7 +410,7 @@ function traceSections(trace: TraceReport): Content[] {
                 {
                   text: ch.correction ? 'Correction' : ch.wentOutside ? 'Went outside limits' : 'Change',
                   bold: ch.correction || ch.wentOutside,
-                  color: ch.correction ? '#15803D' : ch.wentOutside ? '#B91C1C' : INK
+                  color: ch.correction ? C.pass : ch.wentOutside ? C.fail : INK
                 },
                 pair(ch.byName, `after ${ch.previousByName}, ${formatDateTime(ch.previousAt)}`)
               ])
@@ -419,102 +425,83 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
   const { meta, counts } = report
   const period = `${formatDate(meta.periodFrom)} – ${formatDate(meta.periodTo)}`
 
-  const metaRows: TableCell[][] = [
-    [
-      { text: 'Reporting Period', style: 'metaLabel' },
-      { text: period, style: 'metaValue' },
-      { text: 'Report ID', style: 'metaLabel' },
-      { text: meta.reportId, style: 'metaValue' }
-    ],
-    [
-      { text: 'Generated On', style: 'metaLabel' },
-      { text: formatDateTime(meta.generatedAt), style: 'metaValue' },
-      { text: 'Prepared By', style: 'metaLabel' },
-      { text: meta.preparedBy, style: 'metaValue' }
-    ],
-    [
-      { text: 'Department', style: 'metaLabel' },
-      { text: meta.department, style: 'metaValue' },
-      { text: 'Report Status', style: 'metaLabel' },
-      { text: meta.status, style: 'metaValue' }
-    ]
+  // The report's identity, in the title block's right column (as the inspection report).
+  const metaRows: [string, string][] = [
+    ['Report ID', meta.reportId],
+    ['Generated On', formatDateTime(meta.generatedAt)],
+    ['Reporting Period', period],
+    ['Prepared By', meta.preparedBy],
+    ['Department', meta.department],
+    ['Report Status', meta.status]
   ]
-  if (meta.filters.length) {
-    metaRows.push([
-      { text: 'Filters Applied', style: 'metaLabel' },
-      { text: meta.filters.join(' · '), style: 'metaValue', colSpan: 3 },
-      {},
-      {}
-    ])
-  }
-
-  const summaryValue = (label: string, value: string, color = INK): TableCell => ({
-    stack: [
-      { text: label.toUpperCase(), style: 'summaryLabel' },
-      { text: value, style: 'summaryValue', color }
-    ]
-  })
+  const logo = logoDataUri()
+  const m = (t: number, b = 0): [number, number, number, number] => [0, t, 0, b]
 
   const content: Content[] = [
-    // 1. Report header
+    // 1. Report header: logo, company, title and period on the left; the report's identity on the right.
     {
-      stack: [
-        { text: meta.company.toUpperCase(), style: 'company' },
-        ...(meta.plant ? [{ text: meta.plant, style: 'sub' }] : []),
-        { text: 'QUALITY MONITORING REPORT', style: 'title', margin: [0, 8, 0, 0] as [number, number, number, number] },
-        { text: 'Production Quality Check & Compliance Report', style: 'subtitle' },
-        { text: `Quality Report: ${longPeriod(meta.periodFrom, meta.periodTo)}`, style: 'periodLine' }
+      columns: [
+        ...(logo ? [{ width: 46, stack: [{ image: logo, width: 36, height: 36, margin: m(1) }] }] : []),
+        {
+          width: '*',
+          stack: [
+            { text: meta.company.toUpperCase(), style: 'company' },
+            ...(meta.plant ? [{ text: meta.plant, style: 'sub' }] : []),
+            { text: 'Quality Monitoring Report', style: 'title', margin: m(1) },
+            { text: 'Production Quality Check & Compliance Report', style: 'subtitle' },
+            { text: `Quality Report: ${longPeriod(meta.periodFrom, meta.periodTo)}`, style: 'periodLine' }
+          ]
+        },
+        {
+          width: 210,
+          table: {
+            widths: [62, '*'],
+            body: metaRows.map(([label, value]) => [
+              { text: label, style: 'metaLabel' },
+              { text: value, style: 'metaValue', alignment: 'right' as const }
+            ])
+          },
+          layout: { hLineWidth: () => 0, vLineWidth: () => 0, paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 1, paddingBottom: () => 1 }
+        }
       ]
     },
-    // The identity of the record, framed so it reads as the header of a controlled document.
-    {
-      table: { widths: [72, '*', 62, '*'], body: metaRows },
-      layout: metaLayout,
-      margin: [0, 10, 0, 0]
-    },
-    {
-      canvas: [{ type: 'line', x1: 0, y1: 0, x2: CONTENT_WIDTH, y2: 0, lineWidth: 1, lineColor: INK }],
-      margin: [0, 10, 0, 0]
-    },
+    { canvas: [{ type: 'line', x1: 0, y1: 8, x2: CONTENT_WIDTH, y2: 8, lineWidth: 1.5, lineColor: C.brand }], margin: m(0, 4) },
+    ...(meta.filters.length
+      ? [
+          {
+            margin: m(6),
+            table: {
+              widths: [66, '*'],
+              body: [[{ text: 'FILTERS APPLIED', style: 'summaryLabel', margin: m(1) }, { text: meta.filters.join(' · '), style: 'metaValue' }]]
+            },
+            layout: { hLineWidth: () => 0, vLineWidth: () => 0, fillColor: () => C.band, paddingLeft: () => 10, paddingRight: () => 10, paddingTop: () => 5, paddingBottom: () => 5 }
+          } as Content
+        ]
+      : []),
 
-    // 2. Executive summary
+    // 2. Executive summary: the figures in three strips, as the inspection report's summary.
     section(2, 'Executive Summary'),
     {
-      table: {
-        widths: ['*', '*', '*', '*'],
-        body: [
-          [
-            summaryValue('Scheduled', String(counts.scheduled)),
-            summaryValue('Completed', String(counts.completed), '#15803D'),
-            summaryValue('Missed', String(counts.missed), counts.missed ? '#B91C1C' : INK),
-            summaryValue('Exception', String(counts.exception), counts.exception ? '#B45309' : INK)
-          ],
-          [
-            summaryValue('Open (Not Finished)', String(counts.open)),
-            summaryValue('Completion Rate', percentText(report.completionRate)),
-            summaryValue('Readings Within Limits', `${report.readings.withinLimits} of ${report.readings.recorded}`),
-            summaryValue(
-              'Readings Outside Limits',
-              String(report.readings.outsideLimits),
-              report.readings.outsideLimits ? '#B91C1C' : INK
-            )
-          ],
-          [
-            summaryValue('Not Applicable Parameters', String(report.notApplicable.total)),
-            summaryValue('Checks With N/A', String(report.notApplicable.checks)),
-            summaryValue('Submitted On Notification', String(report.submissionTypes.notification)),
-            summaryValue('Started Manually', String(report.submissionTypes.manual))
-          ]
-        ]
-      },
-      layout: {
-        ...tableLayout,
-        fillColor: () => null,
-        paddingLeft: () => 6,
-        paddingRight: () => 6,
-        paddingTop: () => 5,
-        paddingBottom: () => 5
-      }
+      stack: [
+        figureStrip([
+          { label: 'Scheduled', value: String(counts.scheduled) },
+          { label: 'Completed', value: String(counts.completed), color: C.pass },
+          { label: 'Missed', value: String(counts.missed), color: counts.missed ? C.fail : INK },
+          { label: 'Exception', value: String(counts.exception), color: counts.exception ? C.warn : INK }
+        ]),
+        { ...(figureStrip([
+          { label: 'Open (Not Finished)', value: String(counts.open) },
+          { label: 'Completion Rate', value: percentText(report.completionRate) },
+          { label: 'Readings Within Limits', value: `${report.readings.withinLimits} of ${report.readings.recorded}` },
+          { label: 'Readings Outside Limits', value: String(report.readings.outsideLimits), color: report.readings.outsideLimits ? C.fail : INK }
+        ]) as object), margin: m(4) } as Content,
+        { ...(figureStrip([
+          { label: 'Not Applicable Parameters', value: String(report.notApplicable.total) },
+          { label: 'Checks With N/A', value: String(report.notApplicable.checks) },
+          { label: 'Submitted On Notification', value: String(report.submissionTypes.notification) },
+          { label: 'Started Manually', value: String(report.submissionTypes.manual) }
+        ]) as object), margin: m(4) } as Content
+      ]
     },
     {
       style: 'note',
@@ -543,7 +530,7 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
         {
           text: `Reconciliation: Scheduled ${counts.scheduled} = Completed ${counts.completed} + Missed ${counts.missed} + Exception ${counts.exception} + Open ${counts.open}${report.reconciles ? '' : '  (MISMATCH — please report this)'}`,
           margin: [0, 2, 0, 0],
-          color: report.reconciles ? FAINT : '#B91C1C'
+          color: report.reconciles ? FAINT : C.fail
         }
       ]
     },
@@ -562,7 +549,7 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
             { text: b.label },
             { text: String(b.count), alignment: 'center' as const },
             { text: `${b.percent}%`, alignment: 'right' as const },
-            bar(b.percent, 90, STATUS_COLOR[b.label.toUpperCase().split(' ')[0]] ?? '#374151'),
+            bar(b.percent, 90, STATUS_COLOR[b.label.toUpperCase().split(' ')[0]] ?? C.muted),
             { text: '' }
           ])
         ]
@@ -570,30 +557,34 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
       layout: tableLayout
     },
 
-    // 4. Machine-wise
-    section(4, 'Machine-wise Quality Monitoring'),
+    // 4. Department-wise (the Reports page shows it in the PDF only)
+    section(4, 'Department-wise Quality Monitoring', 'Each check is counted for the department it was done for.'),
+    groupTable(report.byDepartment, 'Department'),
+
+    // 5. Machine-wise
+    section(5, 'Machine-wise Quality Monitoring'),
     groupTable(report.byMachine, 'Machine / Code'),
 
-    // 5. Worker-wise
-    section(5, 'Worker-wise Monitoring', 'Each check is counted for the worker who submitted it, or the worker it was assigned to.'),
+    // 6. Worker-wise
+    section(6, 'Worker-wise Monitoring', 'Each check is counted for the worker who submitted it, or the worker it was assigned to.'),
     groupTable(report.byWorker, 'Worker / Employee ID', { lastCheck: true }),
 
-    // 6. Shift-wise
-    section(6, 'Shift-wise Summary'),
+    // 7. Shift-wise
+    section(7, 'Shift-wise Summary'),
     groupTable(report.byShift, 'Shift'),
 
-    // 7. Date-wise
-    section(7, 'Date-wise Monitoring Summary'),
+    // 8. Date-wise
+    section(8, 'Date-wise Monitoring Summary'),
     groupTable(report.byDate, 'Date')
   ]
 
-  // 7.1–7.4 Traceability, for an Item Code, PO No. or worker report
+  // 8.1–8.4 Traceability, for an Item Code, PO No. or worker report
   if (report.trace) content.push(...traceSections(report.trace))
 
-  // 8. Detailed log — every scheduled check, one row each
+  // 9. Detailed log — every scheduled check, one row each
   content.push(
     { text: '', pageBreak: 'before' },
-    section(8, 'Detailed Quality Check Log', `Every scheduled check in the period (${report.log.length} records).`)
+    section(9, 'Detailed Quality Check Log', `Every scheduled check in the period (${report.log.length} records).`)
   )
   content.push(
     report.log.length === 0
@@ -603,8 +594,8 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
             headerRows: 1,
             keepWithHeaderRows: 1,
             dontBreakRows: true,
-            // 9 columns, 465.3pt to share: 386 fixed leaves 79pt for the remarks column.
-            widths: gridWidths([CODE_WIDTH, 40, 40, 60, 54, 56, 24, 40, '*']),
+            // 9 columns, 461.3pt to share: 394 fixed leaves 67pt for the remarks column.
+            widths: gridWidths([CODE_WIDTH, 44, 44, 60, 54, 56, 24, 40, '*']),
             body: [
               header([
                 'Check ID',
@@ -634,10 +625,10 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
         }
   )
 
-  // 9. Completed check details (the readings the worker recorded)
+  // 10. Completed check details (the readings the worker recorded)
   content.push(
     section(
-      9,
+      10,
       'Completed Check Details',
       'Parameters are those configured for each check type at the time of submission.'
     )
@@ -650,48 +641,20 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
         margin: [0, 6, 0, 0],
         unbreakable: true,
         stack: [
-          {
-            table: {
-              widths: ['*', '*', '*', '*'],
-              body: [
-                [
-                  { text: [{ text: 'Check ID: ', style: 'metaLabel' }, { text: detail.code, bold: true }] },
-                  { text: [{ text: 'Machine: ', style: 'metaLabel' }, `${detail.machineName} (${detail.machineCode})`] },
-                  { text: [{ text: 'Check Type: ', style: 'metaLabel' }, detail.activityName] },
-                  { text: [{ text: 'Status: ', style: 'metaLabel' }, STATUS_LABEL[detail.status] ?? '—'] }
-                ],
-                [
-                  { text: [{ text: 'Checked On: ', style: 'metaLabel' }, formatDateTime(detail.submittedAt)] },
-                  { text: [{ text: 'Worker: ', style: 'metaLabel' }, `${detail.workerName} (${detail.workerEmployeeId})`] },
-                  { text: [{ text: 'Shift: ', style: 'metaLabel' }, detail.shiftName] },
-                  {
-                    text: [
-                      { text: 'Item Code: ', style: 'metaLabel' },
-                      detail.itemCode,
-                      { text: '   PO No.: ', style: 'metaLabel' },
-                      detail.jobNo,
-                      { text: '   Evidence: ', style: 'metaLabel' },
-                      `${detail.photos} photo${detail.photos === 1 ? '' : 's'}${detail.videos ? `, ${detail.videos} video` : ''}`
-                    ]
-                  }
-                ],
-                [
-                  { text: [{ text: 'Started By: ', style: 'metaLabel' }, detail.submissionType] },
-                  {
-                    text: [
-                      { text: 'Not Applicable: ', style: 'metaLabel' },
-                      detail.notApplicable
-                        ? `${detail.notApplicable} parameter${detail.notApplicable === 1 ? '' : 's'}`
-                        : 'None'
-                    ]
-                  },
-                  { text: '' },
-                  { text: '' }
-                ]
-              ]
-            },
-            layout: plainLayout
-          },
+          detailsGrid([
+            ['Check ID', { text: detail.code, bold: true }],
+            ['Machine', `${detail.machineName} (${detail.machineCode})`],
+            ['Check Type', detail.activityName],
+            ['Status', { text: STATUS_LABEL[detail.status] ?? '—', bold: true, color: STATUS_COLOR[detail.status] ?? INK }],
+            ['Checked On', formatDateTime(detail.submittedAt)],
+            ['Worker', `${detail.workerName} (${detail.workerEmployeeId})`],
+            ['Shift', detail.shiftName],
+            ['Item Code', detail.itemCode],
+            ['PO No.', detail.jobNo],
+            ['Evidence', `${detail.photos} photo${detail.photos === 1 ? '' : 's'}${detail.videos ? `, ${detail.videos} video` : ''}`],
+            ['Started By', detail.submissionType],
+            ['Not Applicable', detail.notApplicable ? `${detail.notApplicable} parameter${detail.notApplicable === 1 ? '' : 's'}` : 'None']
+          ]),
           detail.parameters.length
             ? parameterTable(detail.parameters)
             : { text: 'No parameters were configured for this check type.', style: 'note', margin: [0, 3, 0, 0] }
@@ -700,8 +663,8 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
     }
   }
 
-  // 10. Missed checks
-  content.push(section(10, 'Missed Checks', 'The system does not record a reason for a missed check.'))
+  // 11. Missed checks
+  content.push(section(11, 'Missed Checks', 'The system does not record a reason for a missed check.'))
   content.push(
     report.missed.length === 0
       ? empty('No missed checks in this period.')
@@ -729,7 +692,7 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
                 { text: m.activityName },
                 { text: m.workerName },
                 { text: m.shiftName },
-                { text: 'Missed', color: '#B91C1C', bold: true },
+                { text: 'Missed', color: C.fail, bold: true },
                 { text: m.reason, style: 'sub' },
                 { text: `${m.remarks} · ${m.state}`, style: 'sub' }
               ])
@@ -739,8 +702,8 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
         }
   )
 
-  // 11. Exceptions
-  content.push(section(11, 'Exception Checks', 'Exceptions are not quality failures; the check could not be performed.'))
+  // 12. Exceptions
+  content.push(section(12, 'Exception Checks', 'Exceptions are not quality failures; the check could not be performed.'))
   content.push(
     report.exceptions.length === 0
       ? empty('No exceptions in this period.')
@@ -766,7 +729,7 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
                 when(e.submittedAt),
                 pair(e.machineName, e.activityName),
                 pair(e.workerName, e.shiftName),
-                { text: e.reason, color: '#B45309', bold: true },
+                { text: e.reason, color: C.warn, bold: true },
                 { text: e.description },
                 { text: e.evidence, style: 'sub' },
                 { text: e.status },
@@ -778,19 +741,19 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
         }
   )
 
-  // 12. Performance analysis
-  content.push(section(12, 'Performance Analysis'))
+  // 13. Performance analysis
+  content.push(section(13, 'Performance Analysis'))
   content.push({
     ul: report.analysis,
     style: 'body',
     margin: [0, 2, 0, 0]
   })
 
-  // 13. Trends
+  // 14. Trends
   const dateRows = report.byDate.filter((d) => d.counts.scheduled > 0)
   const machineRows = report.byMachine.filter((m) => m.counts.scheduled > 0)
   if (dateRows.length >= 2 || machineRows.length >= 2) {
-    content.push(section(13, 'Daily and Machine Trend', 'Completion % = completed checks ÷ scheduled checks.'))
+    content.push(section(14, 'Daily and Machine Trend', 'Completion % = completed checks ÷ scheduled checks.'))
     if (dateRows.length >= 2) {
       content.push({ text: 'Daily completion', style: 'h3', margin: [0, 4, 0, 3] })
       content.push({
@@ -823,14 +786,14 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
     }
   }
 
-  // 14. Evidence appendix (kept at the end so the main report stays readable)
+  // 15. Evidence appendix (kept at the end so the main report stays readable)
   const images = report.evidence.filter((e) => e.kind === 'PHOTO')
   const videos = report.evidence.filter((e) => e.kind === 'VIDEO')
   if (images.length || videos.length) {
     content.push({ text: '', pageBreak: 'before' })
     content.push(
       section(
-        14,
+        15,
         'Evidence Appendix',
         `${images.length} photo${images.length === 1 ? '' : 's'}${videos.length ? ` and ${videos.length} video${videos.length === 1 ? '' : 's'}` : ''} captured in this period.`
       )
@@ -861,10 +824,19 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
           width: PHOTO_CELL,
           unbreakable: true,
           stack: [
-            data
-              ? { image: data, fit: [PHOTO_CELL, PHOTO_HEIGHT] as [number, number], alignment: 'center' as const }
-              : { text: 'Image file not available on the server', style: 'note', alignment: 'center' as const },
-            { text: item.code, style: 'sub', bold: true, alignment: 'center' as const, margin: [0, 4, 0, 0] as [number, number, number, number] },
+            {
+              table: {
+                widths: ['*'],
+                heights: [PHOTO_HEIGHT],
+                body: [[
+                  data
+                    ? { image: data, fit: [PHOTO_CELL - 8, PHOTO_HEIGHT] as [number, number], alignment: 'center' as const }
+                    : { text: 'Image file not available on the server', style: 'note', alignment: 'center' as const, margin: [0, PHOTO_HEIGHT / 2 - 6, 0, 0] as [number, number, number, number] }
+                ]]
+              },
+              layout: { hLineWidth: () => 0.5, vLineWidth: () => 0.5, hLineColor: () => HAIRLINE, vLineColor: () => HAIRLINE, fillColor: () => C.band, paddingLeft: () => 0, paddingRight: () => 0, paddingTop: () => 0, paddingBottom: () => 0 }
+            },
+            { text: item.code, fontSize: 7, bold: true, color: C.brand, alignment: 'center' as const, margin: [0, 4, 0, 0] as [number, number, number, number] },
             { text: `${item.machineName} · ${item.activityName}`, style: 'sub', alignment: 'center' as const },
             { text: `${formatDateTime(item.capturedAt)} · ${item.workerName}`, style: 'sub', alignment: 'center' as const }
           ]
@@ -897,63 +869,49 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
   return {
     pageSize: 'A4',
     pageOrientation: 'portrait',
-    pageMargins: [36, 40, 36, 46],
-    defaultStyle: { font: 'Helvetica', fontSize: 7.5, color: INK, lineHeight: 1.15 },
+    pageMargins: [PAGE_MARGIN_X, 40, PAGE_MARGIN_X, 44],
+    defaultStyle: { font: 'Helvetica', fontSize: 7.5, color: C.text, lineHeight: 1.2 },
+    // A section title never sits alone at the bottom of a page: it moves to the next page when nothing
+    // follows it there, or when it starts in the last 12% of the page (no room for its table's first rows).
+    pageBreakBefore: (node, queries) =>
+      node.headlineLevel === 1 && (queries.getFollowingNodesOnPage().length === 0 || (node.startPosition?.verticalRatio ?? 0) > 0.88),
     info: {
       title: `Quality Monitoring Report ${meta.reportId}`,
       author: meta.company,
       subject: `Quality monitoring ${period}`
     },
     styles: {
-      company: { fontSize: 12, bold: true, characterSpacing: 0.4 },
-      title: { fontSize: 16, bold: true, characterSpacing: 0.6 },
-      subtitle: { fontSize: 9, color: MUTED, margin: [0, 2, 0, 0] },
-      periodLine: { fontSize: 10, bold: true, margin: [0, 6, 0, 0] },
-      sectionTitle: { fontSize: 9.5, bold: true, characterSpacing: 0.5 },
-      h3: { fontSize: 8.5, bold: true },
-      th: { fontSize: 7, bold: true, color: MUTED, characterSpacing: 0.3 },
-      sub: { fontSize: 6.5, color: FAINT },
-      note: { fontSize: 7, color: MUTED },
-      body: { fontSize: 8, lineHeight: 1.3 },
-      metaLabel: { fontSize: 7, color: FAINT },
-      metaValue: { fontSize: 8, bold: true },
-      summaryLabel: { fontSize: 6.5, color: FAINT, characterSpacing: 0.4 },
-      summaryValue: { fontSize: 14, bold: true, margin: [0, 2, 0, 0] }
+      company: { fontSize: 7.5, bold: true, color: C.muted, characterSpacing: 0.8 },
+      title: { fontSize: 18, bold: true, color: C.ink },
+      subtitle: { fontSize: 9, color: C.muted, margin: [0, 2, 0, 0] },
+      periodLine: { fontSize: 9, bold: true, color: C.ink, margin: [0, 3, 0, 0] },
+      sectionTitle: { fontSize: 8.5, bold: true, color: C.brand, characterSpacing: 0.6 },
+      h3: { fontSize: 8.5, bold: true, color: C.ink },
+      // No extra letter spacing: the narrow date columns must fit SCHEDULED and COMPLETED in capitals.
+      th: { fontSize: 6.5, bold: true, color: C.muted },
+      sub: { fontSize: 6.5, color: C.muted },
+      note: { fontSize: 7, color: C.muted },
+      body: { fontSize: 8, lineHeight: 1.35 },
+      metaLabel: { fontSize: 7.5, color: C.muted },
+      metaValue: { fontSize: 8, bold: true, color: C.ink },
+      summaryLabel: { fontSize: 6.5, bold: true, color: C.muted, characterSpacing: 0.4 }
     },
+    // The inspection report's running header (from page 2) and footer.
     header: (currentPage: number) =>
       currentPage === 1
         ? undefined
         : {
-            margin: [36, 18, 36, 0],
+            margin: [PAGE_MARGIN_X, 18, PAGE_MARGIN_X, 0],
             columns: [
-              { text: 'Quality Monitoring Report', fontSize: 7, bold: true, color: MUTED },
-              { text: `${period}  ·  ${meta.reportId}`, fontSize: 7, color: FAINT, alignment: 'right' }
+              { text: `${meta.company}  ·  Quality Monitoring Report`, fontSize: 7, color: C.faint },
+              { text: `${period}  ·  ${meta.reportId}`, fontSize: 7, color: C.faint, alignment: 'right' }
             ]
           },
     footer: (currentPage: number, pageCount: number) => ({
-      margin: [36, 8, 36, 0],
-      stack: [
-        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: CONTENT_WIDTH, y2: 0, lineWidth: 0.5, lineColor: HAIRLINE }] },
-        {
-          margin: [0, 4, 0, 0],
-          columns: [
-            {
-              width: '*',
-              stack: [
-                { text: meta.company, fontSize: 6.5, bold: true, color: MUTED },
-                { text: 'Quality Monitoring System  ·  System Generated Report', fontSize: 6.5, color: FAINT }
-              ]
-            },
-            {
-              width: 'auto',
-              alignment: 'right',
-              stack: [
-                { text: `Report generated on ${formatDateTime(meta.generatedAt)}`, fontSize: 6.5, color: FAINT },
-                { text: `Page ${currentPage} of ${pageCount}`, fontSize: 6.5, bold: true, color: MUTED }
-              ]
-            }
-          ]
-        }
+      margin: [PAGE_MARGIN_X, 14, PAGE_MARGIN_X, 0],
+      columns: [
+        { text: `Report generated on ${formatDateTime(meta.generatedAt)} by the Quality Monitoring System  ·  System Generated Report`, fontSize: 7, color: C.faint },
+        { width: 'auto', text: `Page ${currentPage} of ${pageCount}`, fontSize: 7, color: C.muted, alignment: 'right' }
       ]
     }),
     content

@@ -288,6 +288,8 @@ export interface CheckForm {
   allowException?: boolean
   overallEvidence: { photo: boolean; video: boolean }
   exceptionReasons: string[]
+  /** Which reasons need the PO No. / Item Code as well as the machine (set by the Super Admin). Older servers leave it out. */
+  exceptionReasonRules?: { label: string; requiresJobDetails: boolean }[]
   /** Active Item Code prefixes and their departments (Department Configuration); absent on older servers. */
   itemCodeDepartments?: { prefix: string; name: string }[]
   maxVideoSeconds: number
@@ -479,9 +481,17 @@ export interface WeekDayScore {
   score: number | null
 }
 
+/** This worker's own overall score, from their first check up to today. */
+export interface MyOverall {
+  asOf: string
+  /** The plant date of the worker's first check, or null when they have none yet. */
+  since: string | null
+  overall: WeekDayScore | null
+}
+
 export interface MyWeek {
   weekStart: string
-  /** Monday to Saturday, YYYY-MM-DD. */
+  /** Sunday to Saturday, YYYY-MM-DD. */
   dates: string[]
   days: WeekDayScore[]
   week: WeekDayScore | null

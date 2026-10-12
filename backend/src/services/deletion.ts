@@ -396,6 +396,8 @@ const DELETED_WITH_USER = [
   // An older table some databases still have (not used by the app any more).
   'worker_shift_sessions.worker_id',
   'worker_shift_logins.worker_id',
+  // The worker's daily break (Shifts → Break times): it goes with the worker (cascade).
+  'worker_breaks.worker_id',
   'revoked_tokens.user_id'
 ]
 /** Detached references, with how the dialog names what stays. */

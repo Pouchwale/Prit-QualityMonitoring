@@ -42,7 +42,8 @@ const PAGE_MARGIN_X = 40
 const CONTENT_WIDTH = 595.28 - 2 * PAGE_MARGIN_X
 
 // Print-friendly greys with the brand colour (the app's accent) for rules and section titles.
-const C = {
+// Shared with the Reports PDF (services/reportPdf.ts), so every report the system makes looks the same.
+export const C = {
   ink: '#111827',
   text: '#1F2937',
   muted: '#6B7280',
@@ -316,7 +317,7 @@ export async function prepareReportPhotos(checks: CrystalReportCheck[]): Promise
 
 let logoCache: string | null | undefined
 /** The app logo (backend/assets/report-logo.png), or null when it is not there. */
-function logoDataUri(): string | null {
+export function logoDataUri(): string | null {
   if (logoCache !== undefined) return logoCache
   try {
     const file = fileURLToPath(new URL('../../assets/report-logo.png', import.meta.url))
@@ -444,7 +445,7 @@ function statusPill(label: string, color: string, bg: string): Content {
 }
 
 /** Small figures in a row, e.g. readings / pass / fail. */
-function figureStrip(items: { label: string; value: string; color?: string }[]): Content {
+export function figureStrip(items: { label: string; value: string; color?: string }[]): Content {
   return {
     table: {
       widths: items.map(() => '*'),
@@ -879,7 +880,7 @@ function buildBatchSummary(data: CrystalReportBatchData): Content[] {
 
 // ------------------------------------------------------------------------------- weekly report
 
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
 /** Green for 0%, orange down to -20%, red below (the same colours as the admin panel). */
 const scoreColor = (score: number | null) => (score === null ? C.faint : score === 0 ? C.pass : score >= -20 ? C.warn : C.fail)
@@ -906,14 +907,14 @@ const headCell = (t: string, align: 'left' | 'center' | 'right' = 'center'): Tab
 })
 
 /**
- * Every worker's week, Monday to Saturday: per day the checks assigned, completed, exceptions and
+ * Every worker's week, Sunday to Saturday: per day the checks assigned, completed, exceptions and
  * missed, and the score; then the week. Missed checks are in red so the coordinator can ask why.
  * Counts and score are the Performance page's (services/performance.ts): assigned = completed +
  * exceptions + missed; pending checks are not counted yet; exceptions count as done.
  */
 function buildWeeklySheet(data: CrystalReportBatchData, weekly: WeeklyReport): Content[] {
   const sum = (key: 'assigned' | 'completed' | 'exceptions' | 'missed') => weekly.rows.reduce((n, r) => n + r.week[key], 0)
-  const period = `${formatDateKey(weekly.days[0])} – ${formatDateKey(weekly.days[5])}`
+  const period = `${formatDateKey(weekly.days[0])} – ${formatDateKey(weekly.days[weekly.days.length - 1])}`
   const content: Content[] = [
     titleBlock(data, `Weekly worker report · ${period}`, statusPill('Weekly report', C.brand, C.band)),
     {
@@ -923,8 +924,7 @@ function buildWeeklySheet(data: CrystalReportBatchData, weekly: WeeklyReport): C
         { label: 'Assigned', value: String(sum('assigned')) },
         { label: 'Completed', value: String(sum('completed')), color: C.pass },
         { label: 'Exceptions', value: String(sum('exceptions')), color: sum('exceptions') ? C.warn : C.ink },
-        { label: 'Missed', value: String(sum('missed')), color: sum('missed') ? C.fail : C.ink },
-        { label: 'Team average', value: weekly.teamAverage === null ? '—' : `${weekly.teamAverage}%`, color: scoreColor(weekly.teamAverage) }
+        { label: 'Missed', value: String(sum('missed')), color: sum('missed') ? C.fail : C.ink }
       ]) as object)
     } as Content,
     {
@@ -941,22 +941,18 @@ function buildWeeklySheet(data: CrystalReportBatchData, weekly: WeeklyReport): C
     table: {
       headerRows: 1,
       dontBreakRows: true,
-      widths: ['*', ...weekly.days.map(() => 42), 46],
+      widths: ['*', ...weekly.days.map(() => 40), 46],
       body: [
         [headCell('Worker', 'left'), ...weekly.days.map((d, i) => headCell(`${DAY_NAMES[i].slice(0, 3)} ${formatDateKey(d).slice(0, 5)}`)), headCell('Week')],
         ...weekly.rows.map((r) => [
           { stack: [{ text: r.name, bold: true, fontSize: 8 }, { text: [r.employeeId.toLowerCase() === r.name.toLowerCase() ? null : r.employeeId, r.department].filter(Boolean).join(' · ') || ' ', fontSize: 6.5, color: C.muted }] },
           ...r.days.map((d) => ({ text: scoreText(d), fontSize: 8, bold: d.score !== null, color: scoreColor(d.score), alignment: 'center' as const })),
           { text: scoreText(r.week), fontSize: 9, bold: true, color: scoreColor(r.week.score), alignment: 'center' as const }
-        ]),
-        [
-          { text: 'Team average', bold: true, fontSize: 8 },
-          ...weekly.days.map(() => ({ text: '' })),
-          { text: weekly.teamAverage === null ? '—' : `${weekly.teamAverage}%`, fontSize: 9, bold: true, color: scoreColor(weekly.teamAverage), alignment: 'center' as const }
-        ]
+        ])
       ]
     },
-    layout: weeklyTableLayout
+    // Only the header is shaded: the last line is a worker, not a total.
+    layout: { ...weeklyTableLayout, fillColor: (i: number) => (i === 0 ? C.headBg : null) }
   })
 
   // Then each worker's days in full.

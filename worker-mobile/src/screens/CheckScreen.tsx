@@ -453,7 +453,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     if (!exceptionPhoto) items.push('Photo')
     // Same rule and wording as the server (backend lib/validate.ts exceptionDetailsError).
     const needMachine = !form?.check.machineId && !selectedMachineId
-    const machineProblem = isMachineReason(reason)
+    const machineProblem = isMachineReason(reason, form?.exceptionReasonRules)
     const needPoItem = !machineProblem && !jobNo.trim() && !itemCode.trim()
     const badItemCode = !machineProblem && !form?.job && !(form?.check.jobId && form?.check.jobNo) && !!itemCodeError(itemCode)
     const detailsMessage =
@@ -624,7 +624,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
   const poItemMissing = missingOverall.includes('PO No. / Item Code')
   const clearPoItem = (key: string) => setMissingOverall((prev) => prev.filter((m) => m !== key && m !== 'PO No. / Item Code'))
   /** Machine stopped / maintenance / breakdown: the exception form asks for the machine only. */
-  const machineOnly = mode === 'exception' && isMachineReason(reason)
+  const machineOnly = mode === 'exception' && isMachineReason(reason, form?.exceptionReasonRules)
   /** The typed Item Code is not in the standard format (marked after a submit attempt). */
   const itemCodeBad = missingOverall.includes('Item Code')
 
@@ -1176,7 +1176,13 @@ const LockedRow: React.FC<{ label: string; value: string; note?: string }> = ({ 
   </View>
 )
 
-/** Same rule as the server (backend lib/validate.ts isMachineReason): a machine problem needs only the machine. */
-function isMachineReason(reason: string | null) {
-  return !!reason && /machine|maintenance|breakdown/i.test(reason)
+/**
+ * Whether the reason needs only the machine (no PO No. / Item Code): the Super Admin sets it per reason
+ * and the server sends it with the form. A server without that setting is followed by the old name rule.
+ */
+function isMachineReason(reason: string | null, rules?: { label: string; requiresJobDetails: boolean }[]) {
+  if (!reason) return false
+  const rule = rules?.find((r) => r.label === reason)
+  if (rule) return !rule.requiresJobDetails
+  return /machine|maintenance|breakdown/i.test(reason)
 }

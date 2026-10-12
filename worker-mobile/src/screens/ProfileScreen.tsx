@@ -21,6 +21,7 @@ import {
 } from '../services/voiceAlerts'
 import { MyPerformanceCard } from '../components/MyPerformanceCard'
 import { MyWeekCard } from '../components/MyWeekCard'
+import { MyOverallCard } from '../components/MyOverallCard'
 
 interface Props {
   profile: Profile
@@ -182,6 +183,8 @@ export const ProfileScreen: React.FC<Props> = ({ profile, onLogout }) => {
           </View>
 
           <MyPerformanceCard />
+
+          <MyOverallCard />
 
           <MyWeekCard />
 

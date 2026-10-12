@@ -6,6 +6,7 @@ import { MINUTE, addDays, atTime, dateKey, startOfDay } from '../lib/time'
 import { machineOffBetween, purgeClosedDays } from './plantCalendar'
 import { generateJobIntervalChecks } from './jobMonitoring'
 import { checkTypeInDepartment } from './checkTypeScope'
+import { keepChecksOutOfBreaks, loadBreaks, outsideBreak } from './workerBreaks'
 
 /**
  * The rolling scheduler: every schedule (machine + check type + shift) has **one open check at a
@@ -223,6 +224,8 @@ export async function planChecks(now: Date, options: { ignoreOpen?: boolean; mar
   // Plant Calendar: no checks on closed dates (an overnight shift can run into the next day).
   // A machine day plan decides per machine on its date: listed machines run even on a closed day.
   const machineOff = await machineOffBetween(addDays(startOfDay(now), -1), addDays(startOfDay(now), 10))
+  // Worker breaks: no check of a worker is due, or ends, during their break (services/workerBreaks.ts).
+  const breaks = await loadBreaks()
 
   const inserts: (typeof qualityChecks.$inferInsert)[] = []
   for (const { schedule, shift, activityDepartmentId, activityModule, activityGraceMinutes } of rows) {
@@ -291,14 +294,17 @@ export async function planChecks(now: Date, options: { ignoreOpen?: boolean; mar
       }
 
       while (nextDue < occurrence.end) {
-        if (schedule.machineId && machineOff(schedule.machineId, dateKey(nextDue))) {
+        // Week Off, holiday, shutdown: no checks, for machine and worker schedules alike (plantCalendar.machineOffFn).
+        if (machineOff(schedule.machineId ?? null, dateKey(nextDue))) {
           // An overnight window can run into a closed date; the part before midnight still counts.
           const nextDay = startOfDay(addDays(nextDue, 1))
-          if (nextDay >= occurrence.end || machineOff(schedule.machineId, dateKey(nextDay))) break
+          if (nextDay >= occurrence.end || machineOff(schedule.machineId ?? null, dateKey(nextDay))) break
           nextDue = nextDay
           continue
         }
-        const windowEndsAt = new Date(nextDue.getTime() + grace)
+        const slot = outsideBreak(targetWorkerId ? breaks.get(targetWorkerId) : undefined, nextDue, new Date(nextDue.getTime() + grace))
+        const windowEndsAt = slot.windowEndsAt
+        nextDue = slot.scheduledAt
         const missed = windowEndsAt < now
         inserts.push({
           code: makeCheckCode(nextDue),
@@ -339,6 +345,8 @@ export async function ensureChecksForDay(_day: Date) {
 /** Moves open checks to DUE or MISSED based on the current time. Returns how many were missed. */
 async function updateStatuses(): Promise<number> {
   const now = new Date()
+  // A worker's break first: their checks due or ending in it move to its end, so none is missed in it.
+  await keepChecksOutOfBreaks(now)
   const missed = await db
     .update(qualityChecks)
     .set({ status: 'MISSED' })

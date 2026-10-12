@@ -74,16 +74,22 @@ export async function monitoringReasonById(id: string) {
  * shape and the same rules as the Not Applicable reasons, but a separate list: one is about a
  * single parameter, the other about the check.
  */
-const exceptionReasonDto = (row: typeof exceptionReasons.$inferSelect): MonitoringReasonDto => ({
+/** An exception reason: also whether the exception must name the PO No. / Item Code. */
+export interface ExceptionReasonDto extends MonitoringReasonDto {
+  requiresJobDetails: boolean
+}
+
+const exceptionReasonDto = (row: typeof exceptionReasons.$inferSelect): ExceptionReasonDto => ({
   id: row.id,
   label: row.label,
   requiresRemark: row.requiresRemark,
+  requiresJobDetails: row.requiresJobDetails,
   isActive: row.isActive,
   sortOrder: row.sortOrder
 })
 
 /** Every exception reason, active ones first in their sort order. */
-export async function listExceptionReasons(): Promise<MonitoringReasonDto[]> {
+export async function listExceptionReasons(): Promise<ExceptionReasonDto[]> {
   const rows = await db
     .select()
     .from(exceptionReasons)
@@ -92,7 +98,7 @@ export async function listExceptionReasons(): Promise<MonitoringReasonDto[]> {
 }
 
 /** Only the reasons the worker app may offer, in the order it shows them. */
-export async function activeExceptionReasons(): Promise<MonitoringReasonDto[]> {
+export async function activeExceptionReasons(): Promise<ExceptionReasonDto[]> {
   const rows = await db
     .select()
     .from(exceptionReasons)

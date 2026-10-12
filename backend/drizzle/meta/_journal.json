@@ -253,6 +253,20 @@
       "when": 1791702826793,
       "tag": "0035_daily_report_from_frequency",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791707233087,
+      "tag": "0036_worker_breaks",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791783092367,
+      "tag": "0037_exception_reason_job_details",
+      "breakpoints": true
     }
   ]
 }

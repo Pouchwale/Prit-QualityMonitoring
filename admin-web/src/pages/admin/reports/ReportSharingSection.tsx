@@ -28,6 +28,7 @@ import type { ReportEmailLog, ReportSharingSettings, SamplePreviewResult } from 
 import { api, errorText, fetchBlob } from '../../../lib/api'
 import { useAuth, useCanManage } from '../../../lib/auth'
 import { useToast } from '../../../components/common/Toast'
+import { askConfirm } from '../../../components/common/AppDialog'
 import { Button } from '../../../components/common/Button'
 import { Field, Select, TextInput, Toggle, inputClass } from '../../../components/common/Form'
 import { Card, CardHeader, EmptyState } from '../../../components/ui/Card'
@@ -99,6 +100,7 @@ export const ReportSharingSection: React.FC = () => {
   const [previewSample, setPreviewSample] = useState<SamplePreviewResult | null>(null)
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [sendingManual, setSendingManual] = useState(false)
+  const [resendingDaily, setResendingDaily] = useState(false)
 
   // Quick periods are whole plant days, counted back from the plant's today.
   const setQuickPeriod = (preset: 'today' | 'yesterday' | '7days' | '30days') => {
@@ -186,6 +188,26 @@ export const ReportSharingSection: React.FC = () => {
   }
 
   // Load Audit Logs
+  /** Sends today's Daily Task Report (the previous day, with its Quality Inspection Report PDF) again. */
+  const resendDaily = async () => {
+    const ok = await askConfirm({
+      title: "Resend today's report?",
+      message: "The previous day's Daily Task Report, with its Quality Inspection Report PDF, is emailed again to the saved recipients. The daily schedule does not change.",
+      confirmLabel: 'Resend'
+    })
+    if (!ok) return
+    setResendingDaily(true)
+    try {
+      const res = await api.post<{ subject: string; attached: number }>('/api/reports/sharing/daily-report/resend', {})
+      notify('success', 'Report sent', `${res.subject}${res.attached ? ` · PDF with ${res.attached} check${res.attached === 1 ? '' : 's'}` : ' · no checks to attach'}`)
+      loadLogs()
+    } catch (err) {
+      notify('error', 'Could not send the report', errorText(err))
+    } finally {
+      setResendingDaily(false)
+    }
+  }
+
   const loadLogs = async () => {
     try {
       setLoadingLogs(true)
@@ -591,9 +613,17 @@ export const ReportSharingSection: React.FC = () => {
                       </div>
                       <p className="text-[11.5px] text-ink-muted">
                         Every day at {dailyReportTime}, each worker's checks of the previous day: assigned, completed, exceptions, missed and performance %,
-                        with the workers who missed checks listed first. While this is chosen, the sampled inspection reports are not sent on a schedule
-                        (Manual send still works).
+                        with the workers who missed checks listed first, and the previous day's Quality Inspection Report attached as a PDF
+                        ({percentage}% sample). While this is chosen, the sampled inspection reports are not sent on a schedule (Manual send still works).
                       </p>
+                      {canManage && (
+                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                          <Button size="sm" variant="outline" onClick={resendDaily} loading={resendingDaily} icon={<Send className="w-3.5 h-3.5" />}>
+                            Resend today's report
+                          </Button>
+                          <span className="text-[11px] text-ink-muted">Uses the saved recipients and mail settings.</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

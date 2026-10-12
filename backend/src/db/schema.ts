@@ -377,6 +377,11 @@ export const exceptionReasons = pgTable('exception_reasons', {
   label: text('label').notNull(),
   /** "Other" needs the worker to write what happened. */
   requiresRemark: boolean('requires_remark').notNull().default(false),
+  /**
+   * The exception must name the PO No. / Item Code as well as the machine. Off for a machine problem
+   * (Machine stopped, maintenance), which needs the machine only. Only the Super Admin changes it.
+   */
+  requiresJobDetails: boolean('requires_job_details').notNull().default(true),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   ...timestamps
@@ -629,6 +634,18 @@ export const rolePermissions = pgTable(
   },
   (t) => [primaryKey({ columns: [t.role, t.module] })]
 )
+
+/**
+ * Each worker's daily break (Shifts page → Break times; services/workerBreaks.ts), plant time,
+ * every day. An end before the start runs past midnight. No due check, notification or Missed
+ * deadline of that worker falls inside it: those checks move to the end of the break.
+ */
+export const workerBreaks = pgTable('worker_breaks', {
+  workerId: uuid('worker_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  startTime: text('start_time').notNull(),
+  endTime: text('end_time').notNull(),
+  ...timestamps
+})
 
 /**
  * One row per worker and shift occurrence (services/workerShifts.ts): when the shift runs, whether

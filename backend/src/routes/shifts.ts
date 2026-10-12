@@ -1,13 +1,13 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { asc, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { db } from '../db/client'
-import { shifts } from '../db/schema'
+import { shifts, users, workerBreaks } from '../db/schema'
 import { hhmm, idParam } from '../lib/validate'
-import { notFound } from '../lib/http'
+import { badRequest, notFound } from '../lib/http'
 import { audit, snapshot } from '../lib/audit'
 import { deleteOrDisable } from '../lib/crud'
-import { removeUpcomingChecks } from '../services/checkGenerator'
+import { invalidateCheckGeneration, removeUpcomingChecks } from '../services/checkGenerator'
 import { getShiftLoginSettings, saveShiftLoginSettings } from '../services/workerShifts'
 
 export const shiftsRouter = Router()
@@ -44,6 +44,67 @@ shiftsRouter.put('/login-settings', async (req, res) => {
   await saveShiftLoginSettings(next)
   await audit(req, 'UPDATE_SHIFT_LOGIN_SETTINGS', 'Settings', 'shiftLogin', { oldValue: before, newValue: next })
   res.json(next)
+})
+
+/**
+ * Worker breaks (services/workerBreaks.ts): each worker's daily break. Read with Shifts view, changed
+ * with Shifts manage (the router's guard), like the rest of the Shifts page.
+ */
+const breakInput = z
+  .object({ startTime: hhmm, endTime: hhmm })
+  .refine((b) => b.startTime !== b.endTime, { message: 'The break must end after it starts', path: ['endTime'] })
+  .refine((b) => breakMinutes(b) <= 240, { message: 'A break can be at most 4 hours', path: ['endTime'] })
+
+const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
+const breakMinutes = (b: { startTime: string; endTime: string }) => (toMinutes(b.endTime) - toMinutes(b.startTime) + 1440) % 1440
+
+shiftsRouter.get('/breaks', async (_req, res) => {
+  const rows = await db
+    .select({
+      workerId: users.id,
+      name: users.name,
+      employeeId: users.employeeId,
+      shiftName: shifts.name,
+      startTime: workerBreaks.startTime,
+      endTime: workerBreaks.endTime,
+      updatedAt: workerBreaks.updatedAt
+    })
+    .from(users)
+    .leftJoin(workerBreaks, eq(workerBreaks.workerId, users.id))
+    .leftJoin(shifts, eq(users.shiftId, shifts.id))
+    .where(and(eq(users.role, 'WORKER'), eq(users.isActive, true)))
+    .orderBy(asc(users.name))
+  res.json(rows.map((r) => ({ ...r, durationMinutes: r.startTime && r.endTime ? breakMinutes({ startTime: r.startTime, endTime: r.endTime }) : null })))
+})
+
+shiftsRouter.put('/breaks/:workerId', async (req, res) => {
+  const workerId = idParam(req, 'workerId')
+  const data = breakInput.parse(req.body)
+  const [worker] = await db.select({ role: users.role }).from(users).where(eq(users.id, workerId))
+  if (!worker) throw notFound('Worker')
+  if (worker.role !== 'WORKER') throw badRequest('Breaks are set for workers only')
+  const [before] = await db.select().from(workerBreaks).where(eq(workerBreaks.workerId, workerId))
+  const [row] = await db
+    .insert(workerBreaks)
+    .values({ workerId, ...data })
+    .onConflictDoUpdate({ target: workerBreaks.workerId, set: { ...data, updatedAt: new Date() } })
+    .returning()
+  // Open checks follow the new break on the next pass (services/workerBreaks.ts).
+  invalidateCheckGeneration()
+  await audit(req, before ? 'UPDATE_WORKER_BREAK' : 'CREATE_WORKER_BREAK', 'User', workerId, {
+    oldValue: before ? { startTime: before.startTime, endTime: before.endTime } : undefined,
+    newValue: { startTime: row.startTime, endTime: row.endTime, durationMinutes: breakMinutes(row) }
+  })
+  res.json({ ...row, durationMinutes: breakMinutes(row) })
+})
+
+shiftsRouter.delete('/breaks/:workerId', async (req, res) => {
+  const workerId = idParam(req, 'workerId')
+  const [removed] = await db.delete(workerBreaks).where(eq(workerBreaks.workerId, workerId)).returning()
+  if (!removed) throw notFound('Break')
+  invalidateCheckGeneration()
+  await audit(req, 'DELETE_WORKER_BREAK', 'User', workerId, { oldValue: { startTime: removed.startTime, endTime: removed.endTime } })
+  res.status(204).end()
 })
 
 shiftsRouter.get('/', async (_req, res) => {

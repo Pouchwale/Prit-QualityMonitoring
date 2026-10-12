@@ -396,6 +396,8 @@ export interface MonitoringReason {
   label: string
   /** The worker must type a remark when choosing this reason. */
   requiresRemark: boolean
+  /** Exception reasons only: the exception must name the PO No. / Item Code as well as the machine. */
+  requiresJobDetails?: boolean
   isActive: boolean
   sortOrder: number
 }

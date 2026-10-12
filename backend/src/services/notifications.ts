@@ -336,7 +336,8 @@ export async function notifyDueChecks() {
   const moduleUsers = new Map(assignments.map((a) => [a.module, a.userId]))
 
   for (const check of due) {
-    if (check.machineId && machineOff(check.machineId, dateKey(check.scheduledAt))) continue
+    // A closed day (Week Off, holiday, shutdown) sends no alert, with or without a machine on the check.
+    if (machineOff(check.machineId ?? null, dateKey(check.scheduledAt))) continue
     const module = (check.checkModule ?? check.activityModule ?? 'IPQC') as 'IPQC' | 'QC'
     const devices = await recipients({ ...check, module }, moduleUsers)
     const browsers = devices.filter((d) => d.kind === 'web' && d.subscription)

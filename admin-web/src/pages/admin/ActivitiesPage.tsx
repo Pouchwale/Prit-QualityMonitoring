@@ -576,6 +576,7 @@ export const ActivitiesPage: React.FC = () => {
           icon={<ShieldAlert className="w-4 h-4" />}
           description="Why a whole check could not be done. The worker raises an exception with one of these, and the check is recorded as an Exception for review."
           endpoint="/api/exception-reasons"
+          jobDetails
           noun="Exception Reason"
           dialogSubtitle="Workers choose one of these when a check cannot be done at all"
           placeholder="e.g. Power cut"

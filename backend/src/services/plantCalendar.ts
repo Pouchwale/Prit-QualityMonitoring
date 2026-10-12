@@ -159,10 +159,15 @@ export async function plansBetween(fromKey: string, toKey: string): Promise<Map<
 /**
  * Whether a machine is off on a date: a machine day plan decides when the date has one (listed
  * machines run even on a closed day, unlisted ones are off), otherwise the plant calendar does.
+ *
+ * A check with no machine (a worker schedule) follows the plant: off on a closed date (Week Off,
+ * holiday, shutdown) unless a machine day plan runs at least one machine that day. This matches
+ * the clean-up of closed days (removeUnrunChecks), which keeps such checks on a planned date.
  */
 export function machineOffFn(closed: Set<string>, plans: Map<string, Set<string>>) {
-  return (machineId: string, key: string) => {
+  return (machineId: string | null, key: string) => {
     const plan = plans.get(key)
+    if (!machineId) return plan ? plan.size === 0 : closed.has(key)
     return plan ? !plan.has(machineId) : closed.has(key)
   }
 }

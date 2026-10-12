@@ -20,6 +20,7 @@ import { normalizeItemCode, requireItemCodeDepartment, type ItemCodeDepartment }
 import { validItemCode } from '../lib/validate'
 import { machineOffBetween } from './plantCalendar'
 import { shiftAt, shiftFor } from './shiftTime'
+import { loadBreaks, outsideBreak } from './workerBreaks'
 
 /**
  * Job-based quality monitoring.
@@ -536,15 +537,17 @@ function parameterDue(p: JobParameter, activatedAt: Date, history: IntervalCheck
  *  - the other ("free") parameters are due at their own times; those due at the same time
  *    (within SAME_TIME_MS, or already overdue) share one check, so one notification asks for exactly
  *    the parameters due then and nothing that is not due yet;
+ *  - a due time in the worker's break, or whose window would end in it, moves to the end of the break
+ *    (`afterBreak`, services/workerBreaks.ts), so parameters falling due during the break share one check;
  *  - only the next future check is kept (a later one is planned once it is next), so parameters that
  *    fall due together later still end up in the same check.
  */
-function planIntervalChecks(params: JobParameter[], activatedAt: Date, checks: IntervalCheck[], now: Date) {
+function planIntervalChecks(params: JobParameter[], activatedAt: Date, checks: IntervalCheck[], now: Date, afterBreak: (due: number) => number = (due) => due) {
   const open = checks.filter((c) => (OPEN_STATUSES as readonly string[]).includes(c.status))
   const busy = new Set(open.flatMap((c) => c.parameterIds ?? []))
   const free = params
     .filter((p) => !busy.has(p.parameterId))
-    .map((p) => ({ p, due: Math.max(parameterDue(p, activatedAt, checks.filter((c) => !(OPEN_STATUSES as readonly string[]).includes(c.status))), now.getTime()) }))
+    .map((p) => ({ p, due: afterBreak(Math.max(parameterDue(p, activatedAt, checks.filter((c) => !(OPEN_STATUSES as readonly string[]).includes(c.status))), now.getTime())) }))
   if (free.length === 0) return null
   const earliest = Math.min(...free.map((f) => f.due))
   const group = free.filter((f) => f.due <= earliest + SAME_TIME_MS).map((f) => f.p.parameterId)
@@ -604,10 +607,11 @@ export async function intervalDueTimes(
 export async function generateJobIntervalChecks(now: Date): Promise<number> {
   const active = await db.select({ id: jobs.id, machineId: jobs.machineId }).from(jobs).where(eq(jobs.status, 'ACTIVE'))
   if (active.length === 0) return 0
-  const [typesByMachine, shiftRows, machineOff] = await Promise.all([
+  const [typesByMachine, shiftRows, machineOff, breaks] = await Promise.all([
     jobCheckTypes([...new Set(active.map((j) => j.machineId))]),
     db.select().from(shifts).where(eq(shifts.isActive, true)),
-    machineOffBetween(addDays(startOfDay(now), -1), addDays(startOfDay(now), 2))
+    machineOffBetween(addDays(startOfDay(now), -1), addDays(startOfDay(now), 2)),
+    loadBreaks()
   ])
 
   let created = 0
@@ -634,7 +638,10 @@ export async function generateJobIntervalChecks(now: Date): Promise<number> {
       for (const type of jobCheckTypesFor(typesByMachine.get(job.machineId) ?? [], job.departmentId)) {
         const params = type.parameters.filter((p) => p.frequency === 'INTERVAL')
         if (params.length === 0) continue
-        const plan = planIntervalChecks(params, activatedAt, checks.filter((c) => c.activityId === type.activityId), now)
+        const workerBreak = job.assignedWorkerId ? breaks.get(job.assignedWorkerId) : undefined
+        const grace = type.graceMinutes * MINUTE
+        const afterBreak = (due: number) => outsideBreak(workerBreak, new Date(due), new Date(due + grace)).scheduledAt.getTime()
+        const plan = planIntervalChecks(params, activatedAt, checks.filter((c) => c.activityId === type.activityId), now, afterBreak)
         if (!plan) continue
         if ('addTo' in plan && plan.addTo) {
           await tx

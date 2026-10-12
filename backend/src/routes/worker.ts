@@ -22,7 +22,7 @@ import {
   shifts,
   users,
 } from '../db/schema'
-import { exceptionDetailsError, idParam, isMachineReason, validItemCode } from '../lib/validate'
+import { exceptionDetailsError, idParam, validItemCode } from '../lib/validate'
 import { badRequest, conflict, forbidden, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
 import { MINUTE, addDays, dateKey, parseDateKey, startOfDay } from '../lib/time'
@@ -74,7 +74,7 @@ import {
   type UploadedFiles
 } from '../services/uploads'
 import { kickVideoOptimization } from '../services/mediaOptimizer'
-import { performanceOf, weeklyScores } from '../services/performance'
+import { overallScores, performanceOf, weeklyScores } from '../services/performance'
 import { performanceRange } from './performance'
 import { shiftAt } from '../services/shiftTime'
 import { loadProfile } from './auth'
@@ -1040,7 +1040,7 @@ workerRouter.get('/performance', async (req, res) => {
 })
 
 /**
- * The signed-in worker's own week, Monday to Saturday (services/performance.ts weeklyScores). The
+ * The signed-in worker's own week, Sunday to Saturday (services/performance.ts weeklyScores). The
  * worker is always the one signed in: no worker id is read from the request, so nobody else's
  * scores can be asked for. `?week=YYYY-MM-DD` is any day of the week; nothing means this week.
  */
@@ -1056,6 +1056,12 @@ workerRouter.get('/performance/weekly', async (req, res) => {
   const mine = report.rows[0]
   // `dates`: the six days; `days`: this worker's score on each of them; `week`: the whole week.
   res.json({ weekStart: report.weekStart, dates: report.days, days: mine?.days ?? [], week: mine?.week ?? null })
+})
+
+/** The signed-in worker's own overall score, from their first check up to now (nobody else's). */
+workerRouter.get('/performance/overall', async (req, res) => {
+  const [mine] = await overallScores(req.user!.id)
+  res.json({ asOf: dateKey(new Date()), since: mine?.since ?? null, overall: mine?.overall ?? null })
 })
 
 /** Filter options for the history screen: only machines this worker has records for. */
@@ -1219,6 +1225,8 @@ workerRouter.get('/checks/:id', async (req, res) => {
     job,
     overallEvidence: { photo: activity.requirePhoto, video: activity.requireVideo },
     exceptionReasons: exceptionReasonRows.map((r) => r.label),
+    /** Which reasons need the PO No. / Item Code as well as the machine (older apps go by the reason's name). */
+    exceptionReasonRules: exceptionReasonRows.map((r) => ({ label: r.label, requiresJobDetails: r.requiresJobDetails })),
     /**
      * Item Code prefixes in use (Department Configuration), so the form shows the department a typed
      * Item Code will give the check before it is sent (the server decides it again on submit).
@@ -1622,7 +1630,8 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
     // Department Configuration), as it does for a job; a job's check keeps the job's department.
     const itemDepartment = !job && itemCode ? await requireItemCodeDepartment(itemCode) : null
     const jobNo = job ? job.jobNo : body.jobNo
-    const missingDetails = exceptionDetailsError(machineId, jobNo || itemCode, isMachineReason(body.reason))
+    // The reason decides whether the PO No. / Item Code is needed too (the Super Admin sets it per reason).
+    const missingDetails = exceptionDetailsError(machineId, jobNo || itemCode, !reason.requiresJobDetails)
     if (missingDetails) throw badRequest(missingDetails)
     // A stopped or under-maintenance machine is often the reason for the exception, so only a
     // machine switched off in Machines is refused, never one whose status is Maintenance or Idle.

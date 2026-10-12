@@ -6,7 +6,9 @@ import { dateKey } from '../utils/dates'
 import { friendlyMessage } from '../utils/friendlyError'
 import { Icon } from './ui/Icon'
 
-const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+/** The weekday of a YYYY-MM-DD date. */
+const dayName = (key: string) => DAY_NAMES[new Date(`${key}T00:00:00Z`).getUTCDay()]
 
 /** "2026-10-05" + n days, as YYYY-MM-DD (dates are plain calendar days here). */
 const shiftKey = (key: string, days: number) => {
@@ -19,7 +21,7 @@ const shortDate = (key: string) => `${key.slice(8, 10)}/${key.slice(5, 7)}`
 const tone = (score: number) => (score === 0 ? 'text-success' : score >= -20 ? 'text-exception' : 'text-missed')
 
 /**
- * "My week" on the worker's Profile: this worker's own score for each day, Monday to Saturday, and
+ * "My week" on the worker's Profile: this worker's own score for each day, Sunday to Saturday, and
  * for the whole week. Only their own figures (the backend answers for the signed-in worker only);
  * shown on screen only, with no download.
  */
@@ -58,7 +60,7 @@ export const MyWeekCard: React.FC = () => {
             <Icon name="chevron-back" size={18} color="secondary" />
           </Pressable>
           <Text className="text-[13px] font-medium text-ink-secondary">
-            {data ? `${shortDate(data.dates[0])} – ${shortDate(data.dates[5])}` : '…'}
+            {data ? `${shortDate(data.dates[0])} – ${shortDate(data.dates[data.dates.length - 1])}` : '…'}
           </Text>
           <Pressable
             onPress={() => go(7)}
@@ -86,7 +88,7 @@ export const MyWeekCard: React.FC = () => {
         <>
           <View className="mt-3 overflow-hidden rounded-xl bg-subtle">
             {data.dates.map((d, i) => (
-              <DayRow key={d} label={`${DAY_NAMES[i]} ${shortDate(d)}`} today={d === today} score={data.days[i]} last={i === 5} />
+              <DayRow key={d} label={`${dayName(d)} ${shortDate(d)}`} today={d === today} score={data.days[i]} last={i === data.dates.length - 1} />
             ))}
           </View>
           <View className="mt-3 flex-row items-end justify-between">

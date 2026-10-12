@@ -18,6 +18,7 @@ import { Card, EmptyState } from '../../components/ui/Card'
 import { IconButton, ResultCount, Segmented, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
 import { CodeChip, matchesStatus, type StatusTab } from '../../components/ui/Chips'
 import { ShiftLoginSettingsCard } from './ShiftSignIn'
+import { WorkerBreaksCard } from './WorkerBreaks'
 
 interface FormState {
   name: string
@@ -275,6 +276,8 @@ export const ShiftsPage: React.FC = () => {
       </DataState>
 
       <ShiftLoginSettingsCard canEdit={canEdit} />
+
+      <WorkerBreaksCard canEdit={canEdit} />
 
       <Modal
         isOpen={editing !== null}

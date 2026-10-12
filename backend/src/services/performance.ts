@@ -216,19 +216,18 @@ const dayScore = (w: WorkerPerformance | undefined): DayScore => {
 }
 
 /**
- * Day-wise scores of every worker for one week, Monday to Saturday (plant time), with the same
+ * Day-wise scores of every worker for one week, Sunday to Saturday (plant time), with the same
  * counts and score as the Performance page. The week score is worked out from the whole week's
- * checks (not an average of the days), so a busy day weighs more than a quiet one. The team average
- * is the mean week score of the workers who had checks.
+ * checks (not an average of the days), so a busy day weighs more than a quiet one.
  */
 /** `onlyWorkerId`: one worker's own week (the worker app); without it every worker (Admins). */
 export async function weeklyScores(anyDay: Date, onlyWorkerId?: string) {
   const day = startOfDay(anyDay)
-  const monday = addDays(day, -((weekdayOf(day) + 6) % 7))
-  const days = Array.from({ length: 6 }, (_, i) => addDays(monday, i))
+  const sunday = addDays(day, -weekdayOf(day))
+  const days = Array.from({ length: 7 }, (_, i) => addDays(sunday, i))
   const [daily, week, people] = await Promise.all([
     Promise.all(days.map((d) => workerPerformance({ from: d, to: addDays(d, 1), workerId: onlyWorkerId }))),
-    workerPerformance({ from: monday, to: addDays(monday, 6), workerId: onlyWorkerId }),
+    workerPerformance({ from: sunday, to: addDays(sunday, 7), workerId: onlyWorkerId }),
     db
       .select({ id: users.id, name: users.name, employeeId: users.employeeId, isActive: users.isActive, department: departments.name })
       .from(users)
@@ -249,11 +248,46 @@ export async function weeklyScores(anyDay: Date, onlyWorkerId?: string) {
       week: dayScore(byWeek.get(p.id))
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
-  const scored = rows.map((r) => r.week.score).filter((s): s is number => s !== null)
   return {
-    weekStart: dateKey(monday),
+    weekStart: dateKey(sunday),
     days: days.map((d) => dateKey(d)),
-    rows,
-    teamAverage: scored.length ? Math.round(scored.reduce((a, b) => a + b, 0) / scored.length) : null
+    rows
   }
+}
+
+/**
+ * Each worker's overall score: every check from their first one up to now, with the same counts and
+ * score as the Performance page (one sum over all of it, not an average of days or weeks). `since` is
+ * the plant date of the worker's first check (null when they have none yet).
+ */
+/** `onlyWorkerId`: one worker's own score (the worker app); without it every worker (Admins). */
+export async function overallScores(onlyWorkerId?: string, now = new Date()) {
+  const to = addDays(startOfDay(now), 1)
+  const [all, firsts, people] = await Promise.all([
+    workerPerformance({ from: new Date(0), to, workerId: onlyWorkerId }),
+    db
+      .select({ workerId: qualityChecks.workerId, first: sql<Date>`min(${qualityChecks.scheduledAt})` })
+      .from(qualityChecks)
+      .where(onlyWorkerId ? eq(qualityChecks.workerId, onlyWorkerId) : sql`${qualityChecks.workerId} is not null`)
+      .groupBy(qualityChecks.workerId),
+    db
+      .select({ id: users.id, name: users.name, employeeId: users.employeeId, isActive: users.isActive, department: departments.name })
+      .from(users)
+      .leftJoin(departments, eq(departments.id, users.departmentId))
+      .where(onlyWorkerId ? eq(users.id, onlyWorkerId) : eq(users.role, 'WORKER'))
+  ])
+  const byWorker = new Map(all.workers.map((w) => [w.workerId, w]))
+  const since = new Map(firsts.map((f) => [f.workerId, f.first ? dateKey(new Date(f.first)) : null]))
+  return people
+    // Every active worker; a disabled one only when they have checks.
+    .filter((p) => p.isActive || byWorker.has(p.id))
+    .map((p) => ({
+      workerId: p.id,
+      name: p.name,
+      employeeId: p.employeeId,
+      department: p.department,
+      since: since.get(p.id) ?? null,
+      overall: dayScore(byWorker.get(p.id))
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 }

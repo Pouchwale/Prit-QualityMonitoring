@@ -12,6 +12,7 @@ import {
   HistoryPage,
   HistoryQuery,
   MyPerformance,
+  MyOverall,
   MyWeek,
   Job,
   JobDetail,
@@ -552,7 +553,9 @@ export const getProfile = () => request<Profile>('GET', '/api/worker/profile')
 /** This worker's own performance; the backend only ever answers with the signed-in worker's figures. */
 export const getMyPerformance = (query: { from: string; to: string }) =>
   request<MyPerformance>('GET', withQuery('/api/worker/performance', query))
-/** This worker's own week, Monday to Saturday; the backend only ever answers for the signed-in worker. */
+/** This worker's own week, Sunday to Saturday; the backend only ever answers for the signed-in worker. */
+/** This worker's own overall score since their first check; the backend only ever answers for the signed-in worker. */
+export const getMyOverall = () => request<MyOverall>('GET', '/api/worker/performance/overall')
 export const getMyWeek = (week?: string) => request<MyWeek>('GET', withQuery('/api/worker/performance/weekly', week ? { week } : {}))
 export const getTodayChecks = () => request<CheckSummary[]>('GET', '/api/worker/checks/today')
 

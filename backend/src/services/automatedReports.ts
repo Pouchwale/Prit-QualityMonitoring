@@ -91,7 +91,7 @@ function shuffle<T>(array: T[]): T[] {
 }
 
 /** Fetches company / plant name from global settings */
-async function getCompanyPlantName(): Promise<{ company: string; plant: string }> {
+export async function getCompanyPlantName(): Promise<{ company: string; plant: string }> {
   try {
     const [row] = await db.select().from(settings).where(eq(settings.key, 'plant'))
     const val = (row?.value ?? {}) as { name?: string; code?: string }

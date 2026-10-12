@@ -218,6 +218,7 @@ export interface QualityReport {
   completionRate: number | null
   reconciles: boolean
   breakdown: { label: string; count: number; percent: number }[]
+  byDepartment: GroupRow[]
   byMachine: GroupRow[]
   byWorker: GroupRow[]
   byShift: GroupRow[]
@@ -687,6 +688,12 @@ export async function buildQualityReport(
     completionRate,
     reconciles: counts.scheduled === counts.completed + counts.missed + counts.exception + counts.open,
     breakdown,
+    // The department each check was done for (the check's own department).
+    byDepartment: group(checks, (c) => ({
+      key: c.departmentId ?? 'none',
+      label: c.departmentName ?? 'No department',
+      sublabel: ''
+    })),
     byMachine: group(checks.filter((c) => !!c.machineId), (c) => ({
       key: c.machineId!,
       label: c.machineName ?? DASH,

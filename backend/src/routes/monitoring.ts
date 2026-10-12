@@ -549,6 +549,8 @@ monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports',
 const reasonInput = z.object({
   label: z.string().trim().min(1, 'Enter the reason').max(120),
   requiresRemark: z.boolean().optional(),
+  /** Exception reasons only: the exception must name the PO No. / Item Code. Super Admin only. */
+  requiresJobDetails: z.boolean().optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.coerce.number().int().min(0).max(9999).optional()
 })
@@ -616,13 +618,18 @@ monitoringRouter.get('/exception-reasons', requireAnyView('activities', 'checks'
   res.json(await listExceptionReasons())
 })
 
+/** Whether a reason needs the PO No. / Item Code is the Super Admin's decision; others keep the default. */
+const JOB_DETAILS_SUPER_ADMIN = 'Only the Super Admin can decide whether a reason needs the PO No. / Item Code.'
+
 monitoringRouter.post('/exception-reasons', requireModule('activities', 'manage'), async (req, res) => {
   const body = reasonInput.parse(req.body)
+  if (body.requiresJobDetails === false && req.user!.role !== 'SUPER_ADMIN') throw forbidden(JOB_DETAILS_SUPER_ADMIN)
   const [row] = await db
     .insert(exceptionReasons)
     .values({
       label: body.label,
       requiresRemark: body.requiresRemark ?? false,
+      requiresJobDetails: body.requiresJobDetails ?? true,
       isActive: body.isActive ?? true,
       sortOrder: body.sortOrder ?? 0
     })
@@ -636,12 +643,16 @@ monitoringRouter.put('/exception-reasons/:id', requireModule('activities', 'mana
   const body = reasonInput.parse(req.body)
   const before = await exceptionReasonById(id)
   if (!before) throw notFound('Reason')
+  if (body.requiresJobDetails !== undefined && body.requiresJobDetails !== before.requiresJobDetails && req.user!.role !== 'SUPER_ADMIN') {
+    throw forbidden(JOB_DETAILS_SUPER_ADMIN)
+  }
   // Fields the caller did not send keep their stored value.
   const [row] = await db
     .update(exceptionReasons)
     .set({
       label: body.label,
       requiresRemark: body.requiresRemark ?? before.requiresRemark,
+      requiresJobDetails: body.requiresJobDetails ?? before.requiresJobDetails,
       isActive: body.isActive ?? before.isActive,
       sortOrder: body.sortOrder ?? before.sortOrder,
       updatedAt: new Date()

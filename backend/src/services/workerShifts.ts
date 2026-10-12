@@ -328,6 +328,11 @@ export interface WorkerShiftStatus {
   shiftStart: string | null
   shiftEnd: string | null
   onShift: boolean
+  /**
+   * Why the plant is closed on the current shift's day (e.g. "Weekly Off (Thursday)", "Holiday"), or
+   * null. Then the worker is not expected to sign in: shown as off, not as "not signed in".
+   */
+  dayOff: string | null
   nextShiftStart: string | null
   loggedIn: boolean
   loginAt: string | null
@@ -358,10 +363,18 @@ export async function workerShiftStatuses(now = new Date()): Promise<WorkerShift
     db.select().from(workerShiftLogins).where(sql`${workerShiftLogins.shiftEnd} > ${addDays(now, -2)}`)
   ])
   const shiftById = new Map(shiftRows.map((s) => [s.id, s]))
-  return workers.map((w) => {
+  // A closed day (Week Off, holiday, shutdown), judged by the shift's start date as the sign-in reminders are.
+  const closedByDay = new Map<string, string | null>()
+  const dayOffOf = async (start: Date) => {
+    const key = dateKey(start)
+    if (!closedByDay.has(key)) closedByDay.set(key, (await closureOn(start))?.label ?? null)
+    return closedByDay.get(key)!
+  }
+  return Promise.all(workers.map(async (w) => {
     const ids = new Set([w.shiftId, ...scheduleRows.filter((s) => s.workerId === w.id).map((s) => s.shiftId)])
     const list = [...ids].map((id) => (id ? shiftById.get(id) : undefined)).filter((s): s is ShiftRow => !!s)
     const { current, next } = list.length ? shiftBlocksAt(list, now) : { current: null, next: null }
+    const dayOff = current ? await dayOffOf(current.start) : null
     const mine = sessions.filter((s) => s.workerId === w.id).sort((a, b) => b.shiftStart.getTime() - a.shiftStart.getTime())
     const row = current ? mine.find((s) => s.shiftStart.getTime() === current.start.getTime()) : undefined
     const latestLogin = mine.find((s) => s.loginAt)
@@ -373,7 +386,8 @@ export async function workerShiftStatuses(now = new Date()): Promise<WorkerShift
       shiftName: current?.shiftName ?? (w.shiftId ? shiftById.get(w.shiftId)?.name : undefined) ?? list[0]?.name ?? null,
       shiftStart: current?.start.toISOString() ?? null,
       shiftEnd: current?.end.toISOString() ?? null,
-      onShift: !!current,
+      onShift: !!current && !dayOff,
+      dayOff,
       nextShiftStart: next?.start.toISOString() ?? null,
       loggedIn,
       loginAt: loggedIn ? latestLogin!.lastLoginAt?.toISOString() ?? latestLogin!.loginAt!.toISOString() : null,
@@ -384,5 +398,5 @@ export async function workerShiftStatuses(now = new Date()): Promise<WorkerShift
       lastLogoutAt: !loggedIn && latestLogin?.logoutAt ? latestLogin.logoutAt.toISOString() : null,
       lastLogoutReason: !loggedIn ? latestLogin?.logoutReason ?? null : null
     }
-  })
+  }))
 }

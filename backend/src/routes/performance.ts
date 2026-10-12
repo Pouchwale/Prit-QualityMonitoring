@@ -3,8 +3,8 @@ import { z } from 'zod'
 import ExcelJS from 'exceljs'
 import { requireAdmin, requireModule } from '../lib/permissions'
 import { badRequest } from '../lib/http'
-import { addDays, formatDateKey, parseDateKey, startOfDay } from '../lib/time'
-import { performanceScope, performanceFilterValues, performanceOf, weeklyScores, workerPerformance, type DayScore } from '../services/performance'
+import { addDays, dateKey, formatDateKey, parseDateKey, startOfDay } from '../lib/time'
+import { overallScores, performanceScope, performanceFilterValues, performanceOf, weeklyScores, workerPerformance, type DayScore } from '../services/performance'
 
 export const performanceRouter = Router()
 
@@ -93,7 +93,7 @@ performanceRouter.get('/filter-values', view, async (req, res) => {
 })
 
 /**
- * Day-wise weekly scores (Monday to Saturday) of every worker: Admins and the Super Admin only, as
+ * Day-wise weekly scores (Sunday to Saturday) of every worker: Admins and the Super Admin only, as
  * everyone's scores are shown. `?week=YYYY-MM-DD` is any day of the week; nothing means this week.
  */
 const weekQuery = z.object({ week: z.string().optional() })
@@ -109,13 +109,18 @@ performanceRouter.get('/weekly', requireAdmin, async (req, res) => {
   res.json(await weeklyScores(weekOf(weekQuery.parse(req.query))))
 })
 
-/** The same report as an Excel file: one row per worker, a cell per day, the week and the team average. */
+/** Every worker's overall score, from their first check up to now: Admins and the Super Admin only. */
+performanceRouter.get('/overall', requireAdmin, async (_req, res) => {
+  res.json({ asOf: dateKey(new Date()), rows: await overallScores() })
+})
+
+/** The same report as an Excel file: one row per worker, a cell per day and the week. */
 performanceRouter.get('/weekly.xlsx', requireAdmin, async (req, res) => {
   const report = await weeklyScores(weekOf(weekQuery.parse(req.query)))
   const book = new ExcelJS.Workbook()
   const sheet = book.addWorksheet('Weekly scores')
-  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-  sheet.addRow([`Worker scores, week of ${formatDateKey(report.days[0])} to ${formatDateKey(report.days[5])}`])
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  sheet.addRow([`Worker scores, week of ${formatDateKey(report.days[0])} to ${formatDateKey(report.days[report.days.length - 1])}`])
   sheet.addRow(['Score = done / assigned as a percentage, minus 100 (0% = every check done). Done = completed + exceptions; pending checks are not counted yet.'])
   sheet.addRow([])
   const header = sheet.addRow(['Worker', 'Employee ID', 'Department', ...report.days.map((d, i) => `${dayNames[i]} ${formatDateKey(d)}`), 'Week', 'Week done / assigned', 'Completed', 'Exceptions', 'Missed', 'Pending'])
@@ -141,8 +146,6 @@ performanceRouter.get('/weekly.xlsx', requireAdmin, async (req, res) => {
       if (color) row.getCell(4 + i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: color } }
     })
   }
-  const avg = sheet.addRow(['Team average', '', '', '', '', '', '', '', '', report.teamAverage === null ? '—' : `${report.teamAverage}%`])
-  avg.font = { bold: true }
   sheet.columns.forEach((c, i) => (c.width = i === 0 ? 22 : i < 3 ? 14 : 16))
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   res.setHeader('Content-Disposition', `attachment; filename="worker-scores-${report.weekStart}.xlsx"`)

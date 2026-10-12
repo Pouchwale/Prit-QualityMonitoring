@@ -33,6 +33,8 @@ export interface WorkerShiftStatus {
   shiftStart: string | null
   shiftEnd: string | null
   onShift: boolean
+  /** The plant is closed on the shift's day (e.g. "Weekly Off (Thursday)"): not expected to sign in. */
+  dayOff: string | null
   nextShiftStart: string | null
   loggedIn: boolean
   loginAt: string | null
@@ -349,6 +351,7 @@ const SignInPill: React.FC<{ row: WorkerShiftStatus }> = ({ row }) => {
       </Pill>
     )
   }
+  if (row.dayOff) return <Pill className="bg-subtle text-ink-secondary ring-line" title="The plant is closed today: no sign-in, checks or reminders">{row.dayOff}</Pill>
   if (!row.shiftName) return <Pill className="bg-subtle text-ink-muted ring-line">No shift</Pill>
   return <Pill className="bg-subtle text-ink-secondary ring-line">Off shift</Pill>
 }
