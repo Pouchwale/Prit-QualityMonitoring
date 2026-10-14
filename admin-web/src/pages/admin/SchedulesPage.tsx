@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Briefcase, CalendarClock, CalendarRange, Clock3, Cpu, Pencil, Plus, Repeat, Search, Trash2 } from 'lucide-react'
 import type { Activity, Department, Machine, QualityModule, Schedule, ScheduleMode, Shift, User, WorkerQualityRole } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { useCanManage } from '../../lib/auth'
+import { useLiveRefresh } from '../../lib/useLiveRefresh'
+import { LiveBadge } from '../../components/common/LiveBadge'
+import { useModuleActions, useCanActivate, ACTIVATION_HINT } from '../../lib/auth'
 import { formatClockRange, formatDateTime, frequencyLabel } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
@@ -100,7 +102,8 @@ const emptyForm: FormState = {
 }
 
 export const SchedulesPage: React.FC = () => {
-  const canEdit = useCanManage('schedules')
+  const canActivate = useCanActivate()
+  const { canCreate, canEdit, canDelete, canWrite } = useModuleActions('schedules')
   const notify = useToast()
   const schedulesApi = useApi<Schedule[]>('/api/schedules')
   const usersApi = useApi<User[]>('/api/users')
@@ -108,6 +111,22 @@ export const SchedulesPage: React.FC = () => {
   const activitiesApi = useApi<Activity[]>('/api/activities')
   const machinesApi = useApi<Machine[]>('/api/machines')
   const shiftsApi = useApi<Shift[]>('/api/shifts')
+  // Live: a change made elsewhere (e.g. a worker's shift changed in Workers & Users moves their
+  // schedules) shows here within seconds, without a page refresh and without the loading state.
+  const { setData: setSchedules } = schedulesApi
+  const { setData: setUsers } = usersApi
+  const { setData: setShifts } = shiftsApi
+  const refreshQuietly = useCallback(async () => {
+    const [nextSchedules, nextUsers, nextShifts] = await Promise.all([
+      api.get<Schedule[]>('/api/schedules'),
+      api.get<User[]>('/api/users'),
+      api.get<Shift[]>('/api/shifts')
+    ])
+    setSchedules(nextSchedules)
+    setUsers(nextUsers)
+    setShifts(nextShifts)
+  }, [setSchedules, setUsers, setShifts])
+  const live = useLiveRefresh('/api/schedules/version', refreshQuietly)
 
   const [tab, setTab] = useState<TabType>('ALL')
   const [search, setSearch] = useState('')
@@ -430,11 +449,14 @@ export const SchedulesPage: React.FC = () => {
         description={schedulesApi.data ? `${schedules.length} schedules · ${activeCount} active` : 'Routine IPQC and QC check reminders'}
         info="Schedule-based quality checks and routine reminders for IPQC and QC workers."
         actions={
-          canEdit && (
-            <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
-              Add Schedule
-            </Button>
-          )
+          <div className="flex items-center gap-2">
+            <LiveBadge state={live} />
+            {canCreate && (
+              <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
+                Add Schedule
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -488,7 +510,7 @@ export const SchedulesPage: React.FC = () => {
                     <th>Interval</th>
                     <th>Next due</th>
                     <th>Status</th>
-                    {canEdit && <th className="text-right">Actions</th>}
+                    {canWrite && <th className="text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -568,15 +590,15 @@ export const SchedulesPage: React.FC = () => {
                         <td>
                           <StatusBadge status={s.isActive ? 'ACTIVE' : 'Paused'} size="sm" />
                         </td>
-                        {canEdit && (
+                        {canWrite && (
                           <td className="text-right whitespace-nowrap" data-label="">
                             <div className="inline-flex gap-0.5">
-                              <IconButton label={`Edit ${s.activityName} schedule`} onClick={() => openEdit(s)}>
+                              {canEdit && (<IconButton label={`Edit ${s.activityName} schedule`} onClick={() => openEdit(s)}>
                                 <Pencil className="w-3.5 h-3.5" />
-                              </IconButton>
-                              <IconButton label={`Delete ${s.activityName} schedule`} tone="danger" onClick={() => setDeleting(s)}>
+                              </IconButton>)}
+                              {canDelete && (<IconButton label={`Delete ${s.activityName} schedule`} tone="danger" onClick={() => setDeleting(s)}>
                                 <Trash2 className="w-3.5 h-3.5" />
-                              </IconButton>
+                              </IconButton>)}
                             </div>
                           </td>
                         )}
@@ -813,7 +835,7 @@ export const SchedulesPage: React.FC = () => {
             </div>
           </div>
 
-          <Toggle checked={form.isActive} onChange={(v) => set('isActive', v)} label="Active" description="Inactive schedules do not generate notifications or checks." />
+          <Toggle checked={form.isActive} disabled={!canActivate} onChange={(v) => set('isActive', v)} label="Active" description={canActivate ? 'Inactive schedules do not generate notifications or checks.' : ACTIVATION_HINT} />
 
           {preview && (
             <div className="rounded-md border border-accent-line bg-accent-soft px-3 py-2 space-y-1 text-[12px]" role="status">

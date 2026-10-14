@@ -267,6 +267,48 @@
       "when": 1791783092367,
       "tag": "0037_exception_reason_job_details",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791864882761,
+      "tag": "0038_push_token_on_network",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791869801143,
+      "tag": "0039_exception_reason_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791952525601,
+      "tag": "0040_permission_matrix",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791955190862,
+      "tag": "0041_report_email_delivery",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791959880584,
+      "tag": "0042_approve_export_worker",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791967410713,
+      "tag": "0043_exception_reading",
+      "breakpoints": true
     }
   ]
 }

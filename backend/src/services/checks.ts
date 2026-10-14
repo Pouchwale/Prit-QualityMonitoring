@@ -15,6 +15,7 @@ import {
   users
 } from '../db/schema'
 import { resultOf } from '../lib/result'
+import { readingText } from '../lib/validate'
 
 const worker = alias(users, 'worker')
 const submitter = alias(users, 'submitter')
@@ -77,11 +78,14 @@ function matchesJobValue(column: 'item_code' | 'job_no', value: string): SQL {
   const wanted = value.trim().toLowerCase()
   const own = column === 'item_code' ? qualityChecks.itemCode : qualityChecks.jobNo
   const ofJob = column === 'item_code' ? jobs.itemCode : jobs.jobNo
+  // A field may hold several values separated by commas ("FGPO123, FGPO234"): one of them matching is enough.
+  const holds = (col: typeof own | typeof ofJob) =>
+    sql`(lower(trim(${col})) = ${wanted} or ${wanted} = any(string_to_array(regexp_replace(lower(trim(coalesce(${col}, ''))), ${'\\s*,\\s*'}, ',', 'g'), ',')))`
   return or(
-    sql`lower(trim(${own})) = ${wanted}`,
+    holds(own),
     and(
       sql`coalesce(trim(${own}), '') = ''`,
-      sql`exists (select 1 from ${jobs} where ${jobs.id} = ${qualityChecks.jobId} and lower(trim(${ofJob})) = ${wanted})`
+      sql`exists (select 1 from ${jobs} where ${jobs.id} = ${qualityChecks.jobId} and ${holds(ofJob)})`
     )
   )!
 }
@@ -245,6 +249,11 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
             id: exc.exception.id,
             reason: exc.exception.reason,
             remark: exc.exception.remark,
+            /** The reading the reason asked for, e.g. "Viscosity: 21.5 sec" (null: none), and its parts. */
+            reading: readingText(exc.exception),
+            readingLabel: exc.exception.readingLabel,
+            readingValue: exc.exception.readingValue,
+            readingUnit: exc.exception.readingUnit,
             status: exc.exception.status,
             reviewedByName: exc.reviewedByName,
             resolutionNotes: exc.exception.resolutionNotes,

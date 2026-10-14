@@ -3,7 +3,7 @@ import { AlertTriangle, ArrowRight, Info, Pencil, Plus, Power, Tags, Trash2 } fr
 import type { Department, DepartmentMapping } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { useCanManage } from '../../lib/auth'
+import { useModuleActions, useCanActivate, ACTIVATION_HINT } from '../../lib/auth'
 import { formatDateTime } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
@@ -34,7 +34,8 @@ type Pending = { kind: 'deactivate' | 'delete'; mapping: DepartmentMapping }
  * the server).
  */
 export const DepartmentConfigPage: React.FC = () => {
-  const canEdit = useCanManage('departments')
+  const canActivate = useCanActivate()
+  const { canCreate, canEdit, canDelete, canWrite } = useModuleActions('departments')
   const notify = useToast()
   const { data, error, loading, reload } = useApi<DepartmentMapping[]>('/api/department-mappings')
   const departmentsApi = useApi<Department[]>(canEdit ? '/api/departments' : null)
@@ -130,7 +131,7 @@ export const DepartmentConfigPage: React.FC = () => {
         description={data ? `${mappings.length} Item Code ${mappings.length === 1 ? 'prefix' : 'prefixes'} · ${activeCount} active` : 'Item Code prefix → department'}
         info="Which department each Item Code prefix stands for. When a job is planned or started, its department is worked out from here (e.g. RMLA12345 → the RMLA mapping). Jobs and checks already saved keep their department."
         actions={
-          canEdit && (
+          canCreate && (
             <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
               Add Mapping
             </Button>
@@ -161,7 +162,7 @@ export const DepartmentConfigPage: React.FC = () => {
               icon={<Tags className="w-5 h-5" />}
               title={mappings.length === 0 ? 'No Item Code mappings yet' : 'No mappings match the filters'}
               action={
-                mappings.length === 0 && canEdit ? (
+                mappings.length === 0 && canCreate ? (
                   <Button size="sm" variant="outline" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
                     Add Mapping
                   </Button>
@@ -179,7 +180,7 @@ export const DepartmentConfigPage: React.FC = () => {
                     <th>Status</th>
                     <th className="num">Jobs</th>
                     <th>Last changed</th>
-                    {canEdit && (
+                    {canWrite && (
                       <th className="text-right">
                         <span className="sr-only">Actions</span>
                       </th>
@@ -220,27 +221,29 @@ export const DepartmentConfigPage: React.FC = () => {
                         <div className="text-ink-secondary tabular-nums">{formatDateTime(m.updatedAt)}</div>
                         {m.updatedByName && <div className="text-[11.5px] text-ink-muted">{m.updatedByName}</div>}
                       </td>
-                      {canEdit && (
+                      {canWrite && (
                         <td className="text-right whitespace-nowrap" data-label="">
                           <div className="inline-flex items-center gap-0.5">
-                            <IconButton label={`Edit ${m.prefix}`} onClick={() => openEdit(m)}>
+                            {canEdit && (<IconButton label={`Edit ${m.prefix}`} onClick={() => openEdit(m)}>
                               <Pencil className="w-3.5 h-3.5" />
-                            </IconButton>
-                            <IconButton
-                              label={`${m.isActive ? 'Deactivate' : 'Activate'} ${m.prefix}`}
-                              tone={m.isActive ? 'danger' : 'neutral'}
-                              onClick={() => (m.isActive ? setPending({ kind: 'deactivate', mapping: m }) : setStatus(m, true))}
-                            >
-                              <Power className={`w-3.5 h-3.5 ${m.isActive ? '' : 'text-success'}`} />
-                            </IconButton>
-                            <IconButton
+                            </IconButton>)}
+                            {canActivate && (
+                              <IconButton
+                                label={`${m.isActive ? 'Deactivate' : 'Activate'} ${m.prefix}`}
+                                tone={m.isActive ? 'danger' : 'neutral'}
+                                onClick={() => (m.isActive ? setPending({ kind: 'deactivate', mapping: m }) : setStatus(m, true))}
+                              >
+                                <Power className={`w-3.5 h-3.5 ${m.isActive ? '' : 'text-success'}`} />
+                              </IconButton>
+                            )}
+                            {canDelete && (<IconButton
                               label={m.jobCount > 0 ? `Delete ${m.prefix}: used by ${m.jobCount} ${m.jobCount === 1 ? 'job' : 'jobs'}, deactivate it instead` : `Delete ${m.prefix}`}
                               tone="danger"
                               onClick={() => setPending({ kind: 'delete', mapping: m })}
                               disabled={m.jobCount > 0}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                            </IconButton>
+                            </IconButton>)}
                           </div>
                         </td>
                       )}
@@ -307,9 +310,10 @@ export const DepartmentConfigPage: React.FC = () => {
           {editing === 'new' && (
             <Toggle
               checked={form.isActive}
+              disabled={!canActivate}
               onChange={(isActive) => setForm({ ...form, isActive })}
               label="Active"
-              description="Only active mappings let jobs start. You can switch it later."
+              description={canActivate ? 'Only active mappings let jobs start. You can switch it later.' : ACTIVATION_HINT}
             />
           )}
         </form>

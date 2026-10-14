@@ -7,6 +7,7 @@ import { idParam, optionalText, optionalUuid } from '../lib/validate'
 import { badRequest, notFound } from '../lib/http'
 import { audit, snapshot } from '../lib/audit'
 import { deleteOrDisable } from '../lib/crud'
+import { denyActivation, isSuperAdmin } from '../lib/activation'
 import { removeUpcomingChecks } from '../services/checkGenerator'
 
 export const machinesRouter = Router()
@@ -137,7 +138,7 @@ machinesRouter.put('/:id', async (req, res) => {
 machinesRouter.delete('/:id', async (req, res) => {
   const id = idParam(req)
   await removeUpcomingChecks({ machineId: id })
-  const result = await deleteOrDisable(machines, id)
+  const result = await deleteOrDisable(machines, id, undefined, { canDisable: isSuperAdmin(req), deny: () => denyActivation(req, 'Machine', id, { reason: 'Deleting would deactivate it: it has history' }) })
   await audit(req, result === 'deleted' ? 'DELETE_MACHINE' : 'DISABLE_MACHINE', 'Machine', id)
   res.json({ result })
 })

@@ -32,13 +32,13 @@ export interface SendReportEmailOptions {
   smtpConfig?: SmtpConfig
 }
 
-export interface SendEmailResult {
-  success: boolean
-  messageId?: string
-  error?: string
+/** A report email ready to send (services/reportDelivery.ts sends it and records the delivery). */
+export interface BuiltReportMail {
+  subject: string
+  html: string
+  attachments: Attachment[]
   videoCount: number
   pdfSizeBytes: number
-  recipientCount: number
 }
 
 /** Text from the database (worker-entered PO No., Item Code, names) made safe to put into the email HTML. */
@@ -86,6 +86,10 @@ export function createTransporter(custom?: SmtpConfig) {
       user: resolved.user,
       pass: resolved.pass
     },
+    // A mail server that does not answer is a (temporary) failure after this, not a scheduler that waits.
+    connectionTimeout: 30_000,
+    greetingTimeout: 30_000,
+    socketTimeout: 120_000,
     // The server's certificate is checked, so the password cannot be read by a machine in between.
     // SMTP_ALLOW_SELF_SIGNED=1 accepts a company mail server's own certificate.
     tls: {
@@ -382,96 +386,55 @@ ${scoreSummaryHtml(summary)}
 `
 }
 
-/** Dispatches the Quality Inspection Report with PDF and optional Video attachments */
-export async function sendReportEmail(options: SendReportEmailOptions): Promise<SendEmailResult> {
-  const { recipients, subject, reportId, pdfBuffer, checks, smtpConfig } = options
-
-  if (!recipients.length) {
-    return {
-      success: false,
-      error: 'No email recipients specified.',
-      videoCount: 0,
-      pdfSizeBytes: pdfBuffer.length,
-      recipientCount: 0
+/** Builds the Quality Inspection Report email: the PDF, any check videos (within the size limit) and the HTML body. */
+export async function buildReportMail(options: SendReportEmailOptions): Promise<BuiltReportMail> {
+  const { subject, reportId, pdfBuffer, checks } = options
+  const attachments: Attachment[] = [
+    {
+      filename: `Quality_Inspection_Report_${reportId}.pdf`,
+      content: pdfBuffer,
+      contentType: 'application/pdf'
     }
-  }
+  ]
 
-  try {
-    const transporter = createTransporter(smtpConfig)
-    const resolved = resolveSmtpConfig(smtpConfig)
+  // Attach video recordings if any exist on disk
+  let videoCount = 0
+  let totalVideoBytes = 0
+  const MAX_TOTAL_ATTACHMENT_BYTES = 45 * 1024 * 1024 // 45 MB total attachment limit for safety
 
-    const attachments: Attachment[] = [
-      {
-        filename: `Quality_Inspection_Report_${reportId}.pdf`,
-        content: pdfBuffer,
-        contentType: 'application/pdf'
-      }
-    ]
-
-    // Attach video recordings if any exist on disk
-    let videoCount = 0
-    let totalVideoBytes = 0
-    const MAX_TOTAL_ATTACHMENT_BYTES = 45 * 1024 * 1024 // 45 MB total attachment limit for safety
-
-    for (const check of checks) {
-      for (const vid of check.videos) {
-        try {
-          const fullPath = path.isAbsolute(vid.path) ? vid.path : path.resolve(config.uploadDir, vid.path)
-          if (fs.existsSync(fullPath)) {
-            const stat = fs.statSync(fullPath)
-            if (totalVideoBytes + stat.size < MAX_TOTAL_ATTACHMENT_BYTES) {
-              attachments.push({
-                filename: `${check.code}_${path.basename(vid.path)}`,
-                path: fullPath,
-                contentType: vid.mimeType || 'video/mp4'
-              })
-              totalVideoBytes += stat.size
-              videoCount++
-            } else {
-              console.warn(`Video attachment ${vid.path} skipped: exceeds email attachment size limit.`)
-            }
+  for (const check of checks) {
+    for (const vid of check.videos) {
+      try {
+        const fullPath = path.isAbsolute(vid.path) ? vid.path : path.resolve(config.uploadDir, vid.path)
+        if (fs.existsSync(fullPath)) {
+          const stat = fs.statSync(fullPath)
+          if (totalVideoBytes + stat.size < MAX_TOTAL_ATTACHMENT_BYTES) {
+            attachments.push({
+              filename: `${check.code}_${path.basename(vid.path)}`,
+              path: fullPath,
+              contentType: vid.mimeType || 'video/mp4'
+            })
+            totalVideoBytes += stat.size
+            videoCount++
+          } else {
+            console.warn(`Video attachment ${vid.path} skipped: exceeds email attachment size limit.`)
           }
-        } catch (vidErr) {
-          console.error(`Error attaching video ${vid.path}:`, vidErr)
         }
+      } catch (vidErr) {
+        console.error(`Error attaching video ${vid.path}:`, vidErr)
       }
     }
-
-    const emailSubject =
-      subject ||
-      `Quality Inspection Report - ${checks.length} Check${checks.length === 1 ? '' : 's'} (${options.samplePercentage ?? 20}% Sample) - ${formatDate(new Date())}`
-
-    // The all-users summary must never stop the email: without it the rest is sent as before.
-    const summary = await scoreSummary(options.periodFrom, options.periodTo).catch((err) => {
-      console.error('[Report email] Score summary failed:', err)
-      return null
-    })
-    const html = buildEmailHtml(options, videoCount, summary)
-
-    const info = await transporter.sendMail({
-      from: resolved.from,
-      to: recipients.join(', '),
-      subject: emailSubject,
-      html,
-      attachments
-    })
-
-    return {
-      success: true,
-      messageId: info.messageId,
-      videoCount,
-      pdfSizeBytes: pdfBuffer.length,
-      recipientCount: recipients.length
-    }
-  } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : String(err)
-    console.error('Failed to send report email:', err)
-    return {
-      success: false,
-      error: errorMsg,
-      videoCount: 0,
-      pdfSizeBytes: pdfBuffer.length,
-      recipientCount: recipients.length
-    }
   }
+
+  const emailSubject =
+    subject ||
+    `Quality Inspection Report - ${checks.length} Check${checks.length === 1 ? '' : 's'} (${options.samplePercentage ?? 20}% Sample) - ${formatDate(new Date())}`
+
+  // The all-users summary must never stop the email: without it the rest is sent as before.
+  const summary = await scoreSummary(options.periodFrom, options.periodTo).catch((err) => {
+    console.error('[Report email] Score summary failed:', err)
+    return null
+  })
+  const html = buildEmailHtml(options, videoCount, summary)
+  return { subject: emailSubject, html, attachments, videoCount, pdfSizeBytes: pdfBuffer.length }
 }

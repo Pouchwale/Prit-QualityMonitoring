@@ -1,4 +1,5 @@
 import type { CheckDto } from './checks'
+import { splitCodes } from '../lib/validate'
 
 /**
  * Traceability for the Quality Reports: what happened to one Item Code, PO No. or worker.
@@ -90,6 +91,9 @@ export interface TraceReport {
 /** The Item Code / PO No. of a check: its own, or the job's when it recorded none. */
 export const itemCodeOf = (c: CheckDto) => (c.itemCode?.trim() || c.job?.itemCode?.trim() || '')
 export const jobNoOf = (c: CheckDto) => (c.jobNo?.trim() || c.job?.jobNo?.trim() || '')
+/** Each Item Code / PO No. of a check (a field may hold several, comma-separated); [''] when it has none. */
+const itemCodesOf = (c: CheckDto) => { const codes = splitCodes(itemCodeOf(c)); return codes.length ? codes : [''] }
+const jobNosOf = (c: CheckDto) => { const nos = splitCodes(jobNoOf(c), false); return nos.length ? nos : [''] }
 /** Who did the check: the worker who submitted it, else the worker it was assigned to. */
 const doerOf = (c: CheckDto) => ({
   id: c.submittedById ?? c.workerId ?? null,
@@ -186,10 +190,10 @@ export function findChanges(context: CheckDto[]): TraceChange[] {
   return changes
 }
 
-function groupChecks(checks: CheckDto[], changes: TraceChange[], keyOf: (c: CheckDto) => string): TraceGroup[] {
+/** `keysOf`: the groups a check belongs to; a check with several Item Codes / PO Nos. counts in each. */
+function groupChecks(checks: CheckDto[], changes: TraceChange[], keysOf: (c: CheckDto) => string[]): TraceGroup[] {
   const groups = new Map<string, TraceGroup & { sets: { items: Set<string>; jobs: Set<string>; workers: Set<string>; machines: Set<string> } }>()
-  for (const c of checks) {
-    const key = keyOf(c)
+  for (const c of checks) for (const key of keysOf(c)) {
     const g =
       groups.get(key) ??
       {
@@ -204,8 +208,8 @@ function groupChecks(checks: CheckDto[], changes: TraceChange[], keyOf: (c: Chec
         sets: { items: new Set<string>(), jobs: new Set<string>(), workers: new Set<string>(), machines: new Set<string>() }
       }
     addCheck(g, c)
-    g.sets.items.add(itemCodeOf(c))
-    g.sets.jobs.add(jobNoOf(c))
+    for (const code of itemCodesOf(c)) g.sets.items.add(code)
+    for (const no of jobNosOf(c)) g.sets.jobs.add(no)
     g.sets.workers.add(doerOf(c).name)
     if (c.machineName) g.sets.machines.add(c.machineName)
     const at = whenOf(c)
@@ -216,10 +220,13 @@ function groupChecks(checks: CheckDto[], changes: TraceChange[], keyOf: (c: Chec
   const byCheck = new Map(checks.map((c) => [c.id, c]))
   for (const ch of changes) {
     const c = byCheck.get(ch.checkId)
-    const g = c && groups.get(keyOf(c))
-    if (!g) continue
-    g.changes++
-    if (ch.correction) g.corrections++
+    if (!c) continue
+    for (const key of keysOf(c)) {
+      const g = groups.get(key)
+      if (!g) continue
+      g.changes++
+      if (ch.correction) g.corrections++
+    }
   }
   return [...groups.values()]
     .map(({ sets, ...g }) => ({ ...g, itemCodes: sortText(sets.items), jobNos: sortText(sets.jobs), workers: sortText(sets.workers), machines: sortText(sets.machines) }))
@@ -239,23 +246,23 @@ export function buildTraceReport(checks: CheckDto[], context: CheckDto[]): Trace
   counts.changes = changes.length
   counts.corrections = changes.filter((ch) => ch.correction).length
 
-  const items = groupChecks(checks, changes, (c) => itemCodeOf(c).toLowerCase()).map((g) => ({ ...g, key: g.itemCodes[0] ?? '' }))
-  const jobs = groupChecks(checks, changes, (c) => jobNoOf(c).toLowerCase()).map((g) => ({ ...g, key: g.jobNos[0] ?? '' }))
+  // A group's key is its own code (shown as written), not the first of the codes its checks hold.
+  const items = groupChecks(checks, changes, (c) => itemCodesOf(c).map((v) => v.toLowerCase())).map((g) => ({ ...g, key: g.itemCodes.find((v) => v.toLowerCase() === g.key) ?? g.key.toUpperCase() }))
+  const jobs = groupChecks(checks, changes, (c) => jobNosOf(c).map((v) => v.toLowerCase())).map((g) => ({ ...g, key: g.jobNos.find((v) => v.toLowerCase() === g.key) ?? g.key }))
 
-  const workerGroups = groupChecks(checks, changes, (c) => doerOf(c).id ?? doerOf(c).name)
+  const workerGroups = groupChecks(checks, changes, (c) => [doerOf(c).id ?? doerOf(c).name])
   const workers: TraceWorker[] = workerGroups.map((g) => {
     const mine = checks.filter((c) => (doerOf(c).id ?? doerOf(c).name) === g.key)
     const doer = doerOf(mine[0])
     const perItem = new Map<string, WorkerItem & { jobSet: Set<string> }>()
-    for (const c of mine) {
-      const code = itemCodeOf(c)
+    for (const c of mine) for (const code of itemCodesOf(c)) {
       const row = perItem.get(code.toLowerCase()) ?? { itemCode: code, jobNos: [], checks: 0, completed: 0, missed: 0, exceptions: 0, changes: 0, jobSet: new Set<string>() }
       row.checks++
       if (c.result === 'COMPLETED') row.completed++
       if (c.result === 'MISSED') row.missed++
       if (c.result === 'EXCEPTION') row.exceptions++
       row.changes += changes.filter((ch) => ch.checkId === c.id).length
-      row.jobSet.add(jobNoOf(c))
+      for (const no of jobNosOf(c)) row.jobSet.add(no)
       perItem.set(code.toLowerCase(), row)
     }
     return {

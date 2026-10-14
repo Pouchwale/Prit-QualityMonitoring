@@ -1,9 +1,9 @@
 import React, { useCallback, useMemo, useState } from 'react'
-import { Clock3, HardHat, Info, KeyRound, Pencil, Plus, ShieldCheck, Smartphone, Trash2, UserCheck, Users, UserX } from 'lucide-react'
+import { Clock3, HardHat, Info, KeyRound, Pencil, Plus, ShieldCheck, Smartphone, Trash2, UserCheck, UserCog, Users, UserX } from 'lucide-react'
 import type { Department, Role, Shift, User, WorkerQualityRole } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { ROLE_LABEL, useAuth } from '../../lib/auth'
+import { ROLE_LABEL, useAuth, useCanActivate, ACTIVATION_HINT } from '../../lib/auth'
 import { formatClockRange, formatDateTime } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
@@ -17,7 +17,7 @@ import { RevealPasswordModal } from './RevealPasswordModal'
 import { DeleteRecordsModal } from '../../components/common/DeleteRecordsModal'
 import { BulkDeleteBar, RowCheckbox, useSelection } from '../../components/common/BulkSelection'
 import { useDeletePermissions } from '../../lib/deletePermissions'
-import { AdminDeletePermissions } from './AdminDeletePermissions'
+import { RoleChangeModal } from './RoleChangeModal'
 import { Pill, RoleBadge, UserAvatar } from '../../components/ui/Chips'
 import { Card, EmptyState } from '../../components/ui/Card'
 import { StatCard } from '../../components/ui/StatCard'
@@ -42,8 +42,8 @@ const QUALITY_ROLE_LABEL: Record<WorkerQualityRole, string> = {
 }
 
 /**
- * Accounts the signed-in user may create or edit. The backend enforces the same rule:
- * Super Admin → any; Admin → Managers and Workers; Manager with "Workers: manage" → Workers.
+ * Whose accounts the signed-in user may edit or disable (with Employee Management edit / delete).
+ * The backend enforces the same rule: Super Admin → any; Admin → Managers and Workers; Manager → Workers.
  */
 function manageableRoles(role: Role | undefined): Role[] {
   if (role === 'SUPER_ADMIN') return ['WORKER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN']
@@ -53,9 +53,9 @@ function manageableRoles(role: Role | undefined): Role[] {
 
 const ROLE_HINT: Record<Role, string> = {
   WORKER: 'Uses the worker app on Android, iPhone or PC',
-  MANAGER: 'Sees every department, with only the modules the Super Admin allows for Managers',
-  ADMIN: 'Full access, manages Manager and Worker accounts',
-  SUPER_ADMIN: 'Full access, including Admin accounts and Manager permissions'
+  MANAGER: 'Admin panel with the Manager role’s permissions (Roles & Permissions)',
+  ADMIN: 'Admin panel with the Admin role’s permissions (Roles & Permissions)',
+  SUPER_ADMIN: 'Everything, including roles, permissions and passwords'
 }
 
 /** IPQC / QC / both: a neutral outline chip, the text carries the meaning. */
@@ -103,10 +103,18 @@ const emptyForm: FormState = {
 }
 
 export const WorkersPage: React.FC = () => {
+  const canActivate = useCanActivate()
   const { user: me, can } = useAuth()
-  const canEdit = can('workers', 'manage')
+  // Employee Management in Roles & Permissions: add, edit and disable accounts.
+  const canCreate = can('workers', 'create')
+  const canEditAccounts = can('workers', 'edit')
+  // Disabling an account is deactivating it: the Super Admin only (lib/activation.ts on the server).
+  const canDisable = canActivate
   const allowedRoles = manageableRoles(me?.role)
-  const canEditUser = (u: User) => allowedRoles.includes(u.role)
+  const canEditUser = (u: User) => canEditAccounts && allowedRoles.includes(u.role)
+  // Promoting and demoting: the Super Admin only, never their own role (the server checks the same).
+  const isSuperAdmin = me?.role === 'SUPER_ADMIN'
+  const [changingRole, setChangingRole] = useState<User | null>(null)
   const notify = useToast()
   const usersApi = useApi<User[]>('/api/users')
   const departmentsApi = useApi<Department[]>('/api/departments')
@@ -175,7 +183,8 @@ export const WorkersPage: React.FC = () => {
   const canResetPassword = me?.role === 'SUPER_ADMIN' && !isSelf
 
   const openNew = () => {
-    setForm({ ...emptyForm, role: tab !== 'ALL' && allowedRoles.includes(tab) ? tab : 'WORKER', workerQualityRole: 'IPQC' })
+    // Only the Super Admin creates staff accounts; everyone else adds Workers.
+    setForm({ ...emptyForm, role: isSuperAdmin && tab !== 'ALL' ? tab : 'WORKER', workerQualityRole: 'IPQC' })
     setFormError(null)
     setEditing('new')
   }
@@ -228,8 +237,21 @@ export const WorkersPage: React.FC = () => {
         await api.post('/api/users', body)
         notify('success', 'User created', `${body.name} can sign in with employee ID ${body.employeeId}.`)
       } else if (editing) {
-        await api.put(`/api/users/${editing.id}`, body)
-        notify('success', 'User updated', form.password ? `${body.name}. Password changed; they have been signed out.` : body.name)
+        const saved = await api.put<User & { scheduleSync?: { schedules: number; removedUpcomingChecks: number } }>(`/api/users/${editing.id}`, body)
+        // A new shift moves the worker's Check Schedules with it (saved together on the server).
+        const moved = saved.scheduleSync?.schedules ?? 0
+        const shiftName = shifts.find((s) => s.id === body.shiftId)?.name
+        notify(
+          'success',
+          'User updated',
+          [
+            body.name,
+            form.password ? 'Password changed; they have been signed out.' : null,
+            moved ? `${moved} check schedule${moved === 1 ? '' : 's'} moved to ${shiftName ?? 'the new shift'}.` : null
+          ]
+            .filter(Boolean)
+            .join(' ')
+        )
       }
       setEditing(null)
       usersApi.reload()
@@ -263,7 +285,7 @@ export const WorkersPage: React.FC = () => {
         description={usersApi.data ? `${users.length} ${users.length === 1 ? 'account' : 'accounts'} · ${kpi.active} active` : 'Shop-floor workers, managers and administrators'}
         info="Accounts for shop-floor workers, managers and administrators. Workers sign in to the mobile app with their employee ID; managers and admins use this web console."
         actions={
-          canEdit && (
+          canCreate && (
             <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
               Add User
             </Button>
@@ -371,7 +393,7 @@ export const WorkersPage: React.FC = () => {
                     <th className="hidden xl:table-cell">Department</th>
                     <th>Access</th>
                     <th className="hidden xl:table-cell">Last login</th>
-                    {(canEdit || canDeleteUsers) && (
+                    {(canEditAccounts || canDisable || canViewPasswords || canDeleteUsers) && (
                       <th className="text-right">
                         <span className="sr-only">Actions</span>
                       </th>
@@ -438,7 +460,7 @@ export const WorkersPage: React.FC = () => {
                         <td className="hidden xl:table-cell whitespace-nowrap text-ink-secondary tabular-nums">
                           {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : <span className="text-ink-faint">Never</span>}
                         </td>
-                        {(canEdit || canDeleteUsers) && (
+                        {(canEditAccounts || canDisable || canViewPasswords || canDeleteUsers) && (
                           <td className="text-right whitespace-nowrap" data-label="">
                             <div className="inline-flex items-center gap-0.5">
                               {canEditUser(u) && (
@@ -446,12 +468,17 @@ export const WorkersPage: React.FC = () => {
                                   <Pencil className="w-3.5 h-3.5" />
                                 </IconButton>
                               )}
+                              {isSuperAdmin && !self && (
+                                <IconButton label={`Change role of ${u.name}`} onClick={() => setChangingRole(u)}>
+                                  <UserCog className="w-3.5 h-3.5" />
+                                </IconButton>
+                              )}
                               {canViewPasswords && (
                                 <IconButton label={`View password of ${u.name}`} onClick={() => setRevealing(u)}>
                                   <KeyRound className="w-3.5 h-3.5" />
                                 </IconButton>
                               )}
-                              {u.isActive && !self && canEditUser(u) && (
+                              {u.isActive && !self && canDisable && (
                                 <IconButton label={`Disable ${u.name}`} tone="danger" onClick={() => setDisabling(u)}>
                                   <UserX className="w-3.5 h-3.5" />
                                 </IconButton>
@@ -475,9 +502,9 @@ export const WorkersPage: React.FC = () => {
         </Card>
       </DataState>
 
-      <ShiftSignInStatusCard />
+      {can('shift_signin') && <ShiftSignInStatusCard />}
 
-      {me?.role === 'SUPER_ADMIN' && <AdminDeletePermissions key={usersApi.data?.filter((u) => u.role === 'ADMIN').map((u) => u.id).join()} />}
+      <RoleChangeModal key={changingRole?.id ?? 'none'} user={changingRole} onClose={() => setChangingRole(null)} onChanged={usersApi.reload} />
 
       <Modal
         isOpen={editing !== null}
@@ -506,9 +533,23 @@ export const WorkersPage: React.FC = () => {
             <Field label="Full name" required>
               <TextInput value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="e.g. Ravi Patel" maxLength={120} />
             </Field>
-            <Field label="Role" required hint={isSelf ? 'You cannot change your own role' : ROLE_HINT[form.role]}>
-              <Select value={form.role} onChange={(e) => set('role', e.target.value as Role)} disabled={isSelf || allowedRoles.length === 1}>
-                {(isSelf ? [form.role] : allowedRoles).map((r) => (
+            <Field
+              label="Role"
+              required
+              hint={
+                isSelf
+                  ? 'You cannot change your own role'
+                  : editing !== 'new'
+                    ? isSuperAdmin
+                      ? 'Change the role with the Change role button in the list'
+                      : 'Only the Super Admin can change roles'
+                    : ROLE_HINT[form.role]
+              }
+            >
+              {/* A new account's role: any for the Super Admin, Worker for everyone else. An existing
+                  account's role is changed with "Change role" (confirmed, audited), not here. */}
+              <Select value={form.role} onChange={(e) => set('role', e.target.value as Role)} disabled={editing !== 'new' || !isSuperAdmin}>
+                {(editing !== 'new' ? [form.role] : isSuperAdmin ? allowedRoles : (['WORKER'] as Role[])).map((r) => (
                   <option key={r} value={r}>
                     {ROLE_LABEL[r]}
                   </option>
@@ -571,9 +612,9 @@ export const WorkersPage: React.FC = () => {
             <Toggle
               checked={form.isActive}
               onChange={(v) => set('isActive', v)}
-              disabled={isSelf}
+              disabled={isSelf || !canActivate}
               label="Active"
-              description={isSelf ? 'You cannot disable your own account' : 'Disabled users cannot sign in'}
+              description={!canActivate ? ACTIVATION_HINT : isSelf ? 'You cannot disable your own account' : 'Disabled users cannot sign in'}
             />
             <Toggle
               checked={form.appAccess}

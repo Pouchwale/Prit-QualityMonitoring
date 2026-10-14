@@ -357,6 +357,14 @@ function parameterRows(check: CheckDto, limits: Map<string, { min: number | null
 
 const SUBMISSION_LABEL: Record<string, string> = { NOTIFICATION: 'Notification', MANUAL: 'Manual' }
 
+/** "1 photo, 1 video", or "None": an exception's evidence by kind. */
+function evidenceCount(media: { kind: string }[]) {
+  const photos = media.filter((m) => m.kind === 'PHOTO').length
+  const videos = media.filter((m) => m.kind === 'VIDEO').length
+  const parts = [photos ? `${photos} photo${photos === 1 ? '' : 's'}` : '', videos ? `${videos} video${videos === 1 ? '' : 's'}` : ''].filter(Boolean)
+  return parts.length ? parts.join(', ') : 'None'
+}
+
 /** Builds the whole report for a date range. */
 export async function buildQualityReport(
   filters: ReportFilters,
@@ -430,7 +438,7 @@ export async function buildQualityReport(
       shiftName: c.shiftName ?? DASH,
       status: c.status,
       result: resultLabel(c),
-      exception: c.exception?.reason ?? DASH,
+      exception: c.exception ? [c.exception.reason, c.exception.reading].filter(Boolean).join(' · ') : DASH,
       remarks: [itemCodeOf(c) ? `Item Code ${itemCodeOf(c)}` : null, jobNoOf(c) ? `PO No. ${jobNoOf(c)}` : null].filter(Boolean).join(' · ') || DASH
     }
   })
@@ -491,9 +499,9 @@ export async function buildQualityReport(
         activityName: c.activityName,
         workerName: `${worker.name} (${worker.employeeId})`,
         shiftName: c.shiftName ?? DASH,
-        reason: exc.reason,
+        reason: exc.reading ? `${exc.reason} (${exc.reading})` : exc.reason,
         description: exc.remark ?? NO_REASON,
-        evidence: exc.media.length ? `${exc.media.length} photo${exc.media.length === 1 ? '' : 's'}` : 'None',
+        evidence: evidenceCount(exc.media),
         remarks: exc.reviewedByName ? `Reviewed by ${exc.reviewedByName}` : DASH,
         status: EXCEPTION_STATE[exc.status] ?? exc.status,
         action: exc.resolutionNotes ?? NOT_AVAILABLE
@@ -636,7 +644,7 @@ export async function buildQualityReport(
         activityName: c.activityName,
         workerName: workerOf(c).name,
         shiftName: c.shiftName ?? DASH,
-        description: `${c.exception!.reason}${c.exception!.remark ? ` — ${c.exception!.remark}` : ''}`,
+        description: `${c.exception!.reason}${c.exception!.reading ? ` (${c.exception!.reading})` : ''}${c.exception!.remark ? ` — ${c.exception!.remark}` : ''}`,
         status: EXCEPTION_STATE[c.exception!.status] ?? c.exception!.status,
         action: c.exception!.resolutionNotes ?? NOT_AVAILABLE,
         capa: NOT_AVAILABLE

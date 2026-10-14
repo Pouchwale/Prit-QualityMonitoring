@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import type { Access, CurrentUser, ModuleKey, Role } from '../types'
+import type { Access, Action, CurrentUser, ModuleKey, Role } from '../types'
 import { ApiError, api, clearTokens, errorText, hasSession, isSessionChange, login as apiLogin, logout as apiLogout, onUnauthorized } from './api'
 import { sessionEnded, signOutIntent } from './routes'
 
@@ -12,10 +12,10 @@ interface AuthContextValue {
    */
   connectionError: string | null
   /** True when the user has at least `level` on the module. */
-  can: (module: ModuleKey, level?: Exclude<Access, 'none'>) => boolean
+  can: (module: ModuleKey, level?: Exclude<Access, 'none'> | Action) => boolean
   /** Admin or Super Admin: every module, and the Manager and Worker accounts. */
   isAdmin: boolean
-  /** Super Admin: also Admin accounts, and the only one who sets the Manager role's permissions (Manager Access). */
+  /** Super Admin: every permission, and the only one who changes roles and permissions (Roles & Permissions). */
   isSuperAdmin: boolean
   login: (employeeId: string, password: string) => Promise<void>
   logout: () => Promise<void>
@@ -138,10 +138,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setConnectionError(null)
   }, [])
 
+  /**
+   * Whether the user may do `level` in the module: view, create, edit or delete, or "manage" for any
+   * of create, edit and delete. The server checks the same on every request.
+   */
   const can = useCallback(
-    (module: ModuleKey, level: Exclude<Access, 'none'> = 'view') => {
+    (module: ModuleKey, level: Exclude<Access, 'none'> | Action = 'view') => {
+      const actions = user?.actions?.[module]
+      if (actions) return level === 'manage' ? actions.create || actions.edit || actions.delete : !!actions[level]
+      // A server without the action matrix: the one-word summary.
       const access = user?.permissions?.[module] ?? 'none'
-      return level === 'manage' ? access === 'manage' : access !== 'none'
+      return level === 'view' ? access !== 'none' : access === 'manage'
     },
     [user]
   )
@@ -159,9 +166,34 @@ export function useAuth() {
   return ctx
 }
 
-/** Whether the signed-in user may change things in this module. */
+/** Whether the signed-in user may change anything in this module (create, edit or delete). */
 export function useCanManage(module: ModuleKey) {
   return useAuth().can(module, 'manage')
+}
+
+/**
+ * Whether the signed-in user may activate or deactivate records (accounts, machines, check types, …):
+ * the Super Admin only, never part of the permission matrix. The server refuses everyone else.
+ */
+export function useCanActivate() {
+  return useAuth().user?.role === 'SUPER_ADMIN'
+}
+
+/** Shown on an active switch for everyone but the Super Admin. */
+export const ACTIVATION_HINT = 'Only the Super Admin can activate or deactivate.'
+
+/** Whether the signed-in user may do one action in the module. */
+export function useCan(module: ModuleKey, action: Action) {
+  return useAuth().can(module, action)
+}
+
+/** Each write action in the module, and whether any is allowed (e.g. to show an Actions column). */
+export function useModuleActions(module: ModuleKey) {
+  const { can } = useAuth()
+  const canCreate = can(module, 'create')
+  const canEdit = can(module, 'edit')
+  const canDelete = can(module, 'delete')
+  return { canCreate, canEdit, canDelete, canWrite: canCreate || canEdit || canDelete }
 }
 
 export const ROLE_LABEL: Record<Role, string> = {

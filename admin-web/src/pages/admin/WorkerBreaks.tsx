@@ -38,7 +38,9 @@ const toHHMM = (minutes: number) => {
 const lengthOf = (start: string, end: string) => (toMinutes(end) - toMinutes(start) + 1440) % 1440
 const durationText = (minutes: number) => (minutes >= 60 ? `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ''}` : `${minutes} min`)
 
-export const WorkerBreaksCard: React.FC<{ canEdit: boolean }> = ({ canEdit }) => {
+export const WorkerBreaksCard: React.FC<{ canEdit: boolean; canDelete: boolean }> = ({ canEdit: canSet, canDelete }) => {
+  // Setting a break is Shifts edit, removing one Shifts delete (the server checks the same).
+  const canEdit = canSet || canDelete
   const notify = useToast()
   const { data, error, loading, reload } = useApi<WorkerBreakRow[]>('/api/shifts/breaks')
   const [search, setSearch] = useState('')
@@ -152,10 +154,12 @@ export const WorkerBreaksCard: React.FC<{ canEdit: boolean }> = ({ canEdit }) =>
                     <td className="whitespace-nowrap tabular-nums">{r.durationMinutes ? durationText(r.durationMinutes) : <span className="text-ink-muted">—</span>}</td>
                     {canEdit && (
                       <td className="text-right whitespace-nowrap">
-                        <IconButton label={r.startTime ? `Edit ${r.name}'s break` : `Set ${r.name}'s break`} onClick={() => openEdit(r)}>
-                          <Pencil className="w-3.5 h-3.5" />
-                        </IconButton>
-                        {r.startTime && (
+                        {canSet && (
+                          <IconButton label={r.startTime ? `Edit ${r.name}'s break` : `Set ${r.name}'s break`} onClick={() => openEdit(r)}>
+                            <Pencil className="w-3.5 h-3.5" />
+                          </IconButton>
+                        )}
+                        {canDelete && r.startTime && (
                           <IconButton label={`Remove ${r.name}'s break`} tone="danger" onClick={() => setRemoving(r)}>
                             <Trash2 className="w-3.5 h-3.5" />
                           </IconButton>

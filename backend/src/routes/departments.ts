@@ -7,6 +7,7 @@ import { idParam } from '../lib/validate'
 import { badRequest, notFound } from '../lib/http'
 import { audit, snapshot } from '../lib/audit'
 import { deleteOrDisable } from '../lib/crud'
+import { denyActivation, isSuperAdmin } from '../lib/activation'
 
 export const departmentsRouter = Router()
 
@@ -85,7 +86,7 @@ departmentsRouter.delete('/:id', async (req, res) => {
       union all select 1 from activities where department_id = ${id}
       limit 1`)
     return found.rows.length > 0
-  })
+  }, { canDisable: isSuperAdmin(req), deny: () => denyActivation(req, 'Department', id, { reason: 'Deleting would deactivate it: it has history' }) })
   await audit(req, result === 'deleted' ? 'DELETE_DEPARTMENT' : 'DISABLE_DEPARTMENT', 'Department', id)
   res.json({ result })
 })

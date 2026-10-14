@@ -24,7 +24,7 @@ import {
 import type { Department, Parameter, ParameterType } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { useCanManage } from '../../lib/auth'
+import { useModuleActions, useCanActivate, ACTIVATION_HINT } from '../../lib/auth'
 import { PARAMETER_TYPE_LABEL } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { Modal } from '../../components/common/Modal'
@@ -139,7 +139,8 @@ const bodyFromParameter = (p: Parameter): ParameterBody => ({
 const toNumberOrNull = (value: string) => (value.trim() === '' ? null : Number(value))
 
 export const ParametersPage: React.FC = () => {
-  const canEdit = useCanManage('parameters')
+  const canActivate = useCanActivate()
+  const { canCreate, canEdit, canDelete, canWrite } = useModuleActions('parameters')
   const notify = useToast()
   const { data, error, loading, reload, setData } = useApi<Parameter[]>('/api/parameters')
   const { data: departments } = useApi<Department[]>('/api/departments')
@@ -297,7 +298,7 @@ export const ParametersPage: React.FC = () => {
         description={data ? `${activeCount} active · ${parameters.length} total` : 'Fields workers fill in during a check'}
         info="Fields workers fill in during a quality check. Add parameters here, then place them on check types."
         actions={
-          canEdit && (
+          canCreate && (
             <Button size="sm" variant="primary" onClick={openAdd} icon={<Plus className="w-3.5 h-3.5" />}>
               Add Parameter
             </Button>
@@ -365,7 +366,7 @@ export const ParametersPage: React.FC = () => {
                     <th>Default</th>
                     <th className="num">Used in</th>
                     <th>Status</th>
-                    {canEdit && <th className="text-right">Actions</th>}
+                    {canWrite && <th className="text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -463,24 +464,27 @@ export const ParametersPage: React.FC = () => {
                       <td className="whitespace-nowrap">
                         <StatusBadge status={p.isActive ? 'ACTIVE' : 'DISABLED'} size="sm" />
                       </td>
-                      {canEdit && (
+                      {canWrite && (
                         <td className="text-right whitespace-nowrap" data-label="">
                           <div className="inline-flex items-center gap-0.5">
-                            <IconButton label={`Edit ${p.name}`} onClick={() => openEdit(p)}>
+                            {canEdit && (<IconButton label={`Edit ${p.name}`} onClick={() => openEdit(p)}>
                               <Pencil className="w-3.5 h-3.5" />
-                            </IconButton>
-                            <IconButton
-                              label={p.isActive ? `Disable ${p.name} (hide from worker forms)` : `Enable ${p.name} (show on worker forms)`}
-                              onClick={() => toggleActive(p)}
-                              disabled={busyId === p.id}
-                              aria-busy={busyId === p.id || undefined}
-                              className={p.isActive ? '' : 'text-success'}
-                            >
-                              {busyId === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Power className="w-3.5 h-3.5" />}
-                            </IconButton>
-                            <IconButton label={`Delete ${p.name}`} tone="danger" onClick={() => setDeleting(p)}>
+                            </IconButton>)}
+                            {/* Enabling / disabling: the Super Admin only. */}
+                            {canActivate && (
+                              <IconButton
+                                label={p.isActive ? `Disable ${p.name} (hide from worker forms)` : `Enable ${p.name} (show on worker forms)`}
+                                onClick={() => toggleActive(p)}
+                                disabled={busyId === p.id}
+                                aria-busy={busyId === p.id || undefined}
+                                className={p.isActive ? '' : 'text-success'}
+                              >
+                                {busyId === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Power className="w-3.5 h-3.5" />}
+                              </IconButton>
+                            )}
+                            {canDelete && (<IconButton label={`Delete ${p.name}`} tone="danger" onClick={() => setDeleting(p)}>
                               <Trash2 className="w-3.5 h-3.5" />
-                            </IconButton>
+                            </IconButton>)}
                           </div>
                         </td>
                       )}
@@ -704,9 +708,10 @@ export const ParametersPage: React.FC = () => {
             />
             <Toggle
               checked={form.isActive}
+              disabled={!canActivate}
               onChange={(v) => update('isActive', v)}
               label="Active"
-              description="Disabled parameters are hidden from all worker forms."
+              description={canActivate ? 'Disabled parameters are hidden from all worker forms.' : ACTIVATION_HINT}
             />
           </div>
 

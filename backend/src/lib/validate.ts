@@ -18,16 +18,30 @@ export const optionalText = (max = 200) =>
  * (utils/itemCode.ts) and the admin panel (lib/itemCode.ts) copy this pattern and message.
  */
 export const ITEM_CODE_PATTERN = /^(FGPO|FGLA|FGSL)\d+$/
-export const ITEM_CODE_ERROR = 'Invalid Item Code. Only FGPO, FGLA, or FGSL followed by numbers are allowed. Example: FGPO123.'
+export const ITEM_CODE_ERROR = 'Invalid Item Code. Only FGPO, FGLA, or FGSL followed by numbers are allowed. Example: FGPO123 (several: FGPO123, FGPO234).'
 
 /**
- * An Item Code as typed, trimmed and upper-cased ("fgpo123" -> "FGPO123"); empty stays empty.
- * Anything else that does not match is refused (400), never corrected.
+ * Several Item Codes or PO Nos. in one field, separated by commas ("FGPO123, fgpo234"): each one
+ * trimmed (Item Codes also upper-cased), empty parts and repeats dropped. One value gives a list of one.
+ */
+export function splitCodes(raw: string | null | undefined, upper = true): string[] {
+  const seen = new Map<string, string>()
+  for (const part of (raw ?? '').split(',')) {
+    const value = upper ? part.trim().toUpperCase() : part.trim()
+    if (value && !seen.has(value.toLowerCase())) seen.set(value.toLowerCase(), value)
+  }
+  return [...seen.values()]
+}
+
+/**
+ * The Item Code(s) as typed, trimmed and upper-cased: one ("fgpo123" -> "FGPO123") or several
+ * separated by commas ("fgpo123,FGPO234" -> "FGPO123, FGPO234"); empty stays empty. Every code must
+ * match the format; anything else is refused (400), never corrected.
  */
 export function validItemCode(raw: string | null | undefined): string {
-  const code = (raw ?? '').trim().toUpperCase()
-  if (code && !ITEM_CODE_PATTERN.test(code)) throw badRequest(ITEM_CODE_ERROR)
-  return code
+  const codes = splitCodes(raw)
+  if (codes.some((code) => !ITEM_CODE_PATTERN.test(code))) throw badRequest(ITEM_CODE_ERROR)
+  return codes.join(', ')
 }
 
 /**
@@ -52,3 +66,23 @@ export const optionalUuid = z
   .union([z.uuid(), z.literal(''), z.null()])
   .optional()
   .transform((v) => (v ? v : null))
+
+/**
+ * A reading an exception reason asks for (e.g. White Viscosity → Viscosity in sec): a number above 0,
+ * at most 2 decimals, below 100000. Commas and spaces are not part of a number here ("21,5" is
+ * refused, not guessed). `what` names it in the error, e.g. "Viscosity (sec)".
+ */
+export function validReading(raw: unknown, what: string): number {
+  const text = typeof raw === 'number' ? String(raw) : typeof raw === 'string' ? raw.trim() : ''
+  if (!text) throw badRequest(`Enter the ${what} value`)
+  if (!/^\d{1,5}(\.\d{1,2})?$/.test(text) || Number(text) <= 0) {
+    throw badRequest(`Enter a valid ${what} value: a number above 0 with at most 2 decimals, e.g. 21.5`)
+  }
+  return Number(text)
+}
+
+/** "Viscosity: 21.5 sec", for every place an exception is shown; null when the exception has no reading. */
+export function readingText(e: { readingLabel: string | null; readingValue: number | null; readingUnit: string | null }): string | null {
+  if (e.readingValue === null || e.readingValue === undefined) return null
+  return `${e.readingLabel ?? 'Reading'}: ${e.readingValue}${e.readingUnit ? ` ${e.readingUnit}` : ''}`
+}

@@ -25,18 +25,24 @@ async function disable(table: PgTable & { id: PgColumn; isActive: PgColumn }, id
 export async function deleteOrDisable(
   table: PgTable & { id: PgColumn; isActive: PgColumn },
   id: string,
-  inUse?: () => Promise<boolean>
+  inUse?: () => Promise<boolean>,
+  /**
+   * Disabling is deactivating, which only the Super Admin may do (lib/activation.ts): for anyone
+   * else `deny` is called instead (it throws), and the record stays as it is.
+   */
+  options: { canDisable: boolean; deny: () => Promise<never> } = { canDisable: true, deny: async () => { throw new Error('denied') } }
 ): Promise<'deleted' | 'disabled'> {
-  if (inUse && (await inUse())) {
+  const disableOrDeny = async () => {
+    if (!options.canDisable) await options.deny()
     await disable(table, id)
-    return 'disabled'
+    return 'disabled' as const
   }
+  if (inUse && (await inUse())) return disableOrDeny()
   try {
     await db.delete(table).where(eq(table.id, id))
     return 'deleted'
   } catch (err) {
     if (!isForeignKeyError(err)) throw err
-    await disable(table, id)
-    return 'disabled'
+    return disableOrDeny()
   }
 }

@@ -5,12 +5,21 @@ import { db } from '../db/client'
 import { shifts, users, workerBreaks } from '../db/schema'
 import { hhmm, idParam } from '../lib/validate'
 import { badRequest, notFound } from '../lib/http'
+import { requireModule } from '../lib/permissions'
 import { audit, snapshot } from '../lib/audit'
 import { deleteOrDisable } from '../lib/crud'
+import { denyActivation, isSuperAdmin } from '../lib/activation'
 import { invalidateCheckGeneration, removeUpcomingChecks } from '../services/checkGenerator'
 import { getShiftLoginSettings, saveShiftLoginSettings } from '../services/workerShifts'
+import { getWifiRule, saveWifiRule } from '../services/wifiRule'
 
 export const shiftsRouter = Router()
+
+/**
+ * Shift Sign-In rules and the Company Wi-Fi rule: their own modules in the permission matrix
+ * (shift_signin, wifi_rule: view and edit), mounted at /api/shifts before the Shifts router.
+ */
+export const shiftAccessRouter = Router()
 
 const input = z.object({
   name: z.string().trim().min(1, 'Name is required').max(100),
@@ -23,8 +32,8 @@ const input = z.object({
 
 /**
  * Shift sign-in rules for workers (services/workerShifts.ts): reminders at shift start and their
- * interval and number, logout at shift end, and how early a worker may sign in. Read with the shift
- * list; changed with Shifts manage (the router's guard).
+ * interval and number, logout at shift end, and how early a worker may sign in. Shift Sign-In view
+ * to read, edit to change.
  */
 const loginSettingsInput = z.object({
   enabled: z.boolean(),
@@ -34,11 +43,11 @@ const loginSettingsInput = z.object({
   earlyLoginMinutes: z.coerce.number().int().min(0).max(240)
 })
 
-shiftsRouter.get('/login-settings', async (_req, res) => {
+shiftAccessRouter.get('/login-settings', requireModule('shift_signin', 'view'), async (_req, res) => {
   res.json(await getShiftLoginSettings())
 })
 
-shiftsRouter.put('/login-settings', async (req, res) => {
+shiftAccessRouter.put('/login-settings', requireModule('shift_signin', 'edit'), async (req, res) => {
   const next = loginSettingsInput.parse(req.body)
   const before = await getShiftLoginSettings()
   await saveShiftLoginSettings(next)
@@ -107,6 +116,29 @@ shiftsRouter.delete('/breaks/:workerId', async (req, res) => {
   res.status(204).end()
 })
 
+/**
+ * Company Wi-Fi alert rule (services/wifiRule.ts): Company Wi-Fi view to read, edit to change (the
+ * Super Admin always; others only when granted in Roles & Permissions).
+ */
+const wifiRuleInput = z.object({
+  enabled: z.boolean(),
+  freshMinutes: z.coerce.number().int().min(3, 'At least 3 minutes').max(60),
+  probeMinutes: z.coerce.number().int().min(2, 'At least 2 minutes').max(30)
+})
+
+shiftAccessRouter.get('/wifi-rule', requireModule('wifi_rule', 'view'), async (_req, res) => {
+  res.json(await getWifiRule())
+})
+
+shiftAccessRouter.put('/wifi-rule', requireModule('wifi_rule', 'edit'), async (req, res) => {
+  const next = wifiRuleInput.parse(req.body)
+  if (next.probeMinutes >= next.freshMinutes) throw badRequest('Probe more often than the "seen within" time, or phones drop out between probes.')
+  const before = await getWifiRule()
+  await saveWifiRule(next)
+  await audit(req, 'UPDATE_WIFI_ALERT_RULE', 'Settings', 'wifiAlertRule', { oldValue: before, newValue: next })
+  res.json(next)
+})
+
 shiftsRouter.get('/', async (_req, res) => {
   const rows = await db.select().from(shifts).orderBy(asc(shifts.startTime))
   res.json(rows)
@@ -141,7 +173,7 @@ shiftsRouter.delete('/:id', async (req, res) => {
       union all select 1 from job_handovers where to_shift_id = ${id}
       limit 1`)
     return found.rows.length > 0
-  })
+  }, { canDisable: isSuperAdmin(req), deny: () => denyActivation(req, 'Shift', id, { reason: 'Deleting would deactivate it: it has history' }) })
   await audit(req, result === 'deleted' ? 'DELETE_SHIFT' : 'DISABLE_SHIFT', 'Shift', id)
   res.json({ result })
 })

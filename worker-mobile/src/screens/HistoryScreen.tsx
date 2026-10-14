@@ -39,7 +39,11 @@ function dayLabel(iso: string) {
 
 const HistoryRow: React.FC<{ item: HistoryItem; onPress: () => void }> = ({ item, onPress }) => {
   const when = item.submittedAt ?? item.scheduledAt
-  const extra = item.exceptionReason ?? (item.jobNo ? `PO No. ${item.jobNo}` : null)
+  const extra = item.exceptionReason
+    ? [item.exceptionReason, item.exceptionReading].filter(Boolean).join(' · ')
+    : item.jobNo
+      ? `PO No. ${item.jobNo}`
+      : null
   // The department saved with the record; left out when the check type already carries its name (Label · Label).
   const department = item.departmentName && item.departmentName.toLowerCase() !== item.activityName.toLowerCase() ? item.departmentName : null
   return (

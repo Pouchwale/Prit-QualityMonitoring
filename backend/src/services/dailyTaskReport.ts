@@ -1,10 +1,12 @@
 import { and, eq, isNull, ne, or } from 'drizzle-orm'
 import { db } from '../db/client'
-import { reportEmailLogs, reportEmailSettings } from '../db/schema'
+import { reportEmailSettings } from '../db/schema'
 import { addDays, atTime, dateKey, formatDateKey, startOfDay } from '../lib/time'
 import { getCompanyPlantName, getReportSharingSettings, sampleEligibleChecks } from './automatedReports'
 import { renderCrystalReportPdf } from './crystalReportPdf'
-import { createTransporter, resolveSmtpConfig, scoreSummary, scoreSummaryHtml } from './reportEmailer'
+import { scoreSummary, scoreSummaryHtml } from './reportEmailer'
+import { sendLoggedEmail, smtpOf } from './reportDelivery'
+import { deliveryError } from './automatedReports'
 
 /**
  * Daily previous-day task report: when the Automated schedule's Email frequency is "Daily
@@ -127,39 +129,29 @@ async function sendDailyTaskReport(settings: Settings, now: Date, by?: { id?: st
 </body>
 </html>`
 
-  let status = 'SUCCESS'
-  let errorMessage: string | null = null
-  try {
-    const smtp = { host: settings.smtpHost, port: settings.smtpPort, secure: settings.smtpSecure, user: settings.smtpUser, pass: settings.smtpPass, from: settings.smtpFrom }
-    await createTransporter(smtp).sendMail({
-      from: resolveSmtpConfig(smtp).from,
-      to: settings.recipients.join(', '),
+  // Logged and sent by services/reportDelivery.ts: a temporary failure is retried there (the same
+  // email, to the recipients it failed for), and the automatic one alerts the Super Admin.
+  const delivery = await sendLoggedEmail({
+    log: {
+      trigger: 'DAILY',
+      recipients: settings.recipients,
+      subject,
+      // The checks in the attached Quality Inspection Report (none when nothing was attached).
+      checkIds: attachment?.checkIds ?? [],
+      checksCount: assigned,
+      percentage: attachment ? settings.percentage : null,
+      pdfSizeBytes: attachment?.pdf.length ?? null,
+      periodFrom: day,
+      periodTo: today,
+      ...(by ? { sentById: by.id ?? null, sentByName: by.name ?? null } : {})
+    },
+    mail: {
       subject,
       html,
       attachments: attachment ? [{ filename: `Quality_Inspection_Report_${attachment.reportId}.pdf`, content: attachment.pdf, contentType: 'application/pdf' }] : []
-    })
-    console.log(`[Daily task report] Sent the ${dayKey} report to ${settings.recipients.length} recipient(s).`)
-  } catch (err) {
-    // ponytail: no retry later the same day (it would resend every minute while the mail server is
-    // down); the FAILED row in the email log shows it, and the next day's report goes out as usual.
-    status = 'FAILED'
-    errorMessage = err instanceof Error ? err.message : String(err)
-    console.error('[Daily task report] Sending failed:', err)
-  }
-  await db.insert(reportEmailLogs).values({
-    trigger: 'DAILY',
-    status,
-    recipients: settings.recipients,
-    subject,
-    // The checks in the attached Quality Inspection Report (none when nothing was attached).
-    checkIds: attachment?.checkIds ?? [],
-    checksCount: assigned,
-    percentage: attachment ? settings.percentage : null,
-    pdfSizeBytes: attachment?.pdf.length ?? null,
-    periodFrom: day,
-    periodTo: today,
-    errorMessage,
-    ...(by ? { sentById: by.id ?? null, sentByName: by.name ?? null } : {})
+    },
+    smtp: smtpOf(settings)
   })
-  return { success: status === 'SUCCESS', error: errorMessage, subject, attached: attachment ? attachment.checks : 0 }
+  console.log(`[Daily task report] The ${dayKey} report: ${delivery.status} (${delivery.sent.length} of ${settings.recipients.length} recipient(s)).`)
+  return { success: delivery.status === 'SENT', status: delivery.status, error: deliveryError(delivery) ?? null, subject, attached: attachment ? attachment.checks : 0 }
 }

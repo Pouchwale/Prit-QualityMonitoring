@@ -44,11 +44,11 @@ export const NAV_LABEL: Record<NavTab, string> = {
   'department-config': 'Department Configuration',
   shifts: 'Shifts',
   'audit-logs': 'Audit Logs',
-  access: 'Manager Access',
+  access: 'Roles & Permissions',
   account: 'My Account'
 }
 
-/** The permission module behind each page. Manager Access (Super Admin only) and My Account are not modules. */
+/** The permission module behind each page. Roles & Permissions (Super Admin only) and My Account are not modules. */
 export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
   dashboard: 'dashboard',
   checks: 'checks',
@@ -81,7 +81,7 @@ export function useCanOpen() {
   const { can, isSuperAdmin } = useAuth()
   return (tab: NavTab) => {
     if (tab === 'account') return true
-    // Only the Super Admin sets the Manager role's permissions (the backend refuses everyone else).
+    // Only the Super Admin sets roles' and users' permissions (the backend refuses everyone else).
     if (tab === 'access') return isSuperAdmin
     const module = NAV_MODULE[tab]
     return module ? can(module) : false

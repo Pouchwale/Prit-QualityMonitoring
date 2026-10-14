@@ -1,9 +1,10 @@
-import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { db } from '../db/client'
 import { activities, jobs, machines, moduleNotificationAssignments, parameters, pushTokens, qualityChecks, users } from '../db/schema'
 import { sendWebPush, type WebSubscription } from './webPush'
 import { fcmEnabled, sendFcmAlert } from './fcm'
 import { machineOffBetween } from './plantCalendar'
+import { alertableUsers } from './wifiRule'
 import { dateKey } from '../lib/time'
 
 /**
@@ -148,7 +149,9 @@ export async function checkPushReceipts() {
  */
 async function recipients(
   check: { id: string; module: 'IPQC' | 'QC'; workerId?: string | null; machineId?: string | null; shiftId?: string | null },
-  moduleUsers: Map<string, string | null>
+  moduleUsers: Map<string, string | null>,
+  /** Company Wi-Fi rule on: only devices seen on company Wi-Fi since then (services/wifiRule.ts). */
+  seenSince?: Date
 ) {
   const targetUserId = check.workerId ?? moduleUsers.get(check.module)
   if (!targetUserId) {
@@ -168,7 +171,15 @@ async function recipients(
     .from(users)
     .innerJoin(pushTokens, eq(pushTokens.userId, users.id))
     // Only phones where the worker is signed in; a signed-out phone only gets shift login reminders.
-    .where(and(eq(users.id, targetUserId), eq(users.isActive, true), eq(users.appAccess, true), isNull(pushTokens.signedOutAt)))
+    .where(
+      and(
+        eq(users.id, targetUserId),
+        eq(users.isActive, true),
+        eq(users.appAccess, true),
+        isNull(pushTokens.signedOutAt),
+        seenSince ? gte(pushTokens.onNetworkAt, seenSince) : undefined
+      )
+    )
 }
 
 /** Item Codes are read out one character at a time ("R M L A 1 2 3 4 5"), which voices say clearly. */
@@ -246,7 +257,7 @@ const jobStillNeedsIt = or(
 )!
 
 export async function notifyDueChecks() {
-  const candidates = await db
+  let candidates = await db
     .select({
       id: qualityChecks.id,
       machineId: qualityChecks.machineId,
@@ -277,6 +288,24 @@ export async function notifyDueChecks() {
     .limit(200)
 
   if (candidates.length === 0) return { checks: 0, messages: 0 }
+
+  // Configured notification recipients for IPQC and QC (checks with no worker go to them).
+  const assignments = await db
+    .select({ module: moduleNotificationAssignments.module, userId: moduleNotificationAssignments.userId })
+    .from(moduleNotificationAssignments)
+  const moduleUsers = new Map(assignments.map((a) => [a.module, a.userId]))
+  const targetOf = (c: (typeof candidates)[number]) => c.workerId ?? moduleUsers.get((c.checkModule ?? c.activityModule ?? 'IPQC') as string) ?? null
+
+  // Company Wi-Fi rule (services/wifiRule.ts): while it is on, an alert waits until its worker is on
+  // shift and has a phone seen on company Wi-Fi. It is not claimed, so it goes out once that is true
+  // (while the check is still open); nothing changes when the rule is off.
+  const gate = await alertableUsers(candidates.map(targetOf).filter((id): id is string => !!id))
+  if (gate) {
+    const held = candidates.filter((c) => { const t = targetOf(c); return !t || !gate.allowed.has(t) })
+    if (held.length) console.log(`[Wi-Fi rule] Holding ${held.length} check alert(s): worker off shift or not seen on company Wi-Fi`)
+    candidates = candidates.filter((c) => !held.includes(c))
+    if (candidates.length === 0) return { checks: 0, messages: 0 }
+  }
 
   // Claim them first, in one statement that checks the job again: a check whose job was ended,
   // completed or force-closed a moment ago (its check removed, or the job no longer in that state) is
@@ -329,17 +358,11 @@ export async function notifyDueChecks() {
   const messages: { fcmToken: string | null; message: ExpoMessage }[] = []
   const browserSends: { targets: { token: string; subscription: WebSubscription }[]; title: string; body: string; checkId: string }[] = []
 
-  // Load configured notification recipients for IPQC and QC
-  const assignments = await db
-    .select({ module: moduleNotificationAssignments.module, userId: moduleNotificationAssignments.userId })
-    .from(moduleNotificationAssignments)
-  const moduleUsers = new Map(assignments.map((a) => [a.module, a.userId]))
-
   for (const check of due) {
     // A closed day (Week Off, holiday, shutdown) sends no alert, with or without a machine on the check.
     if (machineOff(check.machineId ?? null, dateKey(check.scheduledAt))) continue
     const module = (check.checkModule ?? check.activityModule ?? 'IPQC') as 'IPQC' | 'QC'
-    const devices = await recipients({ ...check, module }, moduleUsers)
+    const devices = await recipients({ ...check, module }, moduleUsers, gate?.seenSince)
     const browsers = devices.filter((d) => d.kind === 'web' && d.subscription)
     if (browsers.length) {
       browserSends.push({

@@ -115,6 +115,30 @@ export function shiftBlocksAt(list: ShiftRow[], at: Date) {
   return { current, next }
 }
 
+/**
+ * Whether each worker is on shift at `now` (their account's shift and their schedules' shifts):
+ * true / false, or null for a worker who has no shift at all (not restricted by shifts).
+ */
+export async function onShiftNow(workerIds: string[], now = new Date()): Promise<Map<string, boolean | null>> {
+  const result = new Map<string, boolean | null>()
+  if (!workerIds.length) return result
+  const [people, shiftRows, scheduleRows] = await Promise.all([
+    db.select({ id: users.id, shiftId: users.shiftId }).from(users).where(inArray(users.id, workerIds)),
+    db.select({ id: shifts.id, name: shifts.name, startTime: shifts.startTime, endTime: shifts.endTime }).from(shifts).where(eq(shifts.isActive, true)),
+    db
+      .select({ workerId: schedules.workerId, shiftId: schedules.shiftId })
+      .from(schedules)
+      .where(and(eq(schedules.isActive, true), inArray(schedules.workerId, workerIds), isNotNull(schedules.shiftId)))
+  ])
+  const byId = new Map(shiftRows.map((s) => [s.id, s]))
+  for (const p of people) {
+    const ids = new Set([p.shiftId, ...scheduleRows.filter((s) => s.workerId === p.id).map((s) => s.shiftId)])
+    const list = [...ids].map((id) => (id ? byId.get(id) : undefined)).filter((s): s is ShiftRow => !!s)
+    result.set(p.id, list.length ? !!shiftBlocksAt(list, now).current : null)
+  }
+  return result
+}
+
 /** The active shifts a worker works: the one on their account and those of their schedules. */
 export async function workerShiftList(workerId: string): Promise<ShiftRow[]> {
   const [user] = await db.select({ shiftId: users.shiftId }).from(users).where(eq(users.id, workerId))
@@ -333,6 +357,8 @@ export interface WorkerShiftStatus {
    * null. Then the worker is not expected to sign in: shown as off, not as "not signed in".
    */
   dayOff: string | null
+  /** The last time one of the worker's signed-in devices reached the server (on company Wi-Fi). */
+  wifiSeenAt: string | null
   nextShiftStart: string | null
   loggedIn: boolean
   loginAt: string | null
@@ -362,6 +388,12 @@ export async function workerShiftStatuses(now = new Date()): Promise<WorkerShift
     // The last two days are enough to show the current and the previous shift.
     db.select().from(workerShiftLogins).where(sql`${workerShiftLogins.shiftEnd} > ${addDays(now, -2)}`)
   ])
+  const seenRows = await db
+    .select({ userId: pushTokens.userId, at: sql<Date | null>`max(${pushTokens.onNetworkAt})` })
+    .from(pushTokens)
+    .where(isNull(pushTokens.signedOutAt))
+    .groupBy(pushTokens.userId)
+  const seenBy = new Map(seenRows.map((r) => [r.userId, r.at ? new Date(r.at) : null]))
   const shiftById = new Map(shiftRows.map((s) => [s.id, s]))
   // A closed day (Week Off, holiday, shutdown), judged by the shift's start date as the sign-in reminders are.
   const closedByDay = new Map<string, string | null>()
@@ -388,6 +420,7 @@ export async function workerShiftStatuses(now = new Date()): Promise<WorkerShift
       shiftEnd: current?.end.toISOString() ?? null,
       onShift: !!current && !dayOff,
       dayOff,
+      wifiSeenAt: seenBy.get(w.id)?.toISOString() ?? null,
       nextShiftStart: next?.start.toISOString() ?? null,
       loggedIn,
       loginAt: loggedIn ? latestLogin!.lastLoginAt?.toISOString() ?? latestLogin!.loginAt!.toISOString() : null,

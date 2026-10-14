@@ -180,6 +180,7 @@ export const JobScreen: React.FC<Props> = ({ jobId, onBack, onOpenCheck }) => {
                       {c.exception ? (
                         <Text className="mt-2 text-[15px] text-exception">
                           Exception: {c.exception.reason}
+                          {c.exception.reading ? ` · ${c.exception.reading}` : ''}
                           {c.exception.remark ? ` — ${c.exception.remark}` : ''}
                         </Text>
                       ) : null}

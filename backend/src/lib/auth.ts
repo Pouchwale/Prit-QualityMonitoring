@@ -7,7 +7,7 @@ import { config } from '../config'
 import { db } from '../db/client'
 import { users } from '../db/schema'
 import { HttpError } from './http'
-import { loadPermissions, type Permissions, type Role } from './permissions'
+import { loadAccess, type ActionMatrix, type Permissions, type Role } from './permissions'
 import { encryptPassword } from './passwordVault'
 
 export type { Role } from './permissions'
@@ -21,7 +21,9 @@ export interface AuthUser {
   employeeId: string
   role: Role
   app: ClientApp
-  /** Effective module permissions, loaded from the database on every request. */
+  /** What the user may do in each module (view, create, edit, delete), loaded from the database on every request. */
+  actions: ActionMatrix
+  /** The same as one word per module (none / view / manage), for older readers. */
   permissions: Permissions
   /** A worker's sign-in tied to their shift: when it ends (ISO). Null when not limited by a shift. */
   sessionEndsAt?: string | null
@@ -174,7 +176,7 @@ export const authenticate: RequestHandler = async (req, _res, next) => {
     employeeId: user.employeeId,
     role: user.role,
     app,
-    permissions: await loadPermissions(user.id, user.role),
+    ...(await loadAccess(user.id, user.role)),
     sessionEndsAt: payload.sx ? new Date(payload.sx * 1000).toISOString() : null
   }
   next()

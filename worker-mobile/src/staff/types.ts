@@ -291,6 +291,8 @@ export interface CheckValue {
 export interface CheckException {
   id: string
   reason: string
+  /** The reading the reason asked for, e.g. "Viscosity: 21.5 sec" (null: none). */
+  reading?: string | null
   remark: string | null
   status: ExceptionStatus
   reviewedByName: string | null

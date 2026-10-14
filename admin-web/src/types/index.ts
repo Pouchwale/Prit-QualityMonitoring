@@ -3,8 +3,8 @@
 export type Role = 'WORKER' | 'MANAGER' | 'ADMIN' | 'SUPER_ADMIN'
 
 /**
- * Admin-panel modules the Super Admin can give the Manager role (backend/src/lib/permissions.ts).
- * Export (PDF, CSV and print) is view-only; Score Settings is the worker score rule.
+ * Admin-panel modules in the permission matrix (backend/src/lib/permissions.ts), set by the Super
+ * Admin for the Admin and Manager roles and, where needed, for one user.
  */
 export type ModuleKey =
   | 'dashboard'
@@ -12,7 +12,6 @@ export type ModuleKey =
   | 'jobs'
   | 'exceptions'
   | 'reports'
-  | 'export'
   | 'machines'
   | 'parameters'
   | 'activities'
@@ -24,15 +23,49 @@ export type ModuleKey =
   | 'settings'
   | 'calendar'
   | 'performance'
+  | 'shift_signin'
+  | 'wifi_rule'
+  // Worker app features (Worker role)
+  | 'app_jobs'
+  | 'app_performance'
+  | 'app_history'
 
+/** The older one-word summary per module: manage = any of create, edit, delete. */
 export type Access = 'none' | 'view' | 'manage'
-export type Permissions = Record<ModuleKey, Access>
+export type Permissions = Record<ModuleKey | 'export', Access>
+
+/** What can be allowed in a module (backend lib/permissions.ts). */
+export type Action = 'view' | 'create' | 'edit' | 'delete' | 'approve' | 'export'
+export type ActionSet = Record<Action, boolean>
+export type ActionMatrix = Record<ModuleKey, ActionSet>
 
 export interface ModuleInfo {
   key: ModuleKey
   label: string
   description: string
+  /** The actions that mean something for this module (e.g. the dashboard can only be viewed). */
+  actions: Action[]
+  /** What an action allows in this module, when it is not obvious. */
+  notes?: Partial<Record<Action, string>>
+  /** panel: admin-panel module (Admin, Manager); worker: worker app feature (Worker). */
+  audience?: 'panel' | 'worker'
+  /** Its records have an active switch: activating / deactivating them is the Super Admin's alone. */
+  activation?: boolean
   viewOnly?: boolean
+}
+
+/** Roles & Permissions (Super Admin): both roles' permissions and the accounts they apply to. */
+export interface PermissionMatrixData {
+  roles: Record<'ADMIN' | 'MANAGER' | 'WORKER', ActionMatrix>
+  users: (ManagerAccount & { role: 'ADMIN' | 'MANAGER'; overrides: number })[]
+}
+
+/** One Admin's or Manager's permissions: their role's, their own rows (replacing the role's), the result. */
+export interface UserPermissionData {
+  user: { id: string; name: string; employeeId: string; role: 'ADMIN' | 'MANAGER'; isActive: boolean }
+  role: ActionMatrix
+  overrides: Partial<ActionMatrix>
+  effective: ActionMatrix
 }
 
 /** A Manager account, as listed on Manager Access. */
@@ -85,7 +118,9 @@ export interface CurrentUser {
   shiftName: string | null
   shiftStartTime: string | null
   shiftEndTime: string | null
-  /** What this user may use; Admins and Super Admins have manage on everything, every Manager the Manager role's set. */
+  /** View / create / edit / delete per module: the role's permissions with the user's own on top (Super Admin: everything). */
+  actions?: ActionMatrix
+  /** The same as one word per module (older servers send only this). */
   permissions: Permissions
 }
 
@@ -339,6 +374,8 @@ export interface CheckException {
   id: string
   reason: string
   remark: string | null
+  /** The reading the reason asked for, e.g. "Viscosity: 21.5 sec" (null: none). */
+  reading?: string | null
   status: ExceptionStatus
   reviewedByName: string | null
   resolutionNotes: string | null
@@ -391,6 +428,9 @@ export interface QualityCheck {
 }
 
 /** A configurable "Not Applicable" reason offered to workers (GET /api/monitoring-reasons). */
+/** Whether a piece of evidence is asked for with an exception: not at all, optional, or required. */
+export type EvidenceRule = 'OFF' | 'OPTIONAL' | 'REQUIRED'
+
 export interface MonitoringReason {
   id: string
   label: string
@@ -398,6 +438,12 @@ export interface MonitoringReason {
   requiresRemark: boolean
   /** Exception reasons only: the exception must name the PO No. / Item Code as well as the machine. */
   requiresJobDetails?: boolean
+  /** Exception reasons only: photo and video evidence, each OFF / OPTIONAL / REQUIRED. */
+  photoEvidence?: EvidenceRule
+  videoEvidence?: EvidenceRule
+  /** Exception reasons only: a reading the worker must enter (e.g. "Viscosity"), and its unit; null: none. */
+  readingLabel?: string | null
+  readingUnit?: string | null
   isActive: boolean
   sortOrder: number
 }
@@ -753,13 +799,28 @@ export interface ReportSharingSettings {
   smtpFrom: string | null
   /** Send time (HH:MM) of the daily previous-day task report (frequencyMode DAILY_REPORT). */
   dailyReportTime?: string
+  /** Where failure alerts of automated report emails go; set by the Super Admin only. */
+  failureAlertEmail?: string | null
   updatedAt?: string
+}
+
+/**
+ * A report email's delivery (backend services/reportDelivery.ts). SENT means the mail server
+ * accepted it, not that it was received or read.
+ */
+export type DeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'RETRYING'
+
+export interface RecipientDelivery {
+  email: string
+  status: DeliveryStatus
+  error?: string | null
+  at?: string | null
 }
 
 export interface ReportEmailLog {
   id: string
   trigger: 'AUTO' | 'MANUAL' | 'DAILY'
-  status: 'SUCCESS' | 'FAILED'
+  status: DeliveryStatus
   recipients: string[]
   subject: string
   checkIds: string[]
@@ -773,6 +834,45 @@ export interface ReportEmailLog {
   sentAt: string
   sentById: string | null
   sentByName: string | null
+  /** Each recipient's delivery; empty on emails from before delivery tracking. */
+  recipientStatus?: RecipientDelivery[]
+  attempts?: number
+  lastAttemptAt?: string | null
+  nextRetryAt?: string | null
+  failureKind?: 'TEMPORARY' | 'PERMANENT' | null
+  recoveredAt?: string | null
+}
+
+/** A failed automated report email, for the Super Admin's popup. */
+export interface ReportEmailAlert {
+  id: string
+  logId: string
+  failedAt: string
+  errorMessage: string | null
+  failedRecipients: string[]
+  alertEmailStatus: 'SENT' | 'FAILED' | 'NOT_CONFIGURED' | 'SKIPPED' | null
+  alertEmailTo: string | null
+  alertEmailError: string | null
+  alertEmailAt: string | null
+  readAt: string | null
+  dismissedAt: string | null
+  scheduleName: string
+  canRetry: boolean
+  email: {
+    id: string
+    trigger: string
+    subject: string
+    recipients: string[]
+    status: DeliveryStatus
+    attempts: number
+    nextRetryAt: string | null
+    failureKind: string | null
+    recoveredAt: string | null
+    errorMessage: string | null
+    recipientStatus: RecipientDelivery[]
+    sentAt: string
+    retryStatus: string
+  }
 }
 
 export interface SamplePreviewResult {

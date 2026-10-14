@@ -634,6 +634,12 @@ export const getHandoverOptions = (jobId: string) => request<HandoverOptions>('G
 export const handoverJob = (jobId: string, data: { toUserId: string; shiftId: string | null; note: string }) =>
   request<{ job: Job; movedChecks: number }>('POST', `/api/worker/jobs/${jobId}/handover`, data)
 
+/**
+ * This device can reach the plant server, so it is on company Wi-Fi now (Company Wi-Fi rule). Sent while
+ * the app is open; `token` names this phone (or browser) among the worker's devices.
+ */
+export const reportPresence = (token?: string | null) => request<void>('POST', '/api/worker/presence', token ? { token } : {})
+
 export const registerPushToken = (token: string, platform: string, fcmToken?: string) =>
   request<void>('PUT', '/api/worker/push-token', fcmToken ? { token, platform, fcmToken } : { token, platform })
 
@@ -741,7 +747,7 @@ export function submitCheck(checkId: string, data: CheckSubmission, onProgress?:
 
 export function submitException(
   checkId: string,
-  data: { reason: string; remark: string; photo: Capture; itemCode: string; jobNo: string; machineId?: string },
+  data: { reason: string; remark: string; readingValue?: string; photo: Capture | null; video: Capture | null; itemCode: string; jobNo: string; machineId?: string },
   onProgress?: UploadProgress
 ) {
   return upload<CheckSummary>(
@@ -754,8 +760,16 @@ export function submitException(
       form.append('jobNo', data.jobNo)
       if (data.machineId) form.append('machineId', data.machineId)
       form.append('deviceInfo', deviceInfo())
-      form.append('photoCapturedAt', data.photo.capturedAt)
-      appendFile(form, 'photo', data.photo)
+      if (data.readingValue) form.append('readingValue', data.readingValue)
+      if (data.photo) {
+        form.append('photoCapturedAt', data.photo.capturedAt)
+        appendFile(form, 'photo', data.photo)
+      }
+      if (data.video) {
+        form.append('videoCapturedAt', data.video.capturedAt)
+        if (data.video.durationSeconds != null) form.append('videoDurationSeconds', String(data.video.durationSeconds))
+        appendFile(form, 'video', data.video)
+      }
       return form
     },
     onProgress

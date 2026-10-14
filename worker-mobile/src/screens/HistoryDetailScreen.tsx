@@ -207,7 +207,7 @@ export const HistoryDetailScreen: React.FC<Props> = ({ checkId, onClose }) => {
             ) : null}
 
             <MediaBlock media={overallMedia} title="Whole check" />
-            {record.exception ? <MediaBlock media={record.exception.media} title="Exception photo" /> : null}
+            {record.exception ? <MediaBlock media={record.exception.media} title="Exception evidence" /> : null}
 
             <View>
               <SectionHeader title="Details" />
@@ -232,6 +232,7 @@ export const HistoryDetailScreen: React.FC<Props> = ({ checkId, onClose }) => {
                 <SectionHeader title="Exception" />
                 <ListGroup>
                   <DetailRow label="Reason" value={record.exception.reason} />
+                  {record.exception.reading ? <DetailRow label="Reading" value={record.exception.reading} /> : null}
                   {record.exception.remark ? <DetailRow label="Remark" value={record.exception.remark} /> : null}
                   <DetailRow label="Status" value={record.exception.status === 'RESOLVED' ? 'Recorded' : (EXCEPTION_STATUS[record.exception.status] ?? record.exception.status)} />
                   {record.exception.resolutionNotes ? (

@@ -48,6 +48,8 @@ export const config = {
   accessTokenTtl: '12h' as const,
   refreshTokenTtl: '30d' as const,
   uploadDir: path.resolve(process.cwd(), process.env.UPLOAD_DIR ?? 'uploads'),
+  /** Report emails as sent (.eml), kept so a failed one can be sent again unchanged (services/reportDelivery.ts). Never served. */
+  reportOutboxDir: path.resolve(process.cwd(), process.env.REPORT_OUTBOX_DIR ?? 'report-outbox'),
   maxVideoSeconds: 60,
   maxPhotoBytes: 15 * 1024 * 1024,
   maxVideoBytes: 500 * 1024 * 1024,

@@ -11,6 +11,7 @@ import { Sidebar, NAV_LABEL, NAV_ORDER, useCanOpen, type NavTab } from './compon
 import { LOGIN_PATH, MONITORING_LABEL, MONITORING_TAB_LABEL, NAV_PATH, checkPath, isMonitoringTab, safeNext, signOutIntent, tabFromPath } from './lib/routes'
 import { MonitoringTabs } from './components/layout/MonitoringTabs'
 import { Topbar } from './components/layout/Topbar'
+import { ReportEmailFailurePopup } from './components/layout/ReportEmailFailurePopup'
 import { LoginPage } from './pages/LoginPage'
 
 import { DashboardPage } from './pages/admin/DashboardPage'
@@ -30,7 +31,7 @@ import { WorkersPage } from './pages/admin/WorkersPage'
 import { ShiftsPage } from './pages/admin/ShiftsPage'
 import { PlantCalendarPage } from './pages/admin/PlantCalendarPage'
 import { AuditLogsPage } from './pages/admin/AuditLogsPage'
-import { ManagerAccessPage } from './pages/admin/ManagerAccessPage'
+import { RolesPermissionsPage } from './pages/admin/RolesPermissionsPage'
 import { AccountPage } from './pages/admin/AccountPage'
 
 /** Redirects to the first page this user may open (e.g. "/" or a page whose access was removed). */
@@ -205,13 +206,15 @@ const Shell: React.FC = () => {
             <Route path={NAV_PATH.workers} element={<Guard tab="workers"><WorkersPage /></Guard>} />
             <Route path={NAV_PATH.shifts} element={<Guard tab="shifts"><ShiftsPage /></Guard>} />
             <Route path={NAV_PATH['audit-logs']} element={<Guard tab="audit-logs"><AuditLogsPage /></Guard>} />
-            <Route path={NAV_PATH.access} element={<Guard tab="access"><ManagerAccessPage /></Guard>} />
+            <Route path={NAV_PATH.access} element={<Guard tab="access"><RolesPermissionsPage /></Guard>} />
             <Route path={NAV_PATH.account} element={<AccountPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
           </div>
         </main>
       </div>
+      {/* Failed automated report emails: the Super Admin only (the server refuses everyone else). */}
+      {user.role === 'SUPER_ADMIN' && <ReportEmailFailurePopup />}
     </div>
   )
 }

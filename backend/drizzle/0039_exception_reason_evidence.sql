@@ -1,0 +1,2 @@
+ALTER TABLE "exception_reasons" ADD COLUMN "photo_evidence" text DEFAULT 'REQUIRED' NOT NULL;--> statement-breakpoint
+ALTER TABLE "exception_reasons" ADD COLUMN "video_evidence" text DEFAULT 'OFF' NOT NULL;

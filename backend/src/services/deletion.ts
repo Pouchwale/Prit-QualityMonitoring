@@ -392,6 +392,7 @@ const DELETED_WITH_USER = [
   'job_handovers.to_user_id',
   'push_tokens.user_id',
   'manager_permissions.user_id',
+  'user_permissions.user_id',
   'voice_events.user_id',
   // An older table some databases still have (not used by the app any more).
   'worker_shift_sessions.worker_id',
@@ -424,7 +425,9 @@ const DETACHED_LABEL: Record<string, string> = {
   'department_mappings.updated_by_id': 'Department mappings edited',
   'module_notification_assignments.user_id': 'Notification module phone assignments',
   'module_notification_assignments.updated_by_id': 'Notification module assignments edited',
-  'report_email_logs.sent_by_id': 'Report emails sent'
+  'report_email_logs.sent_by_id': 'Report emails sent',
+  'report_email_alerts.read_by_id': 'Report email failure alerts opened',
+  'report_email_alerts.dismissed_by_id': 'Report email failure alerts dismissed'
 }
 const KEPT_WITH_USER = ['audit_logs.user_id']
 const USER_REFERENCES = [...DELETED_WITH_USER, ...Object.keys(DETACHED_LABEL), ...KEPT_WITH_USER]

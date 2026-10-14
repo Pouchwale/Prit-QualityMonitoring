@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
+import { useWorkerFeatures } from '../worker/features'
 import { View, Text, ScrollView, Pressable, ActivityIndicator } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AssignedMachine, Profile, VoiceLanguage } from '../types'
@@ -60,6 +61,7 @@ const VOICE_LANGUAGES: { key: VoiceLanguage; label: string }[] = [
 ]
 
 export const ProfileScreen: React.FC<Props> = ({ profile, onLogout }) => {
+  const features = useWorkerFeatures()
   const insets = useSafeAreaInsets()
   const [machines, setMachines] = useState<AssignedMachine[] | null>(null)
   const [alertsOn, setAlertsOn] = useState<boolean | null>(null)
@@ -182,11 +184,16 @@ export const ProfileScreen: React.FC<Props> = ({ profile, onLogout }) => {
             </View>
           </View>
 
-          <MyPerformanceCard />
+          {/* The worker's own scores: when the Super Admin allows it for workers. */}
+          {features.performance ? (
+            <>
+              <MyPerformanceCard />
 
-          <MyOverallCard />
+              <MyOverallCard />
 
-          <MyWeekCard />
+              <MyWeekCard />
+            </>
+          ) : null}
 
           <ListGroup>
             <Row label="Employee ID" value={profile.employeeId} />

@@ -3,7 +3,7 @@ import { CalendarRange, CalendarX2, Lock, Plus, StopCircle, Trash2 } from 'lucid
 import type { WeeklyRule } from '../../../types'
 import { api, errorText } from '../../../lib/api'
 import { useApi } from '../../../lib/useApi'
-import { useCanManage } from '../../../lib/auth'
+import { useModuleActions } from '../../../lib/auth'
 import { WEEKDAY_NAMES } from '../../../lib/closureTypes'
 import { addDaysKey, dateKey, formatDateKey } from '../../../lib/format'
 import { Button } from '../../../components/common/Button'
@@ -42,7 +42,7 @@ const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
  * past, so earlier dates keep the rules that applied to them.
  */
 export const WeeklyRulesTab: React.FC = () => {
-  const canEdit = useCanManage('calendar')
+  const { canCreate, canEdit, canDelete, canWrite } = useModuleActions('calendar')
   const notify = useToast()
   const { data, error, loading, reload } = useApi<RulesResponse>('/api/weekly-rules')
   const legacy = useApi<{ weeklyOffDays: number[] }>('/api/plant-closures/settings')
@@ -76,7 +76,7 @@ export const WeeklyRulesTab: React.FC = () => {
             subtitle={`Closed weekdays from ${data ? fullDate(data.startsOn) : '01/01/2027'}`}
             info={`The plant is closed on these weekdays from ${data ? fullDate(data.startsOn) : '01/01/2027'} onwards, in every year, unless a date in the annual calendar says otherwise (an Adjustment Working Day opens it).`}
             actions={
-              canEdit && (
+              canCreate && (
                 <Button size="sm" variant="primary" onClick={() => setAdding(true)} icon={<Plus className="w-3.5 h-3.5" />}>
                   Add weekly rule
                 </Button>
@@ -95,7 +95,7 @@ export const WeeklyRulesTab: React.FC = () => {
                     <th>Until</th>
                     <th>Status</th>
                     <th>Note</th>
-                    {canEdit && <th className="text-right">Actions</th>}
+                    {canWrite && <th className="text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -122,15 +122,15 @@ export const WeeklyRulesTab: React.FC = () => {
                           </span>
                         </td>
                         <td className="text-ink-secondary">{rule.note || <span className="text-ink-faint">—</span>}</td>
-                        {canEdit && (
+                        {canWrite && (
                           <td className="text-right whitespace-nowrap" data-label="">
                             <div className="inline-flex items-center gap-0.5">
-                              {status !== 'ENDED' && (
+                              {canEdit && status !== 'ENDED' && (
                                 <IconButton label={rule.effectiveTo ? `Change end of the ${day} rule` : `End the ${day} rule`} onClick={() => setEnding(rule)}>
                                   <StopCircle className="w-3.5 h-3.5" />
                                 </IconButton>
                               )}
-                              {!started && (
+                              {canDelete && !started && (
                                 <IconButton label={`Delete the ${day} rule`} tone="danger" onClick={() => setDeleting(rule)}>
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </IconButton>

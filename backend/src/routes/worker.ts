@@ -22,8 +22,9 @@ import {
   shifts,
   users,
 } from '../db/schema'
-import { exceptionDetailsError, idParam, validItemCode } from '../lib/validate'
+import { exceptionDetailsError, idParam, readingText, validItemCode, validReading } from '../lib/validate'
 import { badRequest, conflict, forbidden, notFound } from '../lib/http'
+import { requireModule } from '../lib/permissions'
 import { audit } from '../lib/audit'
 import { MINUTE, addDays, dateKey, parseDateKey, startOfDay } from '../lib/time'
 import { countChecks, listChecks, type CheckDto } from '../services/checks'
@@ -75,6 +76,7 @@ import {
 } from '../services/uploads'
 import { kickVideoOptimization } from '../services/mediaOptimizer'
 import { overallScores, performanceOf, weeklyScores } from '../services/performance'
+import { markOnNetwork } from '../services/wifiRule'
 import { performanceRange } from './performance'
 import { shiftAt } from '../services/shiftTime'
 import { loadProfile } from './auth'
@@ -231,6 +233,16 @@ async function formParameters(activityId: string, only: string[] | null = null) 
   return only ? rows.filter((p) => only.includes(p.id)) : rows
 }
 
+/**
+ * The Worker role's switchable app features (Roles & Permissions → Worker): starting, ending and
+ * handing over jobs, the worker's own performance and check history. Doing checks and reporting
+ * exceptions are always allowed. The app hides what is off (profile.actions); these refuse it too.
+ */
+const jobStart = requireModule('app_jobs', 'create')
+const jobChange = requireModule('app_jobs', 'edit')
+const ownPerformance = requireModule('app_performance', 'view')
+const ownHistory = requireModule('app_history', 'view')
+
 workerRouter.get('/profile', async (req, res) => {
   // sessionEndsAt: the end of the worker's shift, when this sign-in ends (null: not limited by a shift).
   res.json({ ...(await loadProfile(req.user!.id)), sessionEndsAt: req.user!.sessionEndsAt ?? null })
@@ -310,11 +322,22 @@ workerRouter.put('/push-token', async (req, res) => {
 
   await db
     .insert(pushTokens)
-    .values({ userId: req.user!.id, ...row })
+    .values({ userId: req.user!.id, ...row, onNetworkAt: new Date() })
     .onConflictDoUpdate({
       target: pushTokens.token,
-      set: { userId: req.user!.id, kind: row.kind, subscription: row.subscription, platform: row.platform, fcmToken: row.fcmToken, lastSeenAt: new Date(), signedOutAt: null }
+      set: { userId: req.user!.id, kind: row.kind, subscription: row.subscription, platform: row.platform, fcmToken: row.fcmToken, lastSeenAt: new Date(), signedOutAt: null, onNetworkAt: new Date() }
     })
+  res.status(204).end()
+})
+
+/**
+ * The app reports that it can reach this server, so this device is on company Wi-Fi now (Company
+ * Wi-Fi rule, services/wifiRule.ts). `token`: the phone's push token; the web app, which has none at
+ * hand, marks this worker's browsers.
+ */
+workerRouter.post('/presence', async (req, res) => {
+  const body = z.object({ token: z.string().trim().min(1).max(4096).optional() }).parse(req.body ?? {})
+  await markOnNetwork(body.token ? { token: body.token, userId: req.user!.id } : { webOfUser: req.user!.id })
   res.status(204).end()
 })
 
@@ -666,7 +689,7 @@ async function assertJobWorker(userId: string, jobId: string) {
  * response lists them, with the department. The worker is the signed-in account, never one named in
  * the request.
  */
-workerRouter.post('/machines/:machineId/jobs', async (req, res) => {
+workerRouter.post('/machines/:machineId/jobs', jobStart, async (req, res) => {
   const machineId = idParam(req, 'machineId')
   const body = z
     .object({
@@ -715,7 +738,7 @@ workerRouter.post('/machines/:machineId/jobs', async (req, res) => {
  * End Job, from the button or from "Continue or end?" after a check. The Job End check(s) are
  * created; the job completes when they are submitted (at once when there are none).
  */
-workerRouter.post('/jobs/:id/end', async (req, res) => {
+workerRouter.post('/jobs/:id/end', jobChange, async (req, res) => {
   const jobId = idParam(req)
   const job = await assertJobWorker(req.user!.id, jobId)
   const ended = await requestEnd(jobId, req.user!.id)
@@ -732,7 +755,7 @@ workerRouter.post('/jobs/:id/end', async (req, res) => {
 })
 
 /** Workers who can take over the job, with their shift (for the handover sheet). */
-workerRouter.get('/jobs/:id/handover-options', async (req, res) => {
+workerRouter.get('/jobs/:id/handover-options', jobChange, async (req, res) => {
   const job = await assertJobWorker(req.user!.id, idParam(req))
   const [workers, shiftRows] = await Promise.all([
     db
@@ -750,7 +773,7 @@ workerRouter.get('/jobs/:id/handover-options', async (req, res) => {
 })
 
 /** Handover Job: the running job and its open checks move to the chosen worker, who is notified. */
-workerRouter.post('/jobs/:id/handover', async (req, res) => {
+workerRouter.post('/jobs/:id/handover', jobChange, async (req, res) => {
   const jobId = idParam(req)
   const body = z
     .object({ toUserId: z.uuid('Choose the worker'), shiftId: z.uuid().nullish(), note: z.string().trim().max(500).optional() })
@@ -824,7 +847,7 @@ workerRouter.get('/jobs/:id', async (req, res) => {
           notApplicable: v.notApplicable,
           naReason: v.naReason
         })),
-        exception: c.exception ? { reason: c.exception.reason, remark: c.exception.remark } : null
+        exception: c.exception ? { reason: c.exception.reason, remark: c.exception.remark, reading: c.exception.reading } : null
       }))
   })
 })
@@ -1033,7 +1056,7 @@ workerRouter.get('/checks/today', async (req, res) => {
  * "My performance": this worker's own figures only. The worker id comes from the signed-in
  * account, never from the request, so nobody can read another worker's score here.
  */
-workerRouter.get('/performance', async (req, res) => {
+workerRouter.get('/performance', ownPerformance, async (req, res) => {
   const q = z.object({ date: z.string().optional(), from: z.string().optional(), to: z.string().optional() }).parse(req.query)
   const { from, to } = performanceRange(q)
   res.json({ from, to, ...(await performanceOf(req.user!.id, { from, to })) })
@@ -1044,7 +1067,7 @@ workerRouter.get('/performance', async (req, res) => {
  * worker is always the one signed in: no worker id is read from the request, so nobody else's
  * scores can be asked for. `?week=YYYY-MM-DD` is any day of the week; nothing means this week.
  */
-workerRouter.get('/performance/weekly', async (req, res) => {
+workerRouter.get('/performance/weekly', ownPerformance, async (req, res) => {
   const q = z.object({ week: z.string().optional() }).parse(req.query)
   let day: Date
   try {
@@ -1059,13 +1082,13 @@ workerRouter.get('/performance/weekly', async (req, res) => {
 })
 
 /** The signed-in worker's own overall score, from their first check up to now (nobody else's). */
-workerRouter.get('/performance/overall', async (req, res) => {
+workerRouter.get('/performance/overall', ownPerformance, async (req, res) => {
   const [mine] = await overallScores(req.user!.id)
   res.json({ asOf: dateKey(new Date()), since: mine?.since ?? null, overall: mine?.overall ?? null })
 })
 
 /** Filter options for the history screen: only machines this worker has records for. */
-workerRouter.get('/history/filters', async (req, res) => {
+workerRouter.get('/history/filters', ownHistory, async (req, res) => {
   const scope = await workerScope(req.user!.id)
   const rows = await db
     .selectDistinct({
@@ -1091,7 +1114,7 @@ workerRouter.get('/history/filters', async (req, res) => {
 })
 
 /** Everything this worker has submitted, newest first, one page at a time. */
-workerRouter.get('/checks/history', async (req, res) => {
+workerRouter.get('/checks/history', ownHistory, async (req, res) => {
   const q = z
     .object({
       page: z.coerce.number().int().min(1).default(1),
@@ -1145,6 +1168,7 @@ workerRouter.get('/checks/history', async (req, res) => {
       machineName: c.machineName,
       departmentName: c.departmentName,
       exceptionReason: c.exception?.reason ?? null,
+      exceptionReading: c.exception?.reading ?? null,
       photoUrl: c.media.find((m) => m.kind === 'PHOTO')?.url ?? c.exception?.media.find((m) => m.kind === 'PHOTO')?.url ?? null,
       hasVideo: c.media.some((m) => m.kind === 'VIDEO'),
       valueCount: c.values.length
@@ -1157,7 +1181,7 @@ workerRouter.get('/checks/history', async (req, res) => {
 })
 
 /** One submitted record with all its values and evidence. */
-workerRouter.get('/checks/:id/record', async (req, res) => {
+workerRouter.get('/checks/:id/record', ownHistory, async (req, res) => {
   const check = await loadWorkerCheck(req.user!.id, idParam(req))
   res.json({
     ...summary(check),
@@ -1226,7 +1250,15 @@ workerRouter.get('/checks/:id', async (req, res) => {
     overallEvidence: { photo: activity.requirePhoto, video: activity.requireVideo },
     exceptionReasons: exceptionReasonRows.map((r) => r.label),
     /** Which reasons need the PO No. / Item Code as well as the machine (older apps go by the reason's name). */
-    exceptionReasonRules: exceptionReasonRows.map((r) => ({ label: r.label, requiresJobDetails: r.requiresJobDetails })),
+    exceptionReasonRules: exceptionReasonRows.map((r) => ({
+      label: r.label,
+      requiresJobDetails: r.requiresJobDetails,
+      requiresRemark: r.requiresRemark,
+      photoEvidence: r.photoEvidence,
+      videoEvidence: r.videoEvidence,
+      readingLabel: r.readingLabel,
+      readingUnit: r.readingUnit
+    })),
     /**
      * Item Code prefixes in use (Department Configuration), so the form shows the department a typed
      * Item Code will give the check before it is sent (the server decides it again on submit).
@@ -1604,6 +1636,10 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
         jobNo: z.string().trim().max(60).default(''),
         machineId: z.string().trim().uuid().optional().or(z.literal('').transform(() => undefined)),
         photoCapturedAt: z.string().optional(),
+        videoCapturedAt: z.string().optional(),
+        videoDurationSeconds: z.coerce.number().min(0).optional(),
+        /** The reading the reason asks for (e.g. White Viscosity: the viscosity in sec), as typed. */
+        readingValue: z.union([z.string().max(20), z.number()]).optional(),
         deviceInfo: z.string().trim().max(200).optional()
       })
       .parse(req.body)
@@ -1611,6 +1647,14 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
     const reason = (await activeExceptionReasons()).find((r) => r.label === body.reason)
     if (!reason) throw badRequest('Please choose a reason')
     if (reason.requiresRemark && !body.remark) throw badRequest('Please write a remark')
+    // A reason that asks for a reading (Check Types → Exception reasons) cannot be sent without a valid one.
+    const reading = reason.readingLabel
+      ? {
+          readingLabel: reason.readingLabel,
+          readingUnit: reason.readingUnit,
+          readingValue: validReading(body.readingValue, `${reason.readingLabel}${reason.readingUnit ? ` (${reason.readingUnit})` : ''}`)
+        }
+      : null
 
     const check = await assertOpen(req.user!.id, checkId)
     if (check.kind === 'JOB_START' || check.kind === 'JOB_END') {
@@ -1640,10 +1684,21 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
     if (!check.machineId && !mach.isActive) throw badRequest('This machine is switched off in Machines.')
     if (!check.machineId) await assertRoleMachine(req.user!.id, machineId!)
 
-    const photo = filesByField(files).get('photo')
-    if (!photo) throw badRequest('Please take a photo')
+    // The reason's evidence settings (Check Types → Exception reasons): a required photo or video must
+    // come with it. Whatever is sent is kept, also evidence the reason no longer asks for (older apps).
+    const sent = filesByField(files)
+    const photo = sent.get('photo')
+    const video = sent.get('video')
+    if (reason.photoEvidence === 'REQUIRED' && !photo) throw badRequest('Please take a photo')
+    if (reason.videoEvidence === 'REQUIRED' && !video) throw badRequest('Please record a video')
 
-    stored = await storeEvidence([{ file: photo, kind: 'PHOTO', capturedAt: body.photoCapturedAt }], 'exceptions')
+    stored = await storeEvidence(
+      [
+        ...(photo ? [{ file: photo, kind: 'PHOTO' as const, capturedAt: body.photoCapturedAt }] : []),
+        ...(video ? [{ file: video, kind: 'VIDEO' as const, capturedAt: body.videoCapturedAt, durationSeconds: body.videoDurationSeconds }] : [])
+      ],
+      'exceptions'
+    )
 
     await db.transaction(async (tx) => {
       const updated = await tx
@@ -1672,21 +1727,25 @@ workerRouter.post('/checks/:id/exception', evidenceUpload, async (req, res) => {
           machineId,
           reason: body.reason,
           remark: body.remark || null,
+          ...(reading ?? {}),
           status: 'RESOLVED'
         })
         .returning()
-      await tx.insert(media).values(stored.map((s) => ({ ...s, exceptionId: exception.id, uploadedById: req.user!.id })))
+      // A reason may ask for no evidence at all (photo and video Off).
+      if (stored.length) await tx.insert(media).values(stored.map((s) => ({ ...s, exceptionId: exception.id, uploadedById: req.user!.id })))
       await audit(
         req,
         'SUBMIT_EXCEPTION',
         'QualityCheck',
         check.code,
-        { oldValue: { status: check.status }, newValue: { status: 'EXCEPTION', reason: body.reason, remark: body.remark } },
+        { oldValue: { status: check.status }, newValue: { status: 'EXCEPTION', reason: body.reason, remark: body.remark, ...(reading ? { reading: readingText(reading) } : {}) } },
         tx
       )
     })
     committed = true
 
+    // A video is compressed after the answer is sent, as for checks.
+    if (stored.some((m) => m.processing === 'PENDING')) res.once('finish', () => void kickVideoOptimization())
     const [result] = await listChecks({ ids: [checkId] })
     res.json(summary(result))
   } catch (err) {

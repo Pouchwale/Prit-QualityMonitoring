@@ -4,7 +4,7 @@ import { ArrowRight, Building2, Pencil, Plus, Tags, Trash2 } from 'lucide-react'
 import type { Department } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { useCanManage } from '../../lib/auth'
+import { useModuleActions, useCanActivate, ACTIVATION_HINT } from '../../lib/auth'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
 import { DataState } from '../../components/common/DataState'
@@ -31,7 +31,8 @@ const emptyForm: FormState = { name: '', code: '', isActive: true }
  * read only; they are set on the Department Configuration page.
  */
 export const DepartmentsPage: React.FC = () => {
-  const canEdit = useCanManage('departments')
+  const canActivate = useCanActivate()
+  const { canCreate, canEdit, canDelete, canWrite } = useModuleActions('departments')
   const notify = useToast()
   const { data, error, loading, reload } = useApi<Department[]>('/api/departments')
 
@@ -124,7 +125,7 @@ export const DepartmentsPage: React.FC = () => {
               Item Code prefixes
               <ArrowRight className="w-3.5 h-3.5" aria-hidden />
             </Link>
-            {canEdit && (
+            {canCreate && (
               <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
                 Add Department
               </Button>
@@ -156,7 +157,7 @@ export const DepartmentsPage: React.FC = () => {
               icon={<Building2 className="w-5 h-5" />}
               title={departments.length === 0 ? 'No departments yet' : 'No departments match the filters'}
               action={
-                departments.length === 0 && canEdit ? (
+                departments.length === 0 && canCreate ? (
                   <Button size="sm" variant="outline" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
                     Add Department
                   </Button>
@@ -172,7 +173,7 @@ export const DepartmentsPage: React.FC = () => {
                     <th>Code</th>
                     <th>Active Item Code prefixes</th>
                     <th>Status</th>
-                    {canEdit && (
+                    {canWrite && (
                       <th className="text-right">
                         <span className="sr-only">Actions</span>
                       </th>
@@ -209,15 +210,15 @@ export const DepartmentsPage: React.FC = () => {
                       <td className="whitespace-nowrap">
                         <StatusBadge status={d.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" />
                       </td>
-                      {canEdit && (
+                      {canWrite && (
                         <td className="text-right whitespace-nowrap" data-label="">
                           <div className="inline-flex items-center gap-0.5">
-                            <IconButton label={`Edit ${d.name}`} onClick={() => openEdit(d)}>
+                            {canEdit && (<IconButton label={`Edit ${d.name}`} onClick={() => openEdit(d)}>
                               <Pencil className="w-3.5 h-3.5" />
-                            </IconButton>
-                            <IconButton label={`Delete ${d.name}`} tone="danger" onClick={() => setDeleting(d)}>
+                            </IconButton>)}
+                            {canDelete && (<IconButton label={`Delete ${d.name}`} tone="danger" onClick={() => setDeleting(d)}>
                               <Trash2 className="w-3.5 h-3.5" />
-                            </IconButton>
+                            </IconButton>)}
                           </div>
                         </td>
                       )}
@@ -256,9 +257,10 @@ export const DepartmentsPage: React.FC = () => {
           </Field>
           <Toggle
             checked={form.isActive}
+            disabled={!canActivate}
             onChange={(isActive) => setForm({ ...form, isActive })}
             label="Active"
-            description="Inactive departments are hidden from selection lists, and jobs whose Item Code maps to them cannot be planned or started."
+            description={canActivate ? 'Inactive departments are hidden from selection lists, and jobs whose Item Code maps to them cannot be planned or started.' : ACTIVATION_HINT}
           />
         </form>
       </Modal>

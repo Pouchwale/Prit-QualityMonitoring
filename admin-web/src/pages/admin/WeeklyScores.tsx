@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { CalendarDays, ChevronLeft, ChevronRight, Download } from 'lucide-react'
 import { useApi } from '../../lib/useApi'
+import { useCan } from '../../lib/auth'
 import { download, errorText } from '../../lib/api'
 import { addDaysKey, dateKey, formatDateKey } from '../../lib/format'
 import { Button } from '../../components/common/Button'
@@ -97,6 +98,8 @@ const LEGEND = [
 export const WeeklyScores: React.FC = () => {
   const [week, setWeek] = useState(dateKey())
   const [exporting, setExporting] = useState(false)
+  // The Excel file is an export: Worker Performance export (the server checks it too).
+  const canExport = useCan('performance', 'export')
   const notify = useToast()
   const { data, error, loading, reload } = useApi<WeeklyReport>('/api/performance/weekly', { week })
   const today = dateKey()
@@ -133,9 +136,11 @@ export const WeeklyScores: React.FC = () => {
             <IconButton label="Next week" onClick={() => setWeek(addDaysKey(data?.days[0] ?? week, 7))} disabled={thisWeek}>
               <ChevronRight className="w-4 h-4" />
             </IconButton>
-            <Button size="sm" variant="outline" onClick={exportExcel} loading={exporting} disabled={!data} icon={<Download className="w-3.5 h-3.5" />} aria-label="Download Excel">
-              <span className="hidden sm:inline">Excel</span>
-            </Button>
+            {canExport && (
+              <Button size="sm" variant="outline" onClick={exportExcel} loading={exporting} disabled={!data} icon={<Download className="w-3.5 h-3.5" />} aria-label="Download Excel">
+                <span className="hidden sm:inline">Excel</span>
+              </Button>
+            )}
           </div>
         }
       />

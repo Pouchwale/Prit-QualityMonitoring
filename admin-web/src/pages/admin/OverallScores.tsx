@@ -31,7 +31,7 @@ const tone = (score: number) =>
 
 /**
  * Each worker's overall score: every check from their first one up to today, with the same counts and
- * score as the rest of the page. Shown to Admins and the Super Admin only (the API refuses everyone else).
+ * score as the rest of the page. Shown with Worker Performance view (the API checks the same).
  * Lowest score first, so the workers who need attention lead.
  */
 export const OverallScores: React.FC = () => {

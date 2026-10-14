@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 import { Ban, Check, ListX, Minus, Pencil, Plus } from 'lucide-react'
-import type { MonitoringReason } from '../../types'
+import type { EvidenceRule, MonitoringReason } from '../../types'
+import { Segmented } from '../../components/ui/Toolbar'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { useAuth, useCanManage } from '../../lib/auth'
+import { useAuth, useModuleActions, useCanActivate, ACTIVATION_HINT } from '../../lib/auth'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
 import { DataState } from '../../components/common/DataState'
@@ -45,17 +46,40 @@ interface ReasonsSectionProps {
    * Shown to everyone who sees the list; only the Super Admin may change it (the backend enforces it).
    */
   jobDetails?: boolean
+  /** The exception reasons list: also the photo and video evidence each reason asks for. */
+  evidence?: boolean
 }
 
 interface ReasonForm {
   label: string
   requiresRemark: boolean
   requiresJobDetails: boolean
+  photoEvidence: EvidenceRule
+  videoEvidence: EvidenceRule
+  /** A reading the worker must enter with the exception (empty label: none). */
+  readingLabel: string
+  readingUnit: string
   isActive: boolean
   sortOrder: string
 }
 
-const emptyReasonForm: ReasonForm = { label: '', requiresRemark: false, requiresJobDetails: true, isActive: true, sortOrder: '0' }
+const emptyReasonForm: ReasonForm = { label: '', requiresRemark: false, requiresJobDetails: true, photoEvidence: 'REQUIRED', videoEvidence: 'OFF', readingLabel: '', readingUnit: '', isActive: true, sortOrder: '0' }
+
+const EVIDENCE_OPTIONS: { value: EvidenceRule; label: string }[] = [
+  { value: 'OFF', label: 'Off' },
+  { value: 'OPTIONAL', label: 'Optional' },
+  { value: 'REQUIRED', label: 'Required' }
+]
+
+/** Off / Optional / Required in the list: required stands out, off is muted. */
+const EvidenceCell: React.FC<{ rule: EvidenceRule }> = ({ rule }) =>
+  rule === 'REQUIRED' ? (
+    <span className="text-[12px] font-medium text-ink">Required</span>
+  ) : rule === 'OPTIONAL' ? (
+    <span className="text-[12px] text-ink-secondary">Optional</span>
+  ) : (
+    <span className="text-[12px] text-ink-muted">Off</span>
+  )
 
 /** Yes / no cell. The phone card shows the column name in front of it. */
 const Flag: React.FC<{ on: boolean }> = ({ on }) =>
@@ -71,9 +95,12 @@ const Flag: React.FC<{ on: boolean }> = ({ on }) =>
     </span>
   )
 
-export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, description, icon, endpoint, noun, dialogSubtitle, placeholder, jobDetails = false }) => {
+export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, description, icon, endpoint, noun, dialogSubtitle, placeholder, jobDetails = false, evidence = false }) => {
+  const canActivate = useCanActivate()
   const { can, user } = useAuth()
-  const canEdit = useCanManage('activities')
+  const { canCreate, canEdit } = useModuleActions('activities')
+  // Row actions: edit (Check Types edit) and deactivate (the Super Admin only).
+  const canWrite = canEdit || canActivate
   /** Whether a reason needs the PO No. / Item Code is the Super Admin's decision. */
   const canSetJobDetails = user?.role === 'SUPER_ADMIN'
   const notify = useToast()
@@ -100,7 +127,17 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
 
   const openEdit = (r: MonitoringReason) => {
     setEditing(r)
-    setForm({ label: r.label, requiresRemark: r.requiresRemark, requiresJobDetails: r.requiresJobDetails ?? true, isActive: r.isActive, sortOrder: String(r.sortOrder) })
+    setForm({
+      label: r.label,
+      requiresRemark: r.requiresRemark,
+      requiresJobDetails: r.requiresJobDetails ?? true,
+      photoEvidence: r.photoEvidence ?? 'REQUIRED',
+      videoEvidence: r.videoEvidence ?? 'OFF',
+      readingLabel: r.readingLabel ?? '',
+      readingUnit: r.readingUnit ?? '',
+      isActive: r.isActive,
+      sortOrder: String(r.sortOrder)
+    })
     setFormError(null)
     setFormOpen(true)
   }
@@ -109,11 +146,15 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
     e?.preventDefault()
     const label = form.label.trim()
     if (!label) return setFormError('Enter the reason workers will see')
+    if (evidence && !form.readingLabel.trim() && form.readingUnit.trim()) return setFormError('Enter the name of the reading, or clear its unit')
     const body = {
       label,
       requiresRemark: form.requiresRemark,
       // Sent only by the Super Admin; for anyone else the stored setting stays as it is.
       ...(jobDetails && canSetJobDetails ? { requiresJobDetails: form.requiresJobDetails } : {}),
+      ...(evidence
+        ? { photoEvidence: form.photoEvidence, videoEvidence: form.videoEvidence, readingLabel: form.readingLabel.trim() || null, readingUnit: form.readingUnit.trim() || null }
+        : {}),
       isActive: form.isActive,
       sortOrder: Number(form.sortOrder) || 0
     }
@@ -152,7 +193,7 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
           info={description}
           subtitle={reasons.data ? `${reasons.data.filter((r) => r.isActive).length} active · ${reasons.data.length} total` : undefined}
           actions={
-            canEdit && (
+            canCreate && (
               <Button size="sm" variant="outline" onClick={openAdd} icon={<Plus className="w-3.5 h-3.5" />}>
                 Add Reason
               </Button>
@@ -173,8 +214,11 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
                       <th>Reason</th>
                       <th>Requires remark</th>
                       {jobDetails && <th title="The exception must name the PO No. / Item Code as well as the machine">PO No. / Item Code</th>}
+                      {evidence && <th title="Photo evidence with the exception">Photo</th>}
+                      {evidence && <th title="Video evidence with the exception">Video</th>}
+                      {evidence && <th title="A reading the worker must enter with the exception">Reading</th>}
                       <th>Status</th>
-                      {canEdit && <th className="text-right">Actions</th>}
+                      {canWrite && <th className="text-right">Actions</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -194,18 +238,42 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
                             )}
                           </td>
                         )}
+                        {evidence && (
+                          <td>
+                            <EvidenceCell rule={r.photoEvidence ?? 'REQUIRED'} />
+                          </td>
+                        )}
+                        {evidence && (
+                          <td>
+                            <EvidenceCell rule={r.videoEvidence ?? 'OFF'} />
+                          </td>
+                        )}
+                        {evidence && (
+                          <td className="whitespace-nowrap">
+                            {r.readingLabel ? (
+                              <span className="text-[12px] font-medium text-ink">
+                                {r.readingLabel}
+                                {r.readingUnit ? ` (${r.readingUnit})` : ''}
+                              </span>
+                            ) : (
+                              <span className="text-[12px] text-ink-muted">—</span>
+                            )}
+                          </td>
+                        )}
                         <td>
                           <StatusBadge status={r.isActive ? 'ACTIVE' : 'DISABLED'} size="sm" />
                         </td>
-                        {canEdit && (
+                        {canWrite && (
                           <td className="text-right whitespace-nowrap" data-label="">
                             <div className="inline-flex items-center gap-0.5">
-                              <IconButton label={`Edit ${r.label}`} onClick={() => openEdit(r)}>
+                              {canEdit && (<IconButton label={`Edit ${r.label}`} onClick={() => openEdit(r)}>
                                 <Pencil className="w-3.5 h-3.5" />
-                              </IconButton>
-                              <IconButton label={`Deactivate ${r.label}`} tone="danger" onClick={() => setDeleting(r)} disabled={!r.isActive}>
-                                <Ban className="w-3.5 h-3.5" />
-                              </IconButton>
+                              </IconButton>)}
+                              {canActivate && (
+                                <IconButton label={`Deactivate ${r.label}`} tone="danger" onClick={() => setDeleting(r)} disabled={!r.isActive}>
+                                  <Ban className="w-3.5 h-3.5" />
+                                </IconButton>
+                              )}
                             </div>
                           </td>
                         )}
@@ -259,6 +327,36 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
             label="Requires remark"
             description="The worker must type an explanation when choosing this reason."
           />
+          {evidence && (
+            <div className="space-y-2.5 rounded-lg border border-line bg-panel p-3">
+              <div className="text-[12.5px] font-medium text-ink-secondary">Evidence with the exception</div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[12.5px] text-ink">Photo</span>
+                <Segmented<EvidenceRule> label="Photo evidence" value={form.photoEvidence} onChange={(v) => setForm((f) => ({ ...f, photoEvidence: v }))} options={EVIDENCE_OPTIONS} />
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[12.5px] text-ink">Video</span>
+                <Segmented<EvidenceRule> label="Video evidence" value={form.videoEvidence} onChange={(v) => setForm((f) => ({ ...f, videoEvidence: v }))} options={EVIDENCE_OPTIONS} />
+              </div>
+              <p className="text-[11.5px] text-ink-muted">
+                Required: the worker cannot send the exception without it. Optional: the worker may add it. Off: not asked.
+              </p>
+            </div>
+          )}
+          {evidence && (
+            <div className="space-y-2.5 rounded-lg border border-line bg-panel p-3">
+              <div className="text-[12.5px] font-medium text-ink-secondary">Reading with the exception</div>
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px] gap-2.5">
+                <Field label="Reading" hint="e.g. Viscosity. Empty: no reading is asked.">
+                  <TextInput value={form.readingLabel} onChange={(e) => setForm((f) => ({ ...f, readingLabel: e.target.value }))} placeholder="None" maxLength={60} />
+                </Field>
+                <Field label="Unit">
+                  <TextInput value={form.readingUnit} onChange={(e) => setForm((f) => ({ ...f, readingUnit: e.target.value }))} placeholder="e.g. sec" maxLength={20} disabled={!form.readingLabel.trim()} />
+                </Field>
+              </div>
+              <p className="text-[11.5px] text-ink-muted">With a reading set, the worker must enter it (a number above 0) before the exception can be sent.</p>
+            </div>
+          )}
           {jobDetails && (
             <Toggle
               checked={form.requiresJobDetails}
@@ -274,9 +372,10 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
           )}
           <Toggle
             checked={form.isActive}
+            disabled={!canActivate}
             onChange={(v) => setForm((f) => ({ ...f, isActive: v }))}
             label="Active"
-            description="Inactive reasons are not offered to workers; past checks keep them."
+            description={canActivate ? 'Inactive reasons are not offered to workers; past checks keep them.' : ACTIVATION_HINT}
           />
           {/* Allows Enter to submit */}
           <button type="submit" className="hidden" aria-hidden="true" tabIndex={-1} />

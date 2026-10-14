@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, ClipboardList, Cpu, PauseCircle, Pencil, Plus,
 import type { Activity as CheckType, Department, Machine, MachineStatus } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { useCanManage } from '../../lib/auth'
+import { useModuleActions, useCanActivate, ACTIVATION_HINT } from '../../lib/auth'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
 import { DataState } from '../../components/common/DataState'
@@ -51,7 +51,8 @@ const STATUS_OPTIONS: { value: MachineStatus; label: string }[] = [
 const chip = 'inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[11px] text-ink-secondary whitespace-nowrap'
 
 export const MachinesPage: React.FC = () => {
-  const canEdit = useCanManage('machines')
+  const canActivate = useCanActivate()
+  const { canCreate, canEdit, canDelete, canWrite } = useModuleActions('machines')
   const notify = useToast()
   const machinesApi = useApi<Machine[]>('/api/machines')
   const departmentsApi = useApi<Department[]>('/api/departments')
@@ -193,7 +194,7 @@ export const MachinesPage: React.FC = () => {
         }
         info="Production machines and the quality check types performed on each. Set how often each check runs on the Schedules page."
         actions={
-          canEdit && (
+          canCreate && (
             <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
               Add Machine
             </Button>
@@ -250,7 +251,7 @@ export const MachinesPage: React.FC = () => {
                     <th>Status</th>
                     <th>Check types</th>
                     <th>Enabled</th>
-                    {canEdit && <th className="text-right">Actions</th>}
+                    {canWrite && <th className="text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -305,15 +306,15 @@ export const MachinesPage: React.FC = () => {
                             <StatusBadge status="DISABLED" size="sm" />
                           )}
                         </td>
-                        {canEdit && (
+                        {canWrite && (
                           <td className="text-right whitespace-nowrap" data-label="">
                             <div className="inline-flex gap-0.5">
-                              <IconButton label={`Edit ${m.name}`} onClick={() => openEdit(m)}>
+                              {canEdit && (<IconButton label={`Edit ${m.name}`} onClick={() => openEdit(m)}>
                                 <Pencil className="w-3.5 h-3.5" />
-                              </IconButton>
-                              <IconButton label={`Delete ${m.name}`} tone="danger" onClick={() => setDeleting(m)}>
+                              </IconButton>)}
+                              {canDelete && (<IconButton label={`Delete ${m.name}`} tone="danger" onClick={() => setDeleting(m)}>
                                 <Trash2 className="w-3.5 h-3.5" />
-                              </IconButton>
+                              </IconButton>)}
                             </div>
                           </td>
                         )}
@@ -418,7 +419,7 @@ export const MachinesPage: React.FC = () => {
             </span>
           </div>
 
-          <Toggle checked={form.isActive} onChange={(v) => set('isActive', v)} label="Enabled" description="Disabled machines are hidden from workers and get no checks." />
+          <Toggle checked={form.isActive} disabled={!canActivate} onChange={(v) => set('isActive', v)} label="Enabled" description={canActivate ? 'Disabled machines are hidden from workers and get no checks.' : ACTIVATION_HINT} />
         </form>
       </Modal>
 

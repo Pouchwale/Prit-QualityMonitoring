@@ -4,6 +4,7 @@ import { eq, lt } from 'drizzle-orm'
 import { db } from '../db/client'
 import { pushTokens, voiceEvents } from '../db/schema'
 import { HttpError } from '../lib/http'
+import { markOnNetwork } from '../services/wifiRule'
 
 /**
  * The remote voice log: the app's voice service (Android, native code, also with the app closed)
@@ -39,6 +40,9 @@ deviceRouter.post('/voice-events', async (req, res) => {
   const [device] = await db.select({ userId: pushTokens.userId, platform: pushTokens.platform }).from(pushTokens).where(eq(pushTokens.fcmToken, deviceToken))
   if (!device) throw new HttpError(401, 'Unknown device')
   const { entries } = body.parse(req.body)
+  // This server is reachable on the company network only: the phone is on company Wi-Fi now
+  // (it also answers the Wi-Fi rule's presence probes this way, services/wifiRule.ts).
+  await markOnNetwork({ fcmToken: deviceToken })
   const now = Date.now()
   await db.insert(voiceEvents).values(
     entries.map((e) => ({

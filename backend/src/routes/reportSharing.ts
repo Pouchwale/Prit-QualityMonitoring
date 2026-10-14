@@ -1,7 +1,9 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { requireModule } from '../lib/permissions'
+import { requireModule, requireSuperAdmin } from '../lib/permissions'
 import { badRequest, HttpError } from '../lib/http'
+import { idParam } from '../lib/validate'
+import { listReportEmailAlerts, markReportEmailAlert, resendReportEmail } from '../services/reportDelivery'
 import { audit } from '../lib/audit'
 import { dateKey } from '../lib/time'
 import {
@@ -41,7 +43,15 @@ const updateSettingsSchema = z.object({
   smtpUser: z.string().trim().max(255).nullable().optional(),
   smtpPass: z.string().max(500).nullable().optional(),
   smtpFrom: z.string().trim().max(255).nullable().optional(),
-  dailyReportTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Daily report time must be in HH:MM format').optional()
+  dailyReportTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Daily report time must be in HH:MM format').optional(),
+  /** Super Admin only (checked below); empty clears it. */
+  failureAlertEmail: z
+    .string()
+    .trim()
+    .max(255)
+    .refine((v) => v === '' || emailRegex.test(v), 'Invalid failure alert email address')
+    .nullable()
+    .optional()
 })
 
 /** An instant with its timezone (what the admin panel sends), e.g. 2026-10-06T00:00:00+05:30. */
@@ -103,6 +113,10 @@ reportSharingRouter.put('/settings', requireModule('reports', 'manage'), async (
   }
 
   const before = await getReportSharingSettings()
+  // Where failure alerts go is the Super Admin's decision; others may send it unchanged.
+  if (updateData.failureAlertEmail !== undefined && (updateData.failureAlertEmail || null) !== before.failureAlertEmail && req.user?.role !== 'SUPER_ADMIN') {
+    throw new HttpError(403, 'Only the Super Admin can change the failure alert email')
+  }
   const updated = await updateReportSharingSettings(updateData)
   // Who changed the recipients, the schedule or the mail server, and when.
   await audit(req, 'UPDATE_REPORT_SHARING', 'ReportSharing', updated.id ?? null, {
@@ -148,6 +162,39 @@ reportSharingRouter.get('/logs', requireModule('reports', 'view'), async (req, r
   const offset = Math.max(0, Number(req.query.offset) || 0)
   const logs = await getReportEmailLogs(limit, offset)
   res.json(logs)
+})
+
+// ---------------------------------------------------------------------------- Delivery failures (Super Admin)
+
+const superAdminOnly = requireSuperAdmin('Only the Super Admin can see report email failures')
+
+/**
+ * Failed automated report emails (services/reportDelivery.ts): ?open=1 the ones not dismissed (the
+ * popup), otherwise the latest 50. Only the Super Admin sees them.
+ */
+reportSharingRouter.get('/alerts', superAdminOnly, async (req, res) => {
+  res.json(await listReportEmailAlerts({ open: req.query.open === '1' || req.query.open === 'true' }))
+})
+
+/** Opened (read) or acknowledged (dismissed: no longer shown as a popup). The record is kept. */
+reportSharingRouter.post('/alerts/:id/read', superAdminOnly, async (req, res) => {
+  res.json(await markReportEmailAlert(idParam(req), 'read', req.user!.id))
+})
+reportSharingRouter.post('/alerts/:id/dismiss', superAdminOnly, async (req, res) => {
+  const row = await markReportEmailAlert(idParam(req), 'dismiss', req.user!.id)
+  await audit(req, 'DISMISS_REPORT_EMAIL_ALERT', 'ReportEmailLog', row.logId)
+  res.json(row)
+})
+
+/**
+ * Retry Sending: the same email again, now, to the recipients it was not sent to. Only for a Failed
+ * or Retrying email whose message is still kept; 409 when it is being sent or already sent.
+ */
+reportSharingRouter.post('/logs/:id/retry', superAdminOnly, async (req, res) => {
+  const id = idParam(req)
+  const result = await resendReportEmail(id, { manual: true })
+  await audit(req, 'RETRY_REPORT_EMAIL', 'ReportEmailLog', id, { newValue: { status: result?.status, sent: result?.sent, failed: result?.failed.map((f) => f.email) } })
+  res.json(result)
 })
 
 /** Preview randomly sampled checks for a given period and percentage */
@@ -251,7 +298,7 @@ reportSharingRouter.post('/daily-report/resend', requireModule('reports', 'manag
 })
 
 /** Stream Crystal Reports PDF directly in browser. A PDF is an export: it needs Export Reports too. */
-reportSharingRouter.get('/preview-pdf', requireModule('reports', 'view'), requireModule('export', 'view'), async (req, res) => {
+reportSharingRouter.get('/preview-pdf', requireModule('reports', 'export'), async (req, res) => {
   const checkIds = z
     .string()
     .optional()

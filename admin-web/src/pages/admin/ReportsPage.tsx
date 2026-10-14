@@ -200,10 +200,11 @@ export const ReportsPage: React.FC = () => {
     setFilters(next)
   }
   const [downloading, setDownloading] = useState(false)
-  const [activeTab, setActiveTab] = useState<'reports' | 'sharing'>('reports')
+  // ?tab=sharing (e.g. from the report email failure popup) opens Report Sharing.
+  const [activeTab, setActiveTab] = useState<'reports' | 'sharing'>(() => (new URLSearchParams(window.location.search).get('tab') === 'sharing' ? 'sharing' : 'reports'))
   const notify = useToast()
   // PDF, CSV and print need the Export Reports module (the server checks the PDF as well).
-  const canExport = useAuth().can('export')
+  const canExport = useAuth().can('reports', 'export')
 
   /** Full Quality Monitoring Report, built on the server from the same filters. */
   const downloadReport = async () => {
@@ -330,6 +331,7 @@ export const ReportsPage: React.FC = () => {
       'N/A parameters',
       ...params.map((p) => (p.unit ? `${p.name} (${p.unit})` : p.name)),
       'Exception reason',
+      'Exception reading',
       'Exception remark',
       'Exception status',
       'Photo URLs',
@@ -367,6 +369,7 @@ export const ReportsPage: React.FC = () => {
           return v?.value ?? ''
         }),
         c.exception?.reason,
+        c.exception?.reading,
         c.exception?.remark,
         c.exception?.status,
         media('PHOTO'),

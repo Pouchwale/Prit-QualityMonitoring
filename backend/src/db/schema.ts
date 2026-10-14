@@ -372,6 +372,9 @@ export const monitoringReasons = pgTable('monitoring_reasons', {
  * The chosen text is copied into `exceptions.reason`, so a reason that is renamed or switched off
  * later never changes what an old exception says.
  */
+/** Whether a piece of evidence is asked for: not at all, optional, or required. */
+export type EvidenceRule = 'OFF' | 'OPTIONAL' | 'REQUIRED'
+
 export const exceptionReasons = pgTable('exception_reasons', {
   id: uuid('id').primaryKey().defaultRandom(),
   label: text('label').notNull(),
@@ -382,6 +385,18 @@ export const exceptionReasons = pgTable('exception_reasons', {
    * (Machine stopped, maintenance), which needs the machine only. Only the Super Admin changes it.
    */
   requiresJobDetails: boolean('requires_job_details').notNull().default(true),
+  /**
+   * Evidence the worker gives with an exception of this reason: OFF (not asked), OPTIONAL or REQUIRED.
+   * Photo REQUIRED and video OFF is how every exception worked before these settings existed.
+   */
+  photoEvidence: text('photo_evidence').$type<EvidenceRule>().notNull().default('REQUIRED'),
+  videoEvidence: text('video_evidence').$type<EvidenceRule>().notNull().default('OFF'),
+  /**
+   * A reading the worker must enter with an exception of this reason, e.g. "Viscosity" in "sec" for
+   * White Viscosity: a number above 0 (lib/validate.ts validReading). Null: no reading is asked.
+   */
+  readingLabel: text('reading_label'),
+  readingUnit: text('reading_unit'),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   ...timestamps
@@ -506,6 +521,13 @@ export const checkExceptions = pgTable('exceptions', {
   machineId: uuid('machine_id').references(() => machines.id, { onDelete: 'restrict' }),
   reason: text('reason').notNull(),
   remark: text('remark'),
+  /**
+   * The reading the reason asked for (exception_reasons.reading_label), with its label and unit as
+   * they were when the exception was sent, so a later change of the reason does not change history.
+   */
+  readingLabel: text('reading_label'),
+  readingValue: doublePrecision('reading_value'),
+  readingUnit: text('reading_unit'),
   status: exceptionStatusEnum('status').notNull().default('RESOLVED'),
   reviewedById: uuid('reviewed_by_id').references(() => users.id, { onDelete: 'set null' }),
   resolutionNotes: text('resolution_notes'),
@@ -576,6 +598,12 @@ export const pushTokens = pgTable('push_tokens', {
    */
   signedOutAt: timestamp('signed_out_at', { withTimezone: true }),
   lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  /**
+   * The last time this device reached this server. The server is only reachable on the company
+   * network, so this is when the device was last known to be on company Wi-Fi (services/wifiRule.ts):
+   * the app reports while open, and the native voice service answers presence probes when it is closed.
+   */
+  onNetworkAt: timestamp('on_network_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
 })
 
@@ -602,9 +630,9 @@ export const voiceEvents = pgTable(
 )
 
 /**
- * Per-user grants. Holds the Admin delete permissions (keys `delete:*`, lib/deletePermissions.ts).
- * Module rows of Managers were used before the Manager role got one shared set (role_permissions);
- * they are no longer read.
+ * Old per-user grants, no longer read: the Admin delete permissions (keys `delete:*`) moved into the
+ * permission matrix (role_permissions, user_permissions; migration 0040), and the Managers' module
+ * rows were replaced by the Manager role's shared set before that. Kept as history.
  */
 export const managerPermissions = pgTable(
   'manager_permissions',
@@ -619,9 +647,11 @@ export const managerPermissions = pgTable(
 )
 
 /**
- * What a role may use, set by the Super Admin (lib/permissions.ts). Only the MANAGER role has
- * rows: one per module it may use, a missing row means no access. Admins and the Super Admin are
- * not listed: they always have full access.
+ * What a role may do in each module, set by the Super Admin (lib/permissions.ts): the ADMIN and
+ * MANAGER roles have rows for admin-panel modules, the WORKER role for its app features (app_*);
+ * a missing row means no access. The Super Admin is not listed (always
+ * everything) and Workers use the worker app only. `can_manage` is kept equal to "any of create,
+ * edit, delete" for older readers.
  */
 export const rolePermissions = pgTable(
   'role_permissions',
@@ -630,9 +660,34 @@ export const rolePermissions = pgTable(
     module: text('module').notNull(),
     canView: boolean('can_view').notNull().default(false),
     canManage: boolean('can_manage').notNull().default(false),
+    canCreate: boolean('can_create').notNull().default(false),
+    canEdit: boolean('can_edit').notNull().default(false),
+    canDelete: boolean('can_delete').notNull().default(false),
+    canApprove: boolean('can_approve').notNull().default(false),
+    canExport: boolean('can_export').notNull().default(false),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => [primaryKey({ columns: [t.role, t.module] })]
+)
+
+/**
+ * One Admin's or Manager's own permissions for a module, set by the Super Admin: the row replaces
+ * the role's for that module (lib/permissions.ts). Removed when the user's role changes.
+ */
+export const userPermissions = pgTable(
+  'user_permissions',
+  {
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    module: text('module').notNull(),
+    canView: boolean('can_view').notNull().default(false),
+    canCreate: boolean('can_create').notNull().default(false),
+    canEdit: boolean('can_edit').notNull().default(false),
+    canDelete: boolean('can_delete').notNull().default(false),
+    canApprove: boolean('can_approve').notNull().default(false),
+    canExport: boolean('can_export').notNull().default(false),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.module] })]
 )
 
 /**
@@ -895,18 +950,38 @@ export const reportEmailSettings = pgTable('report_email_settings', {
   smtpUser: text('smtp_user'),
   smtpPass: text('smtp_pass'),
   smtpFrom: text('smtp_from'),
+  /**
+   * Where a failure alert goes when an automated report email cannot be sent (services/reportDelivery.ts).
+   * Set by the Super Admin only; empty means no alert email (the Super Admin still gets the popup).
+   */
+  failureAlertEmail: text('failure_alert_email'),
   updatedAt: timestamp('updated_at', { withTimezone: true })
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date())
 })
 
+/** One recipient of a report email: whether the mail server accepted it for them (services/reportDelivery.ts). */
+export interface RecipientDelivery {
+  email: string
+  status: 'PENDING' | 'SENT' | 'FAILED' | 'RETRYING'
+  /** The mail server's reason when it was not accepted. */
+  error?: string | null
+  /** When it was accepted or last failed (ISO). */
+  at?: string | null
+}
+
 export const reportEmailLogs = pgTable(
   'report_email_logs',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     trigger: text('trigger').notNull().default('AUTO'),
-    status: text('status').notNull().default('SUCCESS'),
+    /**
+     * PENDING (waiting to be sent or being sent), SENT (the mail server accepted it for every
+     * recipient), RETRYING (a temporary failure, sent again at next_retry_at) or FAILED. Rows from
+     * before delivery tracking said SUCCESS; migration 0041 made them SENT.
+     */
+    status: text('status').notNull().default('PENDING'),
     recipients: text('recipients').array().notNull(),
     subject: text('subject').notNull(),
     checkIds: uuid('check_ids').array().notNull(),
@@ -919,8 +994,46 @@ export const reportEmailLogs = pgTable(
     errorMessage: text('error_message'),
     sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
     sentById: uuid('sent_by_id').references(() => users.id, { onDelete: 'set null' }),
-    sentByName: text('sent_by_name')
+    sentByName: text('sent_by_name'),
+    /** Each recipient's delivery; empty on rows from before delivery tracking. */
+    recipientStatus: jsonb('recipient_status').$type<RecipientDelivery[]>().notNull().default([]),
+    /** How many times it was handed to the mail server (the first send included). */
+    attempts: integer('attempts').notNull().default(0),
+    lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+    /** RETRYING: when it is sent again. */
+    nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),
+    /** TEMPORARY (retried) or PERMANENT (not retried) for the last failure. */
+    failureKind: text('failure_kind'),
+    /** When it was sent after failing first. */
+    recoveredAt: timestamp('recovered_at', { withTimezone: true }),
+    /** The mail server's id for the accepted message. */
+    messageId: text('message_id')
   },
-  (t) => [index('report_email_logs_sent_at_idx').on(t.sentAt)]
+  (t) => [index('report_email_logs_sent_at_idx').on(t.sentAt), index('report_email_logs_retry_idx').on(t.status, t.nextRetryAt)]
 )
+
+/**
+ * A failed automated report email, for the Super Admin's popup (services/reportDelivery.ts). One
+ * per email (log row), so one incident never alerts twice. Dismissing keeps the row.
+ */
+export const reportEmailAlerts = pgTable('report_email_alerts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  logId: uuid('log_id')
+    .notNull()
+    .unique()
+    .references(() => reportEmailLogs.id, { onDelete: 'cascade' }),
+  failedAt: timestamp('failed_at', { withTimezone: true }).notNull().defaultNow(),
+  /** The failure that raised the alert (the log row holds the latest one). */
+  errorMessage: text('error_message'),
+  failedRecipients: text('failed_recipients').array().notNull().default(sql`ARRAY[]::text[]`),
+  /** The failure alert email: SENT, FAILED, NOT_CONFIGURED, or SKIPPED (one was sent for the same error shortly before). */
+  alertEmailStatus: text('alert_email_status'),
+  alertEmailTo: text('alert_email_to'),
+  alertEmailError: text('alert_email_error'),
+  alertEmailAt: timestamp('alert_email_at', { withTimezone: true }),
+  readAt: timestamp('read_at', { withTimezone: true }),
+  readById: uuid('read_by_id').references(() => users.id, { onDelete: 'set null' }),
+  dismissedAt: timestamp('dismissed_at', { withTimezone: true }),
+  dismissedById: uuid('dismissed_by_id').references(() => users.id, { onDelete: 'set null' })
+})
 

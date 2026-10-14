@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db, type Transaction } from '../db/client'
 import { departmentMappings, departments } from '../db/schema'
 import { badRequest } from '../lib/http'
+import { splitCodes } from '../lib/validate'
 
 /**
  * A job's department comes from its Item Code: the start of the Item Code (its prefix) names the
@@ -70,6 +71,18 @@ async function matchItemCode(itemCode: string | null | undefined, tx: Db): Promi
  * with the reason (unknown prefix, inactive mapping or inactive department).
  */
 export async function requireItemCodeDepartment(itemCode: string | null | undefined, tx: Db = db): Promise<ItemCodeDepartment> {
+  // Several Item Codes (comma-separated) must all be of one department: it decides the checks.
+  const codes = splitCodes(itemCode)
+  if (codes.length > 1) {
+    const found = await Promise.all(codes.map(async (code) => ({ code, department: await requireItemCodeDepartment(code, tx) })))
+    const names = [...new Set(found.map((f) => f.department.name))]
+    if (names.length > 1) {
+      throw badRequest(
+        `These Item Codes belong to different departments: ${found.map((f) => `${f.code} (${f.department.name})`).join(', ')}. Enter Item Codes of one department only.`
+      )
+    }
+    return found[0].department
+  }
   const found = await matchItemCode(itemCode, tx)
   if (!found) throw badRequest(UNKNOWN_ITEM_CODE_DEPARTMENT)
   if (!found.mappingActive) {

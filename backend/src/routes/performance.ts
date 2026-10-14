@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import ExcelJS from 'exceljs'
-import { requireAdmin, requireModule } from '../lib/permissions'
+import { requireModule } from '../lib/permissions'
 import { badRequest } from '../lib/http'
 import { addDays, dateKey, formatDateKey, parseDateKey, startOfDay } from '../lib/time'
 import { overallScores, performanceScope, performanceFilterValues, performanceOf, weeklyScores, workerPerformance, type DayScore } from '../services/performance'
@@ -93,8 +93,8 @@ performanceRouter.get('/filter-values', view, async (req, res) => {
 })
 
 /**
- * Day-wise weekly scores (Sunday to Saturday) of every worker: Admins and the Super Admin only, as
- * everyone's scores are shown. `?week=YYYY-MM-DD` is any day of the week; nothing means this week.
+ * Day-wise weekly scores (Sunday to Saturday) of every worker: Worker Performance view (the permission
+ * matrix). `?week=YYYY-MM-DD` is any day of the week; nothing means this week.
  */
 const weekQuery = z.object({ week: z.string().optional() })
 function weekOf(q: z.infer<typeof weekQuery>) {
@@ -105,17 +105,17 @@ function weekOf(q: z.infer<typeof weekQuery>) {
   }
 }
 
-performanceRouter.get('/weekly', requireAdmin, async (req, res) => {
+performanceRouter.get('/weekly', view, async (req, res) => {
   res.json(await weeklyScores(weekOf(weekQuery.parse(req.query))))
 })
 
-/** Every worker's overall score, from their first check up to now: Admins and the Super Admin only. */
-performanceRouter.get('/overall', requireAdmin, async (_req, res) => {
+/** Every worker's overall score, from their first check up to now: Worker Performance view. */
+performanceRouter.get('/overall', view, async (_req, res) => {
   res.json({ asOf: dateKey(new Date()), rows: await overallScores() })
 })
 
-/** The same report as an Excel file: one row per worker, a cell per day and the week. */
-performanceRouter.get('/weekly.xlsx', requireAdmin, async (req, res) => {
+/** The same report as an Excel file (Worker Performance export): one row per worker, a cell per day and the week. */
+performanceRouter.get('/weekly.xlsx', requireModule('performance', 'export'), async (req, res) => {
   const report = await weeklyScores(weekOf(weekQuery.parse(req.query)))
   const book = new ExcelJS.Workbook()
   const sheet = book.addWorksheet('Weekly scores')

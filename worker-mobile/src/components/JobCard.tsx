@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useWorkerFeatures } from '../worker/features'
 import { View, Text, Pressable } from 'react-native'
 import { AssignedMachine, Job, JobCheck, JobPlanPreview } from '../types'
 import { getJobPlan } from '../services/api'
@@ -78,6 +79,17 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
   const [planError, setPlanError] = useState<{ key: string; message: string } | null>(null)
   const checks: JobCheck[] = machine.jobChecks ?? []
   const planned = machine.plannedJobs ?? []
+  const features = useWorkerFeatures()
+
+  if (!job && !features.startJobs) {
+    // Starting jobs is switched off for workers (Roles & Permissions).
+    return (
+      <View className="rounded-2xl bg-surface p-4">
+        <Text className="text-[17px] font-semibold text-ink">No job running</Text>
+        <Text className="mt-0.5 text-[15px] leading-[20px] text-ink-muted">Your supervisor starts the jobs on this machine.</Text>
+      </View>
+    )
+  }
 
   if (!job) {
     /**
@@ -128,7 +140,7 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
       <View className="mt-4">
         <FieldLabel label="Item Code" required />
         <TextField
-          placeholder="Enter Item Code"
+          placeholder="FGPO123, FGPO234"
           value={itemCode}
           invalid={!!itemCodeError}
           onChangeText={(text) => {
@@ -278,7 +290,7 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
                 This job is with {job.assignedWorkerName ?? 'another worker'}. They can hand it over to you.
               </Text>
             </View>
-          ) : status === 'ACTIVE' ? (
+          ) : status === 'ACTIVE' && features.changeJobs ? (
             <View className="mt-4 flex-row gap-2.5">
               <View className="flex-1">
                 <Button label="Handover" icon="swap-horizontal-outline" variant="secondary" size="compact" onPress={onHandover} accessibilityLabel="Handover Job" />
@@ -321,14 +333,16 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
               </Text>
             </View>
           ) : null}
-          <View className="mt-4 flex-row gap-2.5">
-            <View className="flex-1">
-              <Button label="Handover" icon="swap-horizontal-outline" variant="secondary" size="compact" onPress={onHandover} accessibilityLabel="Handover Job" />
+          {features.changeJobs ? (
+            <View className="mt-4 flex-row gap-2.5">
+              <View className="flex-1">
+                <Button label="Handover" icon="swap-horizontal-outline" variant="secondary" size="compact" onPress={onHandover} accessibilityLabel="Handover Job" />
+              </View>
+              <View className="flex-1">
+                <Button label="End Job" icon="stop-circle-outline" variant="secondary" size="compact" loading={busy === 'job'} onPress={onEndJob} />
+              </View>
             </View>
-            <View className="flex-1">
-              <Button label="End Job" icon="stop-circle-outline" variant="secondary" size="compact" loading={busy === 'job'} onPress={onEndJob} />
-            </View>
-          </View>
+          ) : null}
         </View>
       )}
       <Pressable onPress={onOpenJob} accessibilityRole="button" accessibilityLabel={`Job details ${job.jobNo}`} className="mt-2 h-11 flex-row items-center self-start active:opacity-50">

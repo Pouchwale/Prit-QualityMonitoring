@@ -77,6 +77,11 @@ export async function monitoringReasonById(id: string) {
 /** An exception reason: also whether the exception must name the PO No. / Item Code. */
 export interface ExceptionReasonDto extends MonitoringReasonDto {
   requiresJobDetails: boolean
+  photoEvidence: 'OFF' | 'OPTIONAL' | 'REQUIRED'
+  videoEvidence: 'OFF' | 'OPTIONAL' | 'REQUIRED'
+  /** A reading asked with the exception (e.g. "Viscosity"), and its unit; null: none. */
+  readingLabel: string | null
+  readingUnit: string | null
 }
 
 const exceptionReasonDto = (row: typeof exceptionReasons.$inferSelect): ExceptionReasonDto => ({
@@ -84,6 +89,10 @@ const exceptionReasonDto = (row: typeof exceptionReasons.$inferSelect): Exceptio
   label: row.label,
   requiresRemark: row.requiresRemark,
   requiresJobDetails: row.requiresJobDetails,
+  photoEvidence: row.photoEvidence,
+  videoEvidence: row.videoEvidence,
+  readingLabel: row.readingLabel ?? null,
+  readingUnit: row.readingUnit ?? null,
   isActive: row.isActive,
   sortOrder: row.sortOrder
 })

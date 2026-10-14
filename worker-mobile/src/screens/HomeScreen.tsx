@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useWorkerFeatures } from '../worker/features'
 import { View, Text, ScrollView, RefreshControl, Pressable } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { getMyMachines, getPlantStatus, getTodayChecks, startManualCheck, type PlantStatus } from '../services/api'
@@ -31,6 +32,7 @@ type ModuleFilter = 'ALL' | 'IPQC' | 'QC'
 type SectionTab = 'ALL' | 'DUE' | 'UPCOMING' | 'COMPLETED' | 'MISSED'
 
 export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine, onStartCheck }) => {
+  const features = useWorkerFeatures()
   const insets = useSafeAreaInsets()
   const [checks, setChecks] = useState<CheckSummary[] | null>(null)
   const [machines, setMachines] = useState<AssignedMachine[] | null>(null)
@@ -194,7 +196,7 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
               </View>
             </LargeHeader>
           </View>
-          <ScoreCard refreshKey={refreshKey} />
+          {features.performance ? <ScoreCard refreshKey={refreshKey} /> : null}
         </View>
 
         {/* Quality Role Tabs when worker has BOTH roles */}

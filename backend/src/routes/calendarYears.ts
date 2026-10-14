@@ -37,12 +37,15 @@ import {
   yearDetail
 } from '../services/calendarYears'
 
-/** Annual company calendars (2027 onwards) and weekly closure rules. View to read, manage to change. */
+/** Annual company calendars (2027 onwards) and weekly closure rules. View to read; create, edit or delete (by the request's method) to change. */
 export const calendarYearsRouter = Router()
 export const weeklyRulesRouter = Router()
 
 const view = requireModule('calendar', 'view')
 const manage = requireModule('calendar', 'manage')
+/** Confirming an imported date changes it: Edit, whatever the method. Approving a calendar: Approve. */
+const edit = requireModule('calendar', 'edit')
+const approve = requireModule('calendar', 'approve')
 
 const dateString = z.string().refine((v) => {
   try {
@@ -164,7 +167,7 @@ calendarYearsRouter.put('/:id/items/:itemId', manage, async (req, res) => {
   res.json(await yearDetail(id))
 })
 
-calendarYearsRouter.post('/:id/items/:itemId/confirm', manage, async (req, res) => {
+calendarYearsRouter.post('/:id/items/:itemId/confirm', edit, async (req, res) => {
   const id = idParam(req)
   const item = await confirmItem(id, idParam(req, 'itemId'))
   const year = await getYear(id)
@@ -181,7 +184,7 @@ calendarYearsRouter.delete('/:id/items/:itemId', manage, async (req, res) => {
 })
 
 /** Publishes the reviewed dates: from now on they decide scheduling for this year. */
-calendarYearsRouter.post('/:id/approve', manage, async (req, res) => {
+calendarYearsRouter.post('/:id/approve', approve, async (req, res) => {
   const id = idParam(req)
   const year = await getYear(id)
   const result = await approveYear(id, req.user!.id)

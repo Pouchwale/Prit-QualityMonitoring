@@ -11,6 +11,7 @@ import { Card, CardHeader, EmptyState } from '../../components/ui/Card'
 import { ResultCount, SearchInput, Segmented, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
 import { Pagination, usePagination } from '../../components/ui/Pagination'
 import { CodeChip, Pill, UserAvatar } from '../../components/ui/Chips'
+import { WifiSeen } from './WifiRule'
 
 /*
  * Shift-based sign-in for workers (backend services/workerShifts.ts): the reminder settings on the
@@ -35,6 +36,8 @@ export interface WorkerShiftStatus {
   onShift: boolean
   /** The plant is closed on the shift's day (e.g. "Weekly Off (Thursday)"): not expected to sign in. */
   dayOff: string | null
+  /** When one of the worker's signed-in devices last reached the server (on company Wi-Fi). */
+  wifiSeenAt: string | null
   nextShiftStart: string | null
   loggedIn: boolean
   loginAt: string | null
@@ -263,6 +266,7 @@ export const ShiftSignInStatusCard: React.FC = () => {
                   <th>Auto logout</th>
                   <th>Reminders</th>
                   <th>Last sign-out</th>
+                  <th>Company Wi-Fi</th>
                 </tr>
               </thead>
               <tbody>
@@ -317,6 +321,9 @@ export const ShiftSignInStatusCard: React.FC = () => {
                       ) : (
                         <span className="text-ink-muted">—</span>
                       )}
+                    </td>
+                    <td className="whitespace-nowrap text-[12.5px]">
+                      <WifiSeen at={r.wifiSeenAt} />
                     </td>
                   </tr>
                 ))}

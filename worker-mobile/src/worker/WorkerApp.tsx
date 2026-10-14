@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { AppState, Platform, View } from 'react-native'
 import { AssignedMachine, Profile } from '../types'
-import { onNotificationTap, registerForPush, requestNotificationPermission, unregisterForPush } from '../services/notifications'
+import { getPushToken, onNotificationTap, registerForPush, requestNotificationPermission, unregisterForPush } from '../services/notifications'
+import { reportPresence } from '../services/api'
 import { TabBar } from '../components/ui/TabBar'
 import type { IconName } from '../components/ui/Icon'
 import { HomeScreen } from '../screens/HomeScreen'
@@ -12,6 +13,10 @@ import { CheckScreen } from '../screens/CheckScreen'
 import { HistoryDetailScreen } from '../screens/HistoryDetailScreen'
 import { JobScreen } from '../screens/JobScreen'
 import { dismissKeyboard } from '../utils/keyboard'
+import { WorkerFeaturesContext, featuresOf } from './features'
+
+/** How often the open app tells the server it is on company Wi-Fi (Company Wi-Fi rule). */
+const PRESENCE_EVERY_MS = 2 * 60_000
 
 type Tab = 'today' | 'history' | 'profile'
 
@@ -28,6 +33,9 @@ const isWeb = Platform.OS === 'web'
  * alerts. The same code runs on Android and as the web app (served by the backend at /app).
  */
 export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<void> }> = ({ profile, onLogout }) => {
+  // The app features the Super Admin allows for workers (worker/features.tsx).
+  const features = useMemo(() => featuresOf(profile), [profile])
+  const tabs = useMemo(() => TABS.filter((t) => t.key !== 'history' || features.history), [features])
   const [tab, setTab] = useState<Tab>('today')
   const [machine, setMachine] = useState<AssignedMachine | null>(null)
   const [openCheck, setOpenCheck] = useState<{ id: string; startWith?: 'exception' } | null>(null)
@@ -58,6 +66,22 @@ export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<voi
       if (state === 'active') registerForPush()
     })
     return () => sub.remove()
+  }, [])
+
+  // Company Wi-Fi rule: while the app is open, tell the plant server every 2 minutes (and on coming
+  // back to the front) that this device can reach it. The server is only reachable on company Wi-Fi,
+  // so a report that gets through is the proof; one that fails changes nothing here.
+  useEffect(() => {
+    const report = () => {
+      if (AppState.currentState === 'active') reportPresence(getPushToken()).catch(() => undefined)
+    }
+    report()
+    const timer = setInterval(report, PRESENCE_EVERY_MS)
+    const sub = AppState.addEventListener('change', (state) => state === 'active' && report())
+    return () => {
+      clearInterval(timer)
+      sub.remove()
+    }
   }, [])
 
   // Tapping "Quality check due" opens that check.
@@ -120,11 +144,11 @@ export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<voi
               onStartCheck={(id, startWith) => setOpenCheck({ id, startWith })}
             />
           )}
-          {tab === 'history' && <HistoryScreen refreshKey={refreshKey} onOpenRecord={setOpenRecordId} />}
+          {tab === 'history' && features.history && <HistoryScreen refreshKey={refreshKey} onOpenRecord={setOpenRecordId} />}
           {tab === 'profile' && <ProfileScreen profile={profile} onLogout={handleLogout} />}
         </View>
         <TabBar
-          tabs={TABS}
+          tabs={tabs}
           active={tab}
           onChange={(next) => {
             setTab(next)
@@ -135,5 +159,9 @@ export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<voi
     )
   }
 
-  return <View className="flex-1 bg-canvas">{screen}</View>
+  return (
+    <WorkerFeaturesContext.Provider value={features}>
+      <View className="flex-1 bg-canvas">{screen}</View>
+    </WorkerFeaturesContext.Provider>
+  )
 }

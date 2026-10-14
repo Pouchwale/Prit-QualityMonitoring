@@ -342,7 +342,7 @@ const JobDetailScreen: React.FC<{ params: { id: string } }> = ({ params }) => {
                             c.values
                               .map((v) => `${v.parameterName}: ${v.notApplicable ? 'N/A' : `${readingText(v.value)}${v.unit && v.value ? ` ${v.unit}` : ''}`}${v.result === 'FAIL' ? ' (outside limits)' : ''}`)
                               .join('\n'),
-                            c.exception ? `Exception: ${[c.exception.reason, c.exception.remark].filter(Boolean).join(' — ')}` : null
+                            c.exception ? `Exception: ${[c.exception.reason, c.exception.reading, c.exception.remark].filter(Boolean).join(' — ')}` : null
                           ]
                             .filter(Boolean)
                             .join('\n') || null

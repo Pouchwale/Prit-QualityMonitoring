@@ -3,7 +3,7 @@ import { Clock3, Moon, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Shift } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { useCanManage } from '../../lib/auth'
+import { useAuth, useModuleActions, useCanActivate, ACTIVATION_HINT } from '../../lib/auth'
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
 import { DataState } from '../../components/common/DataState'
@@ -19,6 +19,7 @@ import { IconButton, ResultCount, Segmented, Toolbar, ToolbarSpacer } from '../.
 import { CodeChip, matchesStatus, type StatusTab } from '../../components/ui/Chips'
 import { ShiftLoginSettingsCard } from './ShiftSignIn'
 import { WorkerBreaksCard } from './WorkerBreaks'
+import { WifiRuleCard } from './WifiRule'
 
 interface FormState {
   name: string
@@ -70,7 +71,9 @@ const DayBar: React.FC<{ start: string; end: string }> = ({ start, end }) => {
 }
 
 export const ShiftsPage: React.FC = () => {
-  const canEdit = useCanManage('shifts')
+  const canActivate = useCanActivate()
+  const { canCreate, canEdit, canDelete, canWrite } = useModuleActions('shifts')
+  const { can } = useAuth()
   const notify = useToast()
   const { data, error, loading, reload } = useApi<Shift[]>('/api/shifts')
 
@@ -167,7 +170,7 @@ export const ShiftsPage: React.FC = () => {
         description={data ? `${shifts.length} ${shifts.length === 1 ? 'shift' : 'shifts'} · ${activeCount} active` : 'Working shifts'}
         info="Working shifts define when scheduled quality checks are generated. Times are plant time; an end time at or before the start runs past midnight."
         actions={
-          canEdit && (
+          canCreate && (
             <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
               Add Shift
             </Button>
@@ -197,7 +200,7 @@ export const ShiftsPage: React.FC = () => {
               icon={<Clock3 className="w-5 h-5" />}
               title={shifts.length === 0 ? 'No shifts yet' : 'No shifts match the filter'}
               action={
-                shifts.length === 0 && canEdit ? (
+                shifts.length === 0 && canCreate ? (
                   <Button size="sm" variant="outline" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
                     Add Shift
                   </Button>
@@ -215,7 +218,7 @@ export const ShiftsPage: React.FC = () => {
                     <th className="num">Duration</th>
                     <th className="num">Grace</th>
                     <th>Status</th>
-                    {canEdit && (
+                    {canWrite && (
                       <th className="text-right">
                         <span className="sr-only">Actions</span>
                       </th>
@@ -254,15 +257,15 @@ export const ShiftsPage: React.FC = () => {
                       <td className="whitespace-nowrap">
                         <StatusBadge status={s.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" />
                       </td>
-                      {canEdit && (
+                      {canWrite && (
                         <td className="text-right whitespace-nowrap" data-label="">
                           <div className="inline-flex items-center gap-0.5">
-                            <IconButton label={`Edit ${s.name}`} onClick={() => openEdit(s)}>
+                            {canEdit && (<IconButton label={`Edit ${s.name}`} onClick={() => openEdit(s)}>
                               <Pencil className="w-3.5 h-3.5" />
-                            </IconButton>
-                            <IconButton label={`Delete ${s.name}`} tone="danger" onClick={() => setDeleting(s)}>
+                            </IconButton>)}
+                            {canDelete && (<IconButton label={`Delete ${s.name}`} tone="danger" onClick={() => setDeleting(s)}>
                               <Trash2 className="w-3.5 h-3.5" />
-                            </IconButton>
+                            </IconButton>)}
                           </div>
                         </td>
                       )}
@@ -275,9 +278,12 @@ export const ShiftsPage: React.FC = () => {
         </Card>
       </DataState>
 
-      <ShiftLoginSettingsCard canEdit={canEdit} />
+      {/* Shift Sign-In and Company Wi-Fi have their own permissions (Roles & Permissions). */}
+      {can('shift_signin') && <ShiftLoginSettingsCard canEdit={can('shift_signin', 'edit')} />}
 
-      <WorkerBreaksCard canEdit={canEdit} />
+      <WorkerBreaksCard canEdit={canEdit} canDelete={canDelete} />
+
+      {can('wifi_rule') && <WifiRuleCard />}
 
       <Modal
         isOpen={editing !== null}
@@ -336,7 +342,7 @@ export const ShiftsPage: React.FC = () => {
               className={inputClass}
             />
           </Field>
-          <Toggle checked={form.isActive} onChange={(v) => set('isActive', v)} label="Active" description="Inactive shifts generate no scheduled checks." />
+          <Toggle checked={form.isActive} disabled={!canActivate} onChange={(v) => set('isActive', v)} label="Active" description={canActivate ? 'Inactive shifts generate no scheduled checks.' : ACTIVATION_HINT} />
           {editing !== 'new' && <p className="text-[11px] text-ink-muted">Changing shift times replaces upcoming checks for this shift; completed history is kept.</p>}
         </form>
       </Modal>

@@ -18,7 +18,7 @@ export const NAV_PATH: Record<NavTab, string> = {
   'department-config': '/department-configuration',
   shifts: '/shifts',
   'audit-logs': '/audit-logs',
-  access: '/manager-access',
+  access: '/roles-permissions',
   account: '/account'
 }
 

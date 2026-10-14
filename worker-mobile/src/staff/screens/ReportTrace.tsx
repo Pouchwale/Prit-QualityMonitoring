@@ -167,7 +167,7 @@ export const DetailedRecords: React.FC<{ checks: QualityCheck[]; onOpen: (id: st
             .map((v) => `${v.parameterName}: ${v.notApplicable ? `N/A${v.naReason ? ` (${v.naReason})` : ''}` : v.value ? `${readingText(v.value)}${v.unit ? ` ${v.unit}` : ''}${v.result === 'FAIL' ? ' (outside limits)' : ''}` : '—'}`)
             .join('\n')
           const exception = c.exception
-            ? `Exception: ${[c.exception.reason, c.exception.remark].filter(Boolean).join(' — ')} · ${c.exception.status}${c.exception.reviewedByName ? ` by ${c.exception.reviewedByName}` : ''}`
+            ? `Exception: ${[c.exception.reason, c.exception.reading, c.exception.remark].filter(Boolean).join(' — ')} · ${c.exception.status}${c.exception.reviewedByName ? ` by ${c.exception.reviewedByName}` : ''}`
             : c.result === 'MISSED'
               ? `Missed: not submitted before ${formatDateTime(c.windowEndsAt)}`
               : null

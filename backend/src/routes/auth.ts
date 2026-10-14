@@ -18,7 +18,7 @@ import { assertLoginAllowed, recordLoginFailure, recordLoginSuccess } from '../l
 import { offShiftMessage, recordShiftLogin, recordShiftLogout, signInWindow } from '../services/workerShifts'
 import { HttpError, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
-import { loadPermissions } from '../lib/permissions'
+import { loadAccess } from '../lib/permissions'
 
 export const authRouter = Router()
 
@@ -58,7 +58,8 @@ export async function loadProfile(userId: string) {
     .where(eq(users.id, userId))
   if (!row) throw notFound('User')
   // The admin panel uses these to show only the pages and actions this user may use.
-  return { ...row, permissions: await loadPermissions(row.id, row.role) }
+  // `actions`: view / create / edit / delete per module; `permissions`: the older one-word summary (mobile staff screens).
+  return { ...row, ...(await loadAccess(row.id, row.role)) }
 }
 
 authRouter.post('/login', async (req, res) => {
@@ -116,7 +117,7 @@ authRouter.post('/login', async (req, res) => {
     employeeId: user.employeeId,
     role: user.role,
     app,
-    permissions: await loadPermissions(user.id, user.role)
+    ...(await loadAccess(user.id, user.role))
   }
   const shiftLogin = shiftBlock ? await recordShiftLogin(user.id, shiftBlock, now) : null
   await audit(req, 'LOGIN', 'User', user.id, {
@@ -187,7 +188,7 @@ authRouter.post('/logout', async (req, res) => {
       const [user] = await db.select().from(users).where(eq(users.id, payload.sub))
       if (user) {
         if (user.role === 'WORKER') await recordShiftLogout(user.id)
-        req.user = { id: user.id, name: user.name, employeeId: user.employeeId, role: user.role, app: payload.app ?? 'web', permissions: await loadPermissions(user.id, user.role) }
+        req.user = { id: user.id, name: user.name, employeeId: user.employeeId, role: user.role, app: payload.app ?? 'web', ...(await loadAccess(user.id, user.role)) }
         await audit(req, 'LOGOUT', 'User', user.id)
       }
     }

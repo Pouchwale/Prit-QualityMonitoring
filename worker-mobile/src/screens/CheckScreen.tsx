@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useWorkerFeatures } from '../worker/features'
 import { View, Text, ScrollView, Pressable, BackHandler, Platform, TextInput, Modal, useWindowDimensions } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { KeyboardAvoider, KeyboardAwareScrollView, useRevealInput, type KeyboardAwareScrollViewHandle } from '../utils/keyboard'
@@ -8,9 +9,9 @@ import { showDialog, showError, showMissingItems, showSuccess } from '../utils/d
 import type { DialogItem } from '../components/ui/AppDialog'
 import { describeError } from '../utils/friendlyError'
 import { syncLocalAlerts } from '../services/notifications'
-import { Capture, CheckForm, EvidenceUpload, FormParameter, SubmitResult, SubmitValue } from '../types'
+import { Capture, CheckForm, EvidenceUpload, ExceptionReasonRule, FormParameter, SubmitResult, SubmitValue } from '../types'
 import { formatTime } from '../utils/format'
-import { ITEM_CODE_ERROR, itemCodeError } from '../utils/itemCode'
+import { ITEM_CODE_ERROR, itemCodeError, splitItemCodes } from '../utils/itemCode'
 import { NavBar } from '../components/ui/NavBar'
 import { SectionHeader } from '../components/ui/SectionHeader'
 import { ListGroup } from '../components/ui/ListGroup'
@@ -98,6 +99,7 @@ function readDraft(raw: string | null): CheckDraft | null {
 }
 
 export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOpenCheck }) => {
+  const features = useWorkerFeatures()
   const [form, setForm] = useState<CheckForm | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [mode, setMode] = useState<'check' | 'exception'>(startWith === 'exception' ? 'exception' : 'check')
@@ -126,9 +128,12 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
   // Exception form
   const [reason, setReason] = useState<string | null>(null)
   const [remark, setRemark] = useState('')
+  /** The reading the chosen reason asks for (e.g. White Viscosity: the viscosity), as typed. */
+  const [readingValue, setReadingValue] = useState('')
   /** Readings typed earlier (before the app closed or the shift ended) were put back. */
   const [restoredDraft, setRestoredDraft] = useState(false)
   const [exceptionPhoto, setExceptionPhoto] = useState<Capture | null>(null)
+  const [exceptionVideo, setExceptionVideo] = useState<Capture | null>(null)
 
   const scroller = useRef<KeyboardAwareScrollViewHandle | null>(null)
   const cardsTop = useRef(0)
@@ -221,7 +226,9 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     selectedMachineId ||
     reason ||
     remark ||
-    exceptionPhoto
+    readingValue ||
+    exceptionPhoto ||
+    exceptionVideo
   )
 
   const goBack = useCallback(() => {
@@ -237,7 +244,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     }
     if (hasInput) {
       // Typed readings are kept as a draft (above); only the photos and videos are not.
-      const message = Object.keys(media).length || exceptionPhoto
+      const message = Object.keys(media).length || exceptionPhoto || exceptionVideo
         ? 'Your readings are kept on this phone for when you open it again, but the photos and videos will need to be taken again.'
         : 'Your readings are kept on this phone for when you open it again.'
       showDialog('Leave this check?', message, [
@@ -248,7 +255,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
       onClose(false)
     }
     return true
-  }, [exceptionPhoto, hasInput, media, mode, onClose, result, sending, startWith])
+  }, [exceptionPhoto, exceptionVideo, hasInput, media, mode, onClose, result, sending, startWith])
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', goBack)
@@ -448,9 +455,17 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
   const sendException = async () => {
     if (sendingRef.current) return
     const items: string[] = []
+    // What this reason asks for (Check Types → Exception reasons), the same rules as the server.
+    const rule = exceptionRule(reason, form?.exceptionReasonRules)
+    const needPhoto = rule.photo === 'REQUIRED' && !exceptionPhoto
+    const needVideo = rule.video === 'REQUIRED' && !exceptionVideo
     if (!reason) items.push('Reason')
-    if (reason === 'Other' && !remark.trim()) items.push('Remark')
-    if (!exceptionPhoto) items.push('Photo')
+    if (rule.remark && !remark.trim()) items.push('Remark')
+    // A reading the reason asks for: a number above 0 with at most 2 decimals (the server checks the same).
+    const readingError = rule.reading ? readingProblem(readingValue, rule.reading) : null
+    if (readingError) items.push(rule.reading!.label)
+    if (needPhoto) items.push('Photo')
+    if (needVideo) items.push('Video')
     // Same rule and wording as the server (backend lib/validate.ts exceptionDetailsError).
     const needMachine = !form?.check.machineId && !selectedMachineId
     const machineProblem = isMachineReason(reason, form?.exceptionReasonRules)
@@ -467,20 +482,29 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
         ? ITEM_CODE_ERROR
         : null
     setMissingOverall([...(needMachine ? ['Machine'] : []), ...(needPoItem ? ['PO No. / Item Code'] : []), ...(badItemCode ? ['Item Code'] : [])])
-    if (items.length || !reason || !exceptionPhoto || detailsMessage) {
+    if (items.length || !reason || detailsMessage) {
       showMissingItems({
-        title: detailsMessage && !items.length ? detailsMessage : !exceptionPhoto && items.length === 1 && !detailsMessage ? 'Photo required' : 'Some details are missing',
-        message: detailsMessage ?? 'An exception needs a reason and a photo of the problem before it can be sent.',
+        title:
+          detailsMessage && !items.length
+            ? detailsMessage
+            : items.length === 1 && !detailsMessage && (needPhoto || needVideo)
+            ? needPhoto ? 'Photo required' : 'Video required'
+            : 'Some details are missing',
+        message: detailsMessage ?? 'An exception needs a reason and the evidence this reason asks for before it can be sent.',
         items: [
           ...(needMachine ? [{ label: 'Machine', detail: 'Select the machine', icon: 'construct-outline' as const }] : []),
           ...(needPoItem ? [{ label: 'PO No. / Item Code', detail: 'Enter the PO No. or Item Code', icon: 'create-outline' as const }] : []),
           ...(badItemCode ? [{ label: 'Item Code', detail: ITEM_CODE_ERROR, icon: 'create-outline' as const }] : []),
           ...(!reason ? [{ label: 'Reason', detail: 'Choose why the check could not be done', icon: 'list-outline' as const }] : []),
-          ...(reason === 'Other' && !remark.trim() ? [{ label: 'Remark', detail: 'Describe the problem', icon: 'create-outline' as const }] : []),
-          ...(!exceptionPhoto ? [{ label: 'Exception photo', detail: 'Photo required', icon: 'camera-outline' as const }] : [])
+          ...(rule.remark && !remark.trim() ? [{ label: 'Remark', detail: 'Describe the problem', icon: 'create-outline' as const }] : []),
+          ...(readingError && rule.reading ? [{ label: readingTitle(rule.reading), detail: readingError, icon: 'speedometer-outline' as const }] : []),
+          ...(needPhoto ? [{ label: 'Exception photo', detail: 'Photo required', icon: 'camera-outline' as const }] : []),
+          ...(needVideo ? [{ label: 'Exception video', detail: 'Video required', icon: 'videocam-outline' as const }] : [])
         ],
-        fix: !exceptionPhoto
+        fix: needPhoto
           ? { text: 'Take Photo', icon: 'camera-outline', onPress: () => setCamera({ mode: 'photo', field: 'exception', label: 'Exception photo' }) }
+          : needVideo
+          ? { text: 'Record Video', icon: 'videocam-outline', onPress: () => setCamera({ mode: 'video', field: 'exception-video', label: 'Exception video' }) }
           : undefined
       })
       return
@@ -495,7 +519,11 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
         {
           reason,
           remark: remark.trim(),
-          photo: exceptionPhoto,
+          // Only when the reason asks for it (a value typed for an earlier choice is left out).
+          readingValue: rule.reading ? readingValue.trim() : undefined,
+          // Only the evidence this reason asks for (something taken for an earlier choice is left out).
+          photo: rule.photo !== 'OFF' ? exceptionPhoto : null,
+          video: rule.video !== 'OFF' ? exceptionVideo : null,
           // Not asked for a machine problem, so nothing typed earlier is sent with it.
           itemCode: machineProblem ? '' : itemCode.trim(),
           jobNo: machineProblem ? '' : jobNo.trim(),
@@ -524,6 +552,11 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
     if (!camera) return
     if (camera.field === 'exception') {
       setExceptionPhoto(capture)
+      setCamera(null)
+      return
+    }
+    if (camera.field === 'exception-video') {
+      setExceptionVideo(capture)
       setCamera(null)
       return
     }
@@ -572,7 +605,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
           onDone={() => (nextJobCheck && onOpenCheck ? onOpenCheck(nextJobCheck.id) : onClose(true))}
           doneLabel={nextJobCheck ? `Next: ${KIND_LABEL[nextJobCheck.kind ?? 'SCHEDULED']}` : undefined}
         />
-        {result.job ? (
+        {result.job && features.changeJobs ? (
           <ContinueJobSheet
             visible={askJob}
             jobNo={result.job.jobNo}
@@ -632,11 +665,12 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
    * The department the check will be saved with: a typed Item Code's (FGSL -> Sleeve, from Department
    * Configuration), as the server decides on submit; otherwise the check's own. Never chosen by hand.
    */
-  const typed = !jobFixed && !machineOnly ? itemCode.trim().toUpperCase() : ''
-  const itemDepartment = typed
-    ? (form.itemCodeDepartments ?? []).filter((m) => typed.startsWith(m.prefix.toUpperCase())).sort((a, b) => b.prefix.length - a.prefix.length)[0]
-    : undefined
-  const departmentShown = itemDepartment?.name ?? check.departmentName
+  const typedCodes = !jobFixed && !machineOnly ? splitItemCodes(itemCode) : []
+  const departmentOf = (code: string) =>
+    (form.itemCodeDepartments ?? []).filter((m) => code.startsWith(m.prefix.toUpperCase())).sort((a, b) => b.prefix.length - a.prefix.length)[0]
+  // Several Item Codes must be of one department (the server refuses a mix): a mix is shown as such.
+  const typedDepartments = [...new Set(typedCodes.map((c) => departmentOf(c)?.name).filter((n): n is string => !!n))]
+  const departmentShown = typedDepartments.length > 1 ? `Different departments (${typedDepartments.join(', ')})` : typedDepartments[0] ?? check.departmentName
 
   /** Item Code, PO No. and machine: the same rows on the check form and the exception form. */
   const detailsGroup = (
@@ -648,7 +682,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
         <InlineField
           key="item"
           label="Item Code"
-          placeholder="Enter Item Code"
+          placeholder="FGPO123, FGPO234"
           value={itemCode}
           invalid={poItemMissing || itemCodeBad}
           onChangeText={(text) => {
@@ -687,7 +721,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
         />
       )}
       {departmentShown ? (
-        <LockedRow key="department" label="Department" value={departmentShown} note={itemDepartment ? 'set from the Item Code' : 'set by the check type'} />
+        <LockedRow key="department" label="Department" value={departmentShown} note={typedDepartments.length ? 'set from the Item Code' : 'set by the check type'} />
       ) : null}
     </ListGroup>
     {itemCodeBad && !machineOnly ? <Text className="mt-2 px-4 text-[13px] font-medium text-missed">{ITEM_CODE_ERROR}</Text> : null}
@@ -889,24 +923,63 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
                   </Text>
                 </View>
 
+                {/* The reading the reason asks for (e.g. White Viscosity → Viscosity in sec): required. */}
+                {exceptionRule(reason, form?.exceptionReasonRules).reading ? (
+                  <View>
+                    <View className="mb-2 flex-row items-baseline justify-between px-4">
+                      <Text className="text-[15px] font-semibold text-ink-muted">{readingTitle(exceptionRule(reason, form?.exceptionReasonRules).reading!)}</Text>
+                      <Text className="text-[13px] text-ink-muted">Required</Text>
+                    </View>
+                    <TextField
+                      variant="outlined"
+                      placeholder="e.g. 21.5"
+                      value={readingValue}
+                      onChangeText={(text) => setReadingValue(text.replace(',', '.'))}
+                      keyboardType="decimal-pad"
+                      maxLength={9}
+                      suffix={exceptionRule(reason, form?.exceptionReasonRules).reading!.unit ?? undefined}
+                      invalid={!!readingValue && !!readingProblem(readingValue, exceptionRule(reason, form?.exceptionReasonRules).reading!)}
+                      accessibilityLabel={readingTitle(exceptionRule(reason, form?.exceptionReasonRules).reading!)}
+                    />
+                    {readingValue && readingProblem(readingValue, exceptionRule(reason, form?.exceptionReasonRules).reading!) ? (
+                      <Text className="mt-2 px-4 text-[14px] font-medium text-missed">{readingProblem(readingValue, exceptionRule(reason, form?.exceptionReasonRules).reading!)}</Text>
+                    ) : null}
+                  </View>
+                ) : null}
+
                 <View>
                   <View className="mb-2 flex-row items-baseline justify-between px-4">
                     <Text className="text-[15px] font-semibold text-ink-muted">Remark</Text>
-                    <Text className="text-[13px] text-ink-muted">{reason === 'Other' ? 'Required' : 'Optional'}</Text>
+                    <Text className="text-[13px] text-ink-muted">{exceptionRule(reason, form?.exceptionReasonRules).remark ? 'Required' : 'Optional'}</Text>
                   </View>
                   <TextField multiline variant="outlined" placeholder="What happened?" value={remark} onChangeText={setRemark} />
                 </View>
 
-                <View>
-                  <SectionHeader title="Photo" />
-                  <EvidenceField
-                    kind="photo"
-                    capture={exceptionPhoto}
-                    required
-                    highlight={!!reason}
-                    onOpenCamera={() => setCamera({ mode: 'photo', field: 'exception', label: 'Exception photo' })}
-                  />
-                </View>
+                {/* The evidence this reason asks for (Check Types → Exception reasons): Off, Optional or Required. */}
+                {exceptionRule(reason, form?.exceptionReasonRules).photo !== 'OFF' ? (
+                  <View>
+                    <SectionHeader title="Photo" detail={exceptionRule(reason, form?.exceptionReasonRules).photo === 'REQUIRED' ? 'Required' : 'Optional'} />
+                    <EvidenceField
+                      kind="photo"
+                      capture={exceptionPhoto}
+                      required={exceptionRule(reason, form?.exceptionReasonRules).photo === 'REQUIRED'}
+                      highlight={!!reason}
+                      onOpenCamera={() => setCamera({ mode: 'photo', field: 'exception', label: 'Exception photo' })}
+                    />
+                  </View>
+                ) : null}
+                {exceptionRule(reason, form?.exceptionReasonRules).video !== 'OFF' ? (
+                  <View>
+                    <SectionHeader title="Video" detail={exceptionRule(reason, form?.exceptionReasonRules).video === 'REQUIRED' ? 'Required' : 'Optional'} />
+                    <EvidenceField
+                      kind="video"
+                      capture={exceptionVideo}
+                      required={exceptionRule(reason, form?.exceptionReasonRules).video === 'REQUIRED'}
+                      highlight={!!reason}
+                      onOpenCamera={() => setCamera({ mode: 'video', field: 'exception-video', label: 'Exception video' })}
+                    />
+                  </View>
+                ) : null}
               </View>
             </KeyboardAwareScrollView>
 
@@ -1175,6 +1248,31 @@ const LockedRow: React.FC<{ label: string; value: string; note?: string }> = ({ 
     </View>
   </View>
 )
+
+/**
+ * What an exception reason asks for, as set in the admin panel and sent with the form. A server that does
+ * not send these yet is followed by the old rules: a photo always, a remark for "Other", no video.
+ */
+function exceptionRule(reason: string | null, rules?: ExceptionReasonRule[]) {
+  const rule = reason ? rules?.find((r) => r.label === reason) : undefined
+  return {
+    remark: rule?.requiresRemark ?? reason === 'Other',
+    photo: rule?.photoEvidence ?? 'REQUIRED',
+    video: rule?.videoEvidence ?? 'OFF',
+    reading: rule?.readingLabel ? { label: rule.readingLabel, unit: rule.readingUnit ?? null } : null
+  }
+}
+
+type ReadingRule = { label: string; unit: string | null }
+/** "Viscosity (sec)". */
+const readingTitle = (r: ReadingRule) => `${r.label}${r.unit ? ` (${r.unit})` : ''}`
+/** Why a typed reading cannot be sent (the server's rule: a number above 0, at most 2 decimals), or null. */
+function readingProblem(value: string, r: ReadingRule): string | null {
+  const text = value.trim()
+  if (!text) return `Enter the ${readingTitle(r)} value`
+  if (!/^\d{1,5}(\.\d{1,2})?$/.test(text) || Number(text) <= 0) return 'Enter a number above 0 with at most 2 decimals, e.g. 21.5'
+  return null
+}
 
 /**
  * Whether the reason needs only the machine (no PO No. / Item Code): the Super Admin sets it per reason

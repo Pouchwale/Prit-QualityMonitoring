@@ -75,6 +75,24 @@ async function validateRefs(data: z.infer<typeof input>) {
   }
 }
 
+/**
+ * A fingerprint of the schedule list: it changes whenever a schedule is added, edited, removed or
+ * moved to another shift (e.g. a worker's shift changed in Workers & Users), or a shift is edited.
+ * The Check Schedules page asks for it every few seconds and reloads the list only when it changed,
+ * so every open page shows the change without a manual refresh.
+ */
+schedulesRouter.get('/version', async (_req, res) => {
+  const [row] = await db
+    .select({
+      count: sql<number>`count(*)::int`,
+      schedules: sql<string | null>`max(${schedules.updatedAt})::text`,
+      shifts: sql<string | null>`(select max(${shifts.updatedAt})::text from ${shifts})`
+    })
+    .from(schedules)
+  res.setHeader('Cache-Control', 'no-store')
+  res.json({ version: `${row.count}|${row.schedules ?? ''}|${row.shifts ?? ''}` })
+})
+
 schedulesRouter.get('/', async (_req, res) => {
   const rows = await db
     .select({

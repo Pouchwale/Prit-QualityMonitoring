@@ -25,7 +25,7 @@ import type { Activity, AppliesWhen, Department, Machine, Parameter, ParameterFr
 import { api, errorText } from '../../lib/api'
 import { NotificationDevicesSection } from './NotificationDevicesSection'
 import { useApi } from '../../lib/useApi'
-import { useCanManage } from '../../lib/auth'
+import { useModuleActions, useCanActivate, ACTIVATION_HINT } from '../../lib/auth'
 import { PARAMETER_TYPE_LABEL } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { Modal } from '../../components/common/Modal'
@@ -233,7 +233,8 @@ const iconButton =
   'w-9 h-9 lg:w-6 lg:h-6 flex items-center justify-center rounded text-ink-muted hover:text-ink hover:bg-subtle disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed'
 
 export const ActivitiesPage: React.FC = () => {
-  const canEdit = useCanManage('activities')
+  const canActivate = useCanActivate()
+  const { canCreate, canEdit, canDelete, canWrite } = useModuleActions('activities')
   const notify = useToast()
   const { data, error, loading, reload } = useApi<Activity[]>('/api/activities')
   const { data: allParameters } = useApi<Parameter[]>('/api/parameters')
@@ -424,7 +425,7 @@ export const ActivitiesPage: React.FC = () => {
         description={data ? `${activeCount} active · ${activities.length} total` : 'Parameters, evidence and machines per check'}
         info="What workers fill in for each quality check: parameters, evidence and machines. Changes apply to the worker app immediately."
         actions={
-          canEdit && (
+          canCreate && (
             <Button size="sm" variant="primary" onClick={openAdd} icon={<Plus className="w-3.5 h-3.5" />}>
               Add Check Type
             </Button>
@@ -474,7 +475,7 @@ export const ActivitiesPage: React.FC = () => {
                     <th>Evidence</th>
                     <th className="num">Machines</th>
                     <th>Status</th>
-                    {canEdit && <th className="text-right">Actions</th>}
+                    {canWrite && <th className="text-right">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -536,15 +537,15 @@ export const ActivitiesPage: React.FC = () => {
                         <td>
                           <StatusBadge status={a.isActive ? 'ACTIVE' : 'DISABLED'} size="sm" />
                         </td>
-                        {canEdit && (
+                        {canWrite && (
                           <td className="text-right whitespace-nowrap" data-label="">
                             <div className="inline-flex items-center gap-0.5">
-                              <IconButton label={`Edit ${a.name}`} onClick={() => openEdit(a)}>
+                              {canEdit && (<IconButton label={`Edit ${a.name}`} onClick={() => openEdit(a)}>
                                 <Pencil className="w-3.5 h-3.5" />
-                              </IconButton>
-                              <IconButton label={`Delete ${a.name}`} tone="danger" onClick={() => setDeleting(a)}>
+                              </IconButton>)}
+                              {canDelete && (<IconButton label={`Delete ${a.name}`} tone="danger" onClick={() => setDeleting(a)}>
                                 <Trash2 className="w-3.5 h-3.5" />
-                              </IconButton>
+                              </IconButton>)}
                             </div>
                           </td>
                         )}
@@ -577,6 +578,7 @@ export const ActivitiesPage: React.FC = () => {
           description="Why a whole check could not be done. The worker raises an exception with one of these, and the check is recorded as an Exception for review."
           endpoint="/api/exception-reasons"
           jobDetails
+          evidence
           noun="Exception Reason"
           dialogSubtitle="Workers choose one of these when a check cannot be done at all"
           placeholder="e.g. Power cut"
@@ -633,9 +635,10 @@ export const ActivitiesPage: React.FC = () => {
               <div className="flex items-end pb-1.5">
                 <Toggle
                   checked={form.isActive}
+                  disabled={!canActivate}
                   onChange={(v) => update('isActive', v)}
                   label="Active"
-                  description="Inactive check types are not scheduled and upcoming checks are removed."
+                  description={canActivate ? 'Inactive check types are not scheduled and upcoming checks are removed.' : ACTIVATION_HINT}
                 />
               </div>
             </div>

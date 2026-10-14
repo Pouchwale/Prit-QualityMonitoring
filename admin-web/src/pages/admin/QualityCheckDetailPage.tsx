@@ -52,8 +52,8 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
   const { data: check, error, loading, reload } = useApi<QualityCheck>(`/api/quality-checks/${checkId}`)
   // Permanent delete: needs Delete Checks (checked again by the server).
   const canDeleteChecks = useDeletePermissions().DELETE_CHECKS
-  // Printing is an export: it needs the Export Reports module.
-  const canExport = useAuth().can('export')
+  // Printing is an export: it needs Quality Checks export.
+  const canExport = useAuth().can('checks', 'export')
   const [deleting, setDeleting] = useState(false)
   const notify = useToast()
 
@@ -179,6 +179,7 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                 />
                 <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3.5 p-4">
                   <Info label="Reason" value={check.exception.reason} className="col-span-2" />
+                  {check.exception.reading && <Info label="Reading" value={check.exception.reading} className="col-span-2" />}
                   <Info label="Raised at" value={formatDateTime(check.exception.createdAt)} />
                   <Info label="Reviewed by" value={check.exception.reviewedByName} />
                   <Info label="Worker remark" value={check.exception.remark} className="col-span-2" multiline />

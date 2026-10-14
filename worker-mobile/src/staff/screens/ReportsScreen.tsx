@@ -165,7 +165,7 @@ export const ReportsScreen: React.FC = () => {
       [
         'Check code', 'Scheduled at', 'Machine', 'Machine code', 'Department', 'Check type', 'Shift', 'Worker', 'Employee ID', 'Status', 'Result', 'Submission type', 'Item Code', 'PO No.',
         'Submitted at', 'Next check due', 'N/A parameters',
-        'Parameters outside limits', ...params.map((p) => (p.unit ? `${p.name} (${p.unit})` : p.name)), 'Exception reason', 'Exception remark', 'Exception status', 'Photo URLs', 'Video URLs'
+        'Parameters outside limits', ...params.map((p) => (p.unit ? `${p.name} (${p.unit})` : p.name)), 'Exception reason', 'Exception reading', 'Exception remark', 'Exception status', 'Photo URLs', 'Video URLs'
       ],
       checks.map((c) => [
         c.code, formatDateTime(c.scheduledAt), c.machineName, c.machineCode, c.departmentName, c.activityName, c.shiftName, workerOf(c), c.submittedByEmployeeId ?? c.workerEmployeeId,
@@ -176,7 +176,7 @@ export const ReportsScreen: React.FC = () => {
           const v = c.values.find((x) => x.parameterName === p.name)
           return v?.notApplicable ? `N/A (${v.naReason ?? 'no reason'})` : (v?.value ?? '')
         }),
-        c.exception?.reason, c.exception?.remark, c.exception?.status,
+        c.exception?.reason, c.exception?.reading, c.exception?.remark, c.exception?.status,
         c.media.filter((m) => m.kind === 'PHOTO').map((m) => fileUrl(m.url)).join(' '),
         c.media.filter((m) => m.kind === 'VIDEO').map((m) => fileUrl(m.url)).join(' ')
       ])
@@ -315,7 +315,7 @@ export const ReportsScreen: React.FC = () => {
                   key={c.id}
                   title={c.machineName}
                   subtitle={`${c.activityName} · ${formatDateTime(c.scheduledAt)} · ${workerOf(c)}`}
-                  detail={c.result === 'EXCEPTION' ? [c.exception?.reason, c.exception?.remark].filter(Boolean).join(' — ') || 'Exception' : `Window closed ${formatDateTime(c.windowEndsAt)}`}
+                  detail={c.result === 'EXCEPTION' ? [c.exception?.reason, c.exception?.reading, c.exception?.remark].filter(Boolean).join(' — ') || 'Exception' : `Window closed ${formatDateTime(c.windowEndsAt)}`}
                   detailLines={2}
                   accessibilityLabel={`${c.machineName} · ${c.activityName}`}
                   right={c.result ? <StatusBadge status={c.result} /> : <Badge label="Open" />}

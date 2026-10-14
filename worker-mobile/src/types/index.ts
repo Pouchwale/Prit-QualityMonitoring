@@ -30,6 +30,12 @@ export interface Profile {
    * app signs out then; null when the sign-in is not tied to a shift.
    */
   sessionEndsAt?: string | null
+  /**
+   * What the user may do, per module and action (view, create, edit, …). For a worker: the app
+   * features the Super Admin set for the Worker role (app_jobs, app_performance, app_history).
+   * Missing from older servers.
+   */
+  actions?: Record<string, Record<string, boolean>>
 }
 
 /** Voice alert languages: English, Hindi, Gujarati. */
@@ -74,6 +80,8 @@ export interface CheckSummary {
   canSubmit: boolean
   message: string | null
   exceptionReason?: string | null
+  /** The exception's reading, e.g. "Viscosity: 21.5 sec". */
+  exceptionReading?: string | null
   /** The schedule this check belongs to; null for a check the worker started by hand. */
   scheduleId?: string | null
   submissionType?: SubmissionType | null
@@ -289,7 +297,7 @@ export interface CheckForm {
   overallEvidence: { photo: boolean; video: boolean }
   exceptionReasons: string[]
   /** Which reasons need the PO No. / Item Code as well as the machine (set by the Super Admin). Older servers leave it out. */
-  exceptionReasonRules?: { label: string; requiresJobDetails: boolean }[]
+  exceptionReasonRules?: ExceptionReasonRule[]
   /** Active Item Code prefixes and their departments (Department Configuration); absent on older servers. */
   itemCodeDepartments?: { prefix: string; name: string }[]
   maxVideoSeconds: number
@@ -315,6 +323,18 @@ export interface MyPerformance {
   score: number
   /** (completed + exceptions) / assigned, as a percentage. */
   completionRate: number
+}
+
+/** What an exception reason asks for (set in the admin panel). Older servers send only some fields. */
+export interface ExceptionReasonRule {
+  label: string
+  requiresJobDetails: boolean
+  requiresRemark?: boolean
+  photoEvidence?: 'OFF' | 'OPTIONAL' | 'REQUIRED'
+  videoEvidence?: 'OFF' | 'OPTIONAL' | 'REQUIRED'
+  /** A reading the worker must enter with this reason (e.g. "Viscosity"), and its unit; null: none. */
+  readingLabel?: string | null
+  readingUnit?: string | null
 }
 
 export interface Capture {
@@ -408,7 +428,7 @@ export interface JobDetail {
   history: (CheckSummary & {
     workerName: string | null
     values: { parameterName: string; value: string | null; unit: string | null; result: string | null; notApplicable: boolean; naReason: string | null }[]
-    exception: { reason: string; remark: string | null } | null
+    exception: { reason: string; remark: string | null; reading?: string | null } | null
   })[]
 }
 
@@ -421,6 +441,8 @@ export interface ExceptionInfo {
   id: string
   reason: string
   remark: string | null
+  /** The reading the reason asked for, e.g. "Viscosity: 21.5 sec". */
+  reading?: string | null
   status: 'UNDER_REVIEW' | 'ACKNOWLEDGED' | 'ACTION_TAKEN' | 'RESOLVED'
   resolutionNotes: string | null
   createdAt: string
@@ -430,6 +452,7 @@ export interface ExceptionInfo {
 /** One row in the history list. */
 export interface HistoryItem extends CheckSummary {
   exceptionReason: string | null
+  exceptionReading?: string | null
   photoUrl: string | null
   hasVideo: boolean
   valueCount: number

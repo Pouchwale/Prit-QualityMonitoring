@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express'
 import { z } from 'zod'
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, or, sql, type SQL, notInArray } from 'drizzle-orm'
 import { db } from '../db/client'
 import {
   activities,
@@ -19,10 +19,12 @@ import {
   users,
   moduleNotificationAssignments
 } from '../db/schema'
-import { idParam, optionalUuid } from '../lib/validate'
+import { idParam, optionalUuid, splitCodes } from '../lib/validate'
 import { badRequest, forbidden, notFound } from '../lib/http'
 import { audit } from '../lib/audit'
 import { canView, requireAnyView, requireModule, requireSuperAdmin } from '../lib/permissions'
+import { assertActivation, denyActivation, isSuperAdmin } from '../lib/activation'
+import { PERMISSION_AUDIT_ACTIONS } from './access'
 import { checkEditForm, checkEditInput, editCheck } from '../services/checkEdit'
 import { CHECK_RESULTS, RESULT_LABEL, RESULT_STATUSES, resultOf } from '../lib/result'
 import { addDays, dateKey, formatLocalDate, parseDateKey, startOfDay } from '../lib/time'
@@ -296,7 +298,11 @@ monitoringRouter.get('/exceptions', requireModule('exceptions', 'view'), async (
   )
 })
 
-monitoringRouter.patch('/exceptions/:id', requireModule('exceptions', 'manage'), async (req, res) => {
+/**
+ * Reviews an exception (Exceptions edit). Resolving it, or reopening a resolved one, is closing the
+ * case: Exceptions approve.
+ */
+monitoringRouter.patch('/exceptions/:id', requireModule('exceptions', 'edit'), async (req, res) => {
   const id = idParam(req)
   const body = z
     .object({
@@ -306,6 +312,9 @@ monitoringRouter.patch('/exceptions/:id', requireModule('exceptions', 'manage'),
     .parse(req.body)
   const [before] = await db.select().from(checkExceptions).where(eq(checkExceptions.id, id))
   if (!before) throw notFound('Exception')
+  if ((body.status === 'RESOLVED') !== (before.status === 'RESOLVED') && !req.user!.actions.exceptions.approve) {
+    throw forbidden('Resolving an exception needs the Exceptions approve permission')
+  }
   const [row] = await db
     .update(checkExceptions)
     .set({
@@ -440,7 +449,8 @@ monitoringRouter.get('/reports/filter-values', requireModule('reports', 'view'),
     }
     return [...seen.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
   }
-  res.json({ itemCodes: distinct(rows.map((r) => r.itemCode)), jobNos: distinct(rows.map((r) => r.jobNo)) })
+  // A field holding several codes ("FGPO123, FGPO234") offers each of them.
+  res.json({ itemCodes: distinct(rows.flatMap((r) => splitCodes(r.itemCode))), jobNos: distinct(rows.flatMap((r) => splitCodes(r.jobNo, false))) })
 })
 
 /**
@@ -448,7 +458,7 @@ monitoringRouter.get('/reports/filter-values', requireModule('reports', 'view'),
  * report always matches what the admin sees on screen. Downloading it needs Export Reports as
  * well as Reports.
  */
-monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports', 'view'), requireModule('export', 'view'), async (req, res) => {
+monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports', 'export'), async (req, res) => {
   const { from, to } = dateRange(req)
   const f = checkFilters.parse(req.query)
   await prepareRange(from, to)
@@ -551,6 +561,12 @@ const reasonInput = z.object({
   requiresRemark: z.boolean().optional(),
   /** Exception reasons only: the exception must name the PO No. / Item Code. Super Admin only. */
   requiresJobDetails: z.boolean().optional(),
+  /** Exception reasons only: photo and video evidence, each OFF / OPTIONAL / REQUIRED. */
+  photoEvidence: z.enum(['OFF', 'OPTIONAL', 'REQUIRED']).optional(),
+  videoEvidence: z.enum(['OFF', 'OPTIONAL', 'REQUIRED']).optional(),
+  /** Exception reasons only: a reading the worker must enter (label, e.g. "Viscosity", and unit); empty: none. */
+  readingLabel: z.string().trim().max(60).nullable().optional(),
+  readingUnit: z.string().trim().max(20).nullable().optional(),
   isActive: z.boolean().optional(),
   sortOrder: z.coerce.number().int().min(0).max(9999).optional()
 })
@@ -562,6 +578,7 @@ monitoringRouter.get('/monitoring-reasons', requireAnyView('activities', 'checks
 
 monitoringRouter.post('/monitoring-reasons', requireModule('activities', 'manage'), async (req, res) => {
   const body = reasonInput.parse(req.body)
+  if (body.isActive === false && !isSuperAdmin(req)) await denyActivation(req, 'Reason', null, { to: false })
   const [row] = await db
     .insert(monitoringReasons)
     .values({
@@ -580,6 +597,7 @@ monitoringRouter.put('/monitoring-reasons/:id', requireModule('activities', 'man
   const body = reasonInput.parse(req.body)
   const before = await monitoringReasonById(id)
   if (!before) throw notFound('Reason')
+  await assertActivation(req, 'MonitoringReason', id, before.isActive, body.isActive)
   // Fields the caller did not send keep their stored value.
   const [row] = await db
     .update(monitoringReasons)
@@ -596,10 +614,12 @@ monitoringRouter.put('/monitoring-reasons/:id', requireModule('activities', 'man
   res.json(reasonDto(row))
 })
 
+/** Deactivates the reason (it is never deleted): the Super Admin only. */
 monitoringRouter.delete('/monitoring-reasons/:id', requireModule('activities', 'manage'), async (req, res) => {
   const id = idParam(req)
   const before = await monitoringReasonById(id)
   if (!before) throw notFound('Reason')
+  if (!isSuperAdmin(req)) await denyActivation(req, 'MonitoringReason', id, { to: false })
   const [row] = await db
     .update(monitoringReasons)
     .set({ isActive: false, updatedAt: new Date() })
@@ -623,6 +643,7 @@ const JOB_DETAILS_SUPER_ADMIN = 'Only the Super Admin can decide whether a reaso
 
 monitoringRouter.post('/exception-reasons', requireModule('activities', 'manage'), async (req, res) => {
   const body = reasonInput.parse(req.body)
+  if (body.isActive === false && !isSuperAdmin(req)) await denyActivation(req, 'Reason', null, { to: false })
   if (body.requiresJobDetails === false && req.user!.role !== 'SUPER_ADMIN') throw forbidden(JOB_DETAILS_SUPER_ADMIN)
   const [row] = await db
     .insert(exceptionReasons)
@@ -630,6 +651,10 @@ monitoringRouter.post('/exception-reasons', requireModule('activities', 'manage'
       label: body.label,
       requiresRemark: body.requiresRemark ?? false,
       requiresJobDetails: body.requiresJobDetails ?? true,
+      photoEvidence: body.photoEvidence ?? 'REQUIRED',
+      videoEvidence: body.videoEvidence ?? 'OFF',
+      readingLabel: body.readingLabel || null,
+      readingUnit: body.readingLabel ? body.readingUnit || null : null,
       isActive: body.isActive ?? true,
       sortOrder: body.sortOrder ?? 0
     })
@@ -643,6 +668,7 @@ monitoringRouter.put('/exception-reasons/:id', requireModule('activities', 'mana
   const body = reasonInput.parse(req.body)
   const before = await exceptionReasonById(id)
   if (!before) throw notFound('Reason')
+  await assertActivation(req, 'ExceptionReason', id, before.isActive, body.isActive)
   if (body.requiresJobDetails !== undefined && body.requiresJobDetails !== before.requiresJobDetails && req.user!.role !== 'SUPER_ADMIN') {
     throw forbidden(JOB_DETAILS_SUPER_ADMIN)
   }
@@ -653,6 +679,11 @@ monitoringRouter.put('/exception-reasons/:id', requireModule('activities', 'mana
       label: body.label,
       requiresRemark: body.requiresRemark ?? before.requiresRemark,
       requiresJobDetails: body.requiresJobDetails ?? before.requiresJobDetails,
+      photoEvidence: body.photoEvidence ?? before.photoEvidence,
+      videoEvidence: body.videoEvidence ?? before.videoEvidence,
+      ...(body.readingLabel !== undefined
+        ? { readingLabel: body.readingLabel || null, readingUnit: body.readingLabel ? body.readingUnit || null : null }
+        : {}),
       isActive: body.isActive ?? before.isActive,
       sortOrder: body.sortOrder ?? before.sortOrder,
       updatedAt: new Date()
@@ -663,10 +694,12 @@ monitoringRouter.put('/exception-reasons/:id', requireModule('activities', 'mana
   res.json(exceptionReasonDto(row))
 })
 
+/** Deactivates the reason (it is never deleted): the Super Admin only. */
 monitoringRouter.delete('/exception-reasons/:id', requireModule('activities', 'manage'), async (req, res) => {
   const id = idParam(req)
   const before = await exceptionReasonById(id)
   if (!before) throw notFound('Reason')
+  if (!isSuperAdmin(req)) await denyActivation(req, 'ExceptionReason', id, { to: false })
   const [row] = await db
     .update(exceptionReasons)
     .set({ isActive: false, updatedAt: new Date() })
@@ -706,6 +739,8 @@ monitoringRouter.get('/audit-logs', requireModule('audit_logs', 'view'), async (
     .parse(req.query)
 
   const where: SQL[] = []
+  // Role and permission changes (and refused attempts) are the Super Admin's history only.
+  if (req.user!.role !== 'SUPER_ADMIN') where.push(notInArray(auditLogs.action, PERMISSION_AUDIT_ACTIONS))
   if (q.entity) where.push(eq(auditLogs.entity, q.entity))
   if (q.q) {
     const term = `%${q.q}%`

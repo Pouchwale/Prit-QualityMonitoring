@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, ClipboardCheck, ClipboardList, Clock3, Download, Eye, FlaskConical, Pencil, RefreshCw, SearchX, Trash2, XCircle } from 'lucide-react'
 import type { CheckResult, QualityCheck, QualityCheckStatus } from '../../types'
 import { useApi } from '../../lib/useApi'
-import { useAuth, useCanManage } from '../../lib/auth'
+import { useAuth, useCan } from '../../lib/auth'
 import { CreateTestCheckModal } from './CreateTestCheckModal'
 import { EditCheckModal } from './EditCheckModal'
 import { api, mediaUrl, type Page } from '../../lib/api'
@@ -65,9 +65,10 @@ const loadPage = (path: string, query?: Record<string, string | number | boolean
 export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: React.ReactNode }> = ({ onViewCheck, tabs }) => {
   const [filters, setFilters] = useState<MonitoringFilters>(defaultFilters)
   const [testOpen, setTestOpen] = useState(false)
-  const canEdit = useCanManage('checks')
+  // Creating test checks: Quality Checks create in Roles & Permissions.
+  const canEdit = useCan('checks', 'create')
   // The CSV needs the Export Reports module.
-  const canExport = useAuth().can('export')
+  const canExport = useAuth().can('checks', 'export')
   // Correcting a submitted check is the Super Admin's alone; the server refuses everyone else.
   const canCorrect = useAuth().isSuperAdmin
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -114,7 +115,7 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
     downloadCsv(
       `quality-checks_${filters.from}_${filters.to}${filters.status ? `_${filters.status.toLowerCase()}` : ''}.csv`,
       // prettier-ignore
-      ['Scheduled at', 'Check code', 'Type', 'Worker', 'Employee ID', 'Check type', 'Item Code', 'PO No.', 'Status', 'Result', 'Department', 'Machine', 'Machine code', 'Shift', 'Submission type', 'Submitted at', 'Parameters', 'Parameters outside limits', 'N/A parameters', 'Exception reason', 'Evidence URLs'],
+      ['Scheduled at', 'Check code', 'Type', 'Worker', 'Employee ID', 'Check type', 'Item Code', 'PO No.', 'Status', 'Result', 'Department', 'Machine', 'Machine code', 'Shift', 'Submission type', 'Submitted at', 'Parameters', 'Parameters outside limits', 'N/A parameters', 'Exception reason', 'Exception reading', 'Evidence URLs'],
       rows.map((c) => [
         formatDateTime(c.scheduledAt),
         c.code,
@@ -136,6 +137,7 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
         outsideLimitsText(c),
         notApplicableText(c),
         c.exception?.reason,
+        c.exception?.reading,
         c.media.map((m) => mediaUrl(m.url)).join(' ')
       ])
     )

@@ -23,7 +23,7 @@ import {
 import type { CalendarIssue, CalendarYearDetail, CalendarYearItem, CalendarYearSummary, ClosureType } from '../../../types'
 import { api, download, errorText, fetchBlob, upload } from '../../../lib/api'
 import { useApi } from '../../../lib/useApi'
-import { useCanManage } from '../../../lib/auth'
+import { useCanManage, useCan } from '../../../lib/auth'
 import { CLOSURE_TYPES, WEEKDAY_NAMES } from '../../../lib/closureTypes'
 import { formatDateKey, formatDateTime } from '../../../lib/format'
 import { Button } from '../../../components/common/Button'
@@ -243,6 +243,8 @@ type ItemForm = { id: string | null; type: ClosureType; date: string; name: stri
 
 const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, onBack }) => {
   const canEdit = useCanManage('calendar')
+  // Approving the calendar is its own permission (Plant Calendar approve); the server checks it too.
+  const canApprove = useCan('calendar', 'approve')
   const notify = useToast()
   const { data, error, loading, reload, setData } = useApi<CalendarYearDetail>(`/api/calendar-years/${yearId}`)
   const [importing, setImporting] = useState(false)
@@ -381,7 +383,7 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
     }
   }
 
-  const approveHint = !canEdit
+  const approveHint = !canApprove
     ? null
     : blocking.length || checks.length
       ? `${blocking.length + checks.length} item${blocking.length + checks.length === 1 ? '' : 's'} to fix or check first`
@@ -409,7 +411,7 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
             </p>
           </div>
         </div>
-        {canEdit && (
+        {(canEdit || canApprove) && (
           <div className="flex flex-wrap items-center gap-2">
             <input
               ref={fileInput}
@@ -422,23 +424,27 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
                 e.target.value = ''
               }}
             />
-            {year.status === 'DRAFT' && (
+            {canEdit && year.status === 'DRAFT' && (
               <Button size="sm" variant="ghost" onClick={() => setDeletingYear(true)} icon={<Trash2 className="w-3.5 h-3.5" />} className="!text-missed hover:!bg-missed-bg">
                 Delete draft
               </Button>
             )}
-            <Button size="sm" variant="outline" onClick={() => fileInput.current?.click()} loading={importing} icon={<FileUp className="w-3.5 h-3.5" />}>
-              {importing ? 'Reading document…' : year.hasDocument ? 'Import new document' : 'Import document'}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setEditing({ id: null, type: 'HOLIDAY', date: `${year.year}-01-01`, name: '', forHolidayDate: '' })}
-              icon={<Plus className="w-3.5 h-3.5" />}
-            >
-              Add date
-            </Button>
-            {(year.status !== 'APPROVED' || year.pendingChanges) && (
+            {canEdit && (
+              <>
+                <Button size="sm" variant="outline" onClick={() => fileInput.current?.click()} loading={importing} icon={<FileUp className="w-3.5 h-3.5" />}>
+                  {importing ? 'Reading document…' : year.hasDocument ? 'Import new document' : 'Import document'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setEditing({ id: null, type: 'HOLIDAY', date: `${year.year}-01-01`, name: '', forHolidayDate: '' })}
+                  icon={<Plus className="w-3.5 h-3.5" />}
+                >
+                  Add date
+                </Button>
+              </>
+            )}
+            {canApprove && (year.status !== 'APPROVED' || year.pendingChanges) && (
               <Button size="sm" variant="primary" onClick={() => setApproving(true)} disabled={!!approveHint} icon={<ShieldCheck className="w-3.5 h-3.5" />} title={approveHint ?? undefined}>
                 {year.status === 'APPROVED' ? 'Approve changes' : 'Approve calendar'}
               </Button>

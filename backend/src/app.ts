@@ -6,11 +6,13 @@ import helmet from 'helmet'
 import { config } from './config'
 import { authenticate, requireRole } from './lib/auth'
 import { masterData } from './lib/permissions'
+import { guardActivation } from './lib/activation'
+import { activities, departmentMappings, departments, machines, parameters, schedules, shifts } from './db/schema'
 import { errorHandler, notFound } from './lib/http'
 import { authRouter } from './routes/auth'
 import { departmentsRouter } from './routes/departments'
 import { departmentMappingsRouter } from './routes/departmentMappings'
-import { shiftsRouter } from './routes/shifts'
+import { shiftAccessRouter, shiftsRouter } from './routes/shifts'
 import { machinesRouter } from './routes/machines'
 import { parametersRouter } from './routes/parameters'
 import { activitiesRouter } from './routes/activities'
@@ -71,6 +73,7 @@ export function createApp() {
   // The app's native voice service (no sign-in session when the app is closed): its remote voice log.
   app.use('/api/device', deviceRouter)
 
+  // Activating / deactivating records is the Super Admin's alone (lib/activation.ts guardActivation).
   // Admin panel. Every route checks the signed-in user's module permissions (lib/permissions.ts).
   // Master-data lists may be read by any module whose page uses them as a dropdown;
   // changing them needs "manage" on the owning module.
@@ -78,14 +81,16 @@ export function createApp() {
   admin.use(authenticate, (req, _res, next) =>
     req.user!.role === 'WORKER' ? next(new HttpError(403, 'This account cannot use the admin panel')) : next()
   )
-  admin.use('/departments', masterData('departments', ['machines', 'parameters', 'activities', 'workers', 'checks', 'jobs', 'exceptions', 'reports']), departmentsRouter)
+  admin.use('/departments', masterData('departments', ['machines', 'parameters', 'activities', 'workers', 'checks', 'jobs', 'exceptions', 'reports']), guardActivation(departments, 'Department'), departmentsRouter)
   // Department Configuration (Item Code prefix -> department): read with Departments view, changed with Departments manage.
-  admin.use('/department-mappings', masterData('departments', []), departmentMappingsRouter)
-  admin.use('/shifts', masterData('shifts', ['schedules', 'workers', 'checks', 'jobs', 'exceptions', 'reports']), shiftsRouter)
-  admin.use('/machines', masterData('machines', ['activities', 'schedules', 'workers', 'checks', 'jobs', 'exceptions', 'reports', 'calendar']), machinesRouter)
-  admin.use('/parameters', masterData('parameters', ['activities']), parametersRouter)
-  admin.use('/activities', masterData('activities', ['machines', 'schedules', 'checks', 'jobs', 'exceptions', 'reports']), activitiesRouter)
-  admin.use('/schedules', masterData('schedules', []), schedulesRouter)
+  admin.use('/department-mappings', masterData('departments', []), guardActivation(departmentMappings, 'DepartmentMapping'), departmentMappingsRouter)
+  // Shift Sign-In rules and the Company Wi-Fi rule have their own modules (and guards) under /shifts.
+  admin.use('/shifts', shiftAccessRouter)
+  admin.use('/shifts', masterData('shifts', ['schedules', 'workers', 'checks', 'jobs', 'exceptions', 'reports']), guardActivation(shifts, 'Shift'), shiftsRouter)
+  admin.use('/machines', masterData('machines', ['activities', 'schedules', 'workers', 'checks', 'jobs', 'exceptions', 'reports', 'calendar']), guardActivation(machines, 'Machine'), machinesRouter)
+  admin.use('/parameters', masterData('parameters', ['activities']), guardActivation(parameters, 'Parameter'), parametersRouter)
+  admin.use('/activities', masterData('activities', ['machines', 'schedules', 'checks', 'jobs', 'exceptions', 'reports']), guardActivation(activities, 'Activity'), activitiesRouter)
+  admin.use('/schedules', masterData('schedules', []), guardActivation(schedules, 'Schedule'), schedulesRouter)
   admin.use('/plant-closures', plantCalendarRouter)
   admin.use('/machine-days', machineDaysRouter)
   admin.use('/calendar-years', calendarYearsRouter)

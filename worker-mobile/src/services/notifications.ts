@@ -35,12 +35,11 @@ const LOCAL_WINDOW_HOURS = 24
 const MAX_LOCAL = 30
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false
-  })
+  handleNotification: async (notification) => {
+    // A Company Wi-Fi presence probe is silent (the server only asks phones it has not seen lately).
+    const silent = (notification.request.content.data as { type?: string } | null)?.type === 'PRESENCE_PROBE'
+    return { shouldShowBanner: !silent, shouldShowList: !silent, shouldPlaySound: !silent, shouldSetBadge: false }
+  }
 })
 
 let pushToken: string | null = null

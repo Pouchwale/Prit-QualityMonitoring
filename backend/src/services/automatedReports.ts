@@ -7,7 +7,8 @@ import {
   type CrystalReportBatchData,
   type CrystalReportCheck
 } from './crystalReportPdf'
-import { sendReportEmail, type SmtpConfig } from './reportEmailer'
+import { buildReportMail, type SmtpConfig } from './reportEmailer'
+import { sendLoggedEmail, smtpOf, type DeliveryStatus } from './reportDelivery'
 import { badRequest } from '../lib/http'
 import { decryptPassword, encryptPassword } from '../lib/passwordVault'
 import { HHMM_REGEX, addDays, atTime, dateKey } from '../lib/time'
@@ -38,6 +39,8 @@ export interface ReportSharingSettingsDto {
   smtpFrom: string | null
   /** Send time of the daily previous-day task report (frequencyMode DAILY_REPORT). */
   dailyReportTime: string
+  /** Where failure alerts of automated report emails go (services/reportDelivery.ts); null: none. */
+  failureAlertEmail: string | null
   updatedAt?: Date
 }
 
@@ -63,8 +66,9 @@ export function calculateNextRunAt(
 
 export interface ReportEmailLogDto {
   id: string
-  trigger: 'AUTO' | 'MANUAL'
-  status: 'SUCCESS' | 'FAILED'
+  trigger: 'AUTO' | 'MANUAL' | 'DAILY'
+  /** PENDING, SENT (accepted by the mail server for every recipient), RETRYING or FAILED: services/reportDelivery.ts. */
+  status: DeliveryStatus
   recipients: string[]
   subject: string
   checkIds: string[]
@@ -78,6 +82,13 @@ export interface ReportEmailLogDto {
   sentAt: Date
   sentById: string | null
   sentByName: string | null
+  /** Each recipient's delivery (empty on emails from before delivery tracking). */
+  recipientStatus: { email: string; status: string; error?: string | null; at?: string | null }[]
+  attempts: number
+  lastAttemptAt: Date | null
+  nextRetryAt: Date | null
+  failureKind: string | null
+  recoveredAt: Date | null
 }
 
 /** Fisher-Yates random shuffle */
@@ -132,6 +143,7 @@ function settingsDto(row: SettingsRow): ReportSharingSettingsDto {
     smtpPass: readSmtpPass(row.smtpPass) || process.env.SMTP_PASS || null,
     smtpFrom: row.smtpFrom || process.env.SMTP_FROM || null,
     dailyReportTime: row.dailyReportTime,
+    failureAlertEmail: row.failureAlertEmail ?? null,
     updatedAt: row.updatedAt
   }
 }
@@ -205,6 +217,7 @@ export async function updateReportSharingSettings(
       ...(input.smtpPass !== undefined ? { smtpPass: input.smtpPass ? encryptPassword(input.smtpPass) : null } : {}),
       ...(input.smtpFrom !== undefined ? { smtpFrom: input.smtpFrom } : {}),
       dailyReportTime: dailyTime,
+      ...(input.failureAlertEmail !== undefined ? { failureAlertEmail: input.failureAlertEmail?.trim() || null } : {}),
       updatedAt: new Date()
     })
     .where(eq(reportEmailSettings.id, current.id!))
@@ -224,8 +237,9 @@ export async function getReportEmailLogs(limit = 50, offset = 0): Promise<Report
 
   return rows.map((r) => ({
     id: r.id,
-    trigger: r.trigger as 'AUTO' | 'MANUAL',
-    status: r.status as 'SUCCESS' | 'FAILED',
+    trigger: r.trigger as 'AUTO' | 'MANUAL' | 'DAILY',
+    // SUCCESS: a row written by an older build while this one ran.
+    status: (r.status === 'SUCCESS' ? 'SENT' : r.status) as DeliveryStatus,
     recipients: r.recipients,
     subject: r.subject,
     checkIds: r.checkIds,
@@ -238,7 +252,13 @@ export async function getReportEmailLogs(limit = 50, offset = 0): Promise<Report
     errorMessage: r.errorMessage,
     sentAt: r.sentAt,
     sentById: r.sentById,
-    sentByName: r.sentByName
+    sentByName: r.sentByName,
+    recipientStatus: r.recipientStatus,
+    attempts: r.attempts,
+    lastAttemptAt: r.lastAttemptAt,
+    nextRetryAt: r.nextRetryAt,
+    failureKind: r.failureKind,
+    recoveredAt: r.recoveredAt
   }))
 }
 
@@ -421,7 +441,7 @@ export async function executeAutomatedReportRun(): Promise<boolean> {
     return false
   }
 
-  const emailResult = await sendReportEmail({
+  const mail = await buildReportMail({
     recipients: settings.recipients,
     reportId,
     periodFrom,
@@ -429,48 +449,41 @@ export async function executeAutomatedReportRun(): Promise<boolean> {
     samplePercentage: settings.percentage,
     totalEligible: sampling.eligibleTotal,
     checks: sampling.checks,
-    pdfBuffer,
-    smtpConfig: {
-      host: settings.smtpHost,
-      port: settings.smtpPort,
-      secure: settings.smtpSecure,
-      user: settings.smtpUser,
-      pass: settings.smtpPass,
-      from: settings.smtpFrom
-    }
+    pdfBuffer
+  })
+  // Logged and sent by services/reportDelivery.ts: a failure is retried there (the same email, to
+  // the recipients it failed for) and alerts the Super Admin.
+  const delivery = await sendLoggedEmail({
+    log: {
+      trigger: 'AUTO',
+      recipients: settings.recipients,
+      subject: mail.subject,
+      checkIds: sampling.sampledCheckIds,
+      checksCount: sampling.checks.length,
+      periodFrom,
+      periodTo,
+      percentage: settings.percentage,
+      pdfSizeBytes: mail.pdfSizeBytes,
+      videoCount: mail.videoCount,
+      sentAt: now,
+      sentByName: 'Automated System Scheduler'
+    },
+    mail: { subject: mail.subject, html: mail.html, attachments: mail.attachments },
+    smtp: smtpOf(settings)
   })
 
-  // Record audit history
-  await db.insert(reportEmailLogs).values({
-    trigger: 'AUTO',
-    status: emailResult.success ? 'SUCCESS' : 'FAILED',
-    recipients: settings.recipients,
-    subject: `Quality Inspection Report - ${sampling.checks.length} Checks (${settings.percentage}% Sample)`,
-    checkIds: sampling.sampledCheckIds,
-    checksCount: sampling.checks.length,
-    periodFrom,
-    periodTo,
-    percentage: settings.percentage,
-    pdfSizeBytes: emailResult.pdfSizeBytes,
-    videoCount: emailResult.videoCount,
-    errorMessage: emailResult.error || null,
-    sentAt: now,
-    sentByName: 'Automated System Scheduler'
-  })
+  // The next period starts now, also when this email failed: its retries belong to the email, so a
+  // new run for the same period would send a second report.
+  await db
+    .update(reportEmailSettings)
+    .set({
+      lastRunAt: now,
+      nextRunAt: nextRun
+    })
+    .where(eq(reportEmailSettings.id, settings.id!))
 
-  // Sent: the next period starts now. Not sent: the same period is tried again after RETRY_AFTER_MS.
-  if (emailResult.success) {
-    await db
-      .update(reportEmailSettings)
-      .set({
-        lastRunAt: now,
-        nextRunAt: nextRun
-      })
-      .where(eq(reportEmailSettings.id, settings.id!))
-  }
-
-  console.log(`[Automated Reports] Completed scheduled dispatch. Status: ${emailResult.success ? 'SUCCESS' : 'FAILED'}`)
-  return emailResult.success
+  console.log(`[Automated Reports] Completed scheduled dispatch. Status: ${delivery.status}`)
+  return delivery.status === 'SENT'
 }
 
 /** Executes a manual report email dispatch initiated by Admin */
@@ -486,6 +499,7 @@ export async function executeManualReportRun(options: {
   smtpConfig?: SmtpConfig
 }): Promise<{
   success: boolean
+  status: DeliveryStatus
   error?: string
   checksCount: number
   videoCount: number
@@ -535,7 +549,7 @@ export async function executeManualReportRun(options: {
     throw badRequest(`PDF report generation failed: ${msg}`)
   }
 
-  const emailResult = await sendReportEmail({
+  const mail = await buildReportMail({
     recipients,
     subject: customSubject,
     reportId,
@@ -544,36 +558,42 @@ export async function executeManualReportRun(options: {
     samplePercentage: percentage,
     totalEligible: sampling.eligibleTotal,
     checks: sampling.checks,
-    pdfBuffer,
-    smtpConfig
+    pdfBuffer
   })
-
-  // Record audit log
-  await db.insert(reportEmailLogs).values({
-    trigger: 'MANUAL',
-    status: emailResult.success ? 'SUCCESS' : 'FAILED',
-    recipients,
-    subject:
-      customSubject ||
-      `Quality Inspection Report - ${sampling.checks.length} Checks (${percentage}% Sample)`,
-    checkIds: sampling.sampledCheckIds,
-    checksCount: sampling.checks.length,
-    periodFrom,
-    periodTo,
-    percentage,
-    pdfSizeBytes: emailResult.pdfSizeBytes,
-    videoCount: emailResult.videoCount,
-    errorMessage: emailResult.error || null,
-    sentAt: now,
-    sentById: sentById || null,
-    sentByName: sentByName || 'Admin'
+  const delivery = await sendLoggedEmail({
+    log: {
+      trigger: 'MANUAL',
+      recipients,
+      subject: mail.subject,
+      checkIds: sampling.sampledCheckIds,
+      checksCount: sampling.checks.length,
+      periodFrom,
+      periodTo,
+      percentage,
+      pdfSizeBytes: mail.pdfSizeBytes,
+      videoCount: mail.videoCount,
+      sentAt: now,
+      sentById: sentById || null,
+      sentByName: sentByName || 'Admin'
+    },
+    mail: { subject: mail.subject, html: mail.html, attachments: mail.attachments },
+    smtp: smtpConfig ?? {}
   })
 
   return {
-    success: emailResult.success,
-    error: emailResult.error,
+    success: delivery.status === 'SENT',
+    status: delivery.status,
+    error: deliveryError(delivery),
     checksCount: sampling.checks.length,
-    videoCount: emailResult.videoCount,
-    pdfSizeBytes: emailResult.pdfSizeBytes
+    videoCount: mail.videoCount,
+    pdfSizeBytes: mail.pdfSizeBytes
   }
+}
+
+/** The failure in words for the person who pressed Send: who it failed for, and whether it is retried. */
+export function deliveryError(d: { status: DeliveryStatus; failed: { email: string }[]; sent: string[]; error: string | null; nextRetryAt: Date | null }) {
+  if (d.status === 'SENT') return undefined
+  const who = d.sent.length ? ` for ${d.failed.map((f) => f.email).join(', ')} (sent to ${d.sent.length} other recipient${d.sent.length === 1 ? '' : 's'})` : ''
+  const next = d.status === 'RETRYING' ? ' It will be retried automatically in a few minutes.' : ''
+  return `Sending failed${who}: ${d.error ?? 'unknown error'}.${next}`
 }

@@ -116,6 +116,32 @@ export function fcmMessage(token: string, alert: FcmAlert) {
   }
 }
 
+/**
+ * A silent data message (no title, no text): Android does not show it, but the app's native service
+ * receives it with the app closed (services/wifiRule.ts presence probes). Never throws.
+ */
+export async function sendFcmData(token: string, data: Record<string, string>): Promise<FcmResult> {
+  const acc = serviceAccount()
+  if (!acc) return 'failed'
+  if (process.env.PUSH_DISABLED === '1') {
+    console.log('Push disabled, would have sent 1 silent Firebase message', JSON.stringify(data))
+    return 'sent'
+  }
+  try {
+    const res = await fetch(`${FCM_URL}/v1/projects/${encodeURIComponent(acc.project_id)}/messages:send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${await getAccessToken(acc)}` },
+      body: JSON.stringify({ message: { token, data, android: { priority: 'HIGH' as const } } }),
+      signal: AbortSignal.timeout(10_000)
+    })
+    if (res.ok) return 'sent'
+    if (res.status === 401) accessToken = null
+    return res.status === 404 ? 'unregistered' : 'failed'
+  } catch {
+    return 'failed'
+  }
+}
+
 /** Sends one alert to one phone through Firebase. Never throws. */
 export async function sendFcmAlert(token: string, alert: FcmAlert): Promise<FcmResult> {
   const acc = serviceAccount()

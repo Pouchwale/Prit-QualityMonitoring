@@ -1,0 +1,1 @@
+ALTER TABLE "push_tokens" ADD COLUMN "on_network_at" timestamp with time zone;

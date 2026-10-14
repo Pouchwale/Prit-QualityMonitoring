@@ -1,18 +1,19 @@
-import { Router, type RequestHandler } from 'express'
+import { Router, type Request } from 'express'
 import { z } from 'zod'
-import { asc, eq } from 'drizzle-orm'
-import { db } from '../db/client'
-import { departments, managerPermissions, shifts, users } from '../db/schema'
+import { and, asc, eq, ne, sql } from 'drizzle-orm'
+import { db, type Transaction } from '../db/client'
+import { departments, shifts, users } from '../db/schema'
 import { idParam, optionalText, optionalUuid } from '../lib/validate'
 import { HttpError, badRequest, notFound } from '../lib/http'
 import { audit, snapshot } from '../lib/audit'
 import { passwordColumns, verifyPassword, type AuthUser } from '../lib/auth'
 import { decryptPassword } from '../lib/passwordVault'
-import { canManage, isAdminRole, requireAnyView, requireModule, type Role } from '../lib/permissions'
+import { clearUserModules, isAdminRole, requireAnyView, requireModule, type Role } from '../lib/permissions'
 import { invalidateCheckGeneration } from '../services/checkGenerator'
 import { sendTestNotification } from '../services/notifications'
-import { clearDeletePermissions } from '../lib/deletePermissions'
 import { recordShiftLogout, workerShiftStatuses } from '../services/workerShifts'
+import { syncWorkerSchedules } from '../services/workerScheduleSync'
+import { assertActivation, denyActivation, isSuperAdmin } from '../lib/activation'
 
 export const usersRouter = Router()
 
@@ -21,21 +22,17 @@ const ROLES = ['WORKER', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'] as const
 const ROLE_NAME: Record<Role, string> = { WORKER: 'Worker', MANAGER: 'Manager', ADMIN: 'Admin', SUPER_ADMIN: 'Super Admin' }
 
 /**
- * Which accounts the signed-in user may create, edit or disable:
+ * Whose accounts the signed-in user may edit or disable, on top of the Employee Management action
+ * (create / edit / delete in the permission matrix, checked by each route):
  *  - Super Admin: any account
  *  - Admin: Managers and Workers
- *  - Manager with "Workers: manage": Workers only
- * Checked for both the account's current role and the role it is being given.
+ *  - Manager: Workers only
+ * Checked for both the account's current role and the role it is being given. Only the Super Admin
+ * gives an account a role other than Worker (changeRole below).
  */
 function assertCanManageAccount(actor: AuthUser, ...roles: Role[]) {
   const allowed: Role[] =
-    actor.role === 'SUPER_ADMIN'
-      ? [...ROLES]
-      : actor.role === 'ADMIN'
-        ? ['MANAGER', 'WORKER']
-        : canManage(actor.permissions, 'workers')
-          ? ['WORKER']
-          : []
+    actor.role === 'SUPER_ADMIN' ? [...ROLES] : actor.role === 'ADMIN' ? ['MANAGER', 'WORKER'] : actor.role === 'MANAGER' ? ['WORKER'] : []
   const blocked = roles.find((r) => !allowed.includes(r))
   if (blocked) {
     throw new HttpError(
@@ -45,10 +42,57 @@ function assertCanManageAccount(actor: AuthUser, ...roles: Role[]) {
   }
 }
 
-/** Creating, editing or disabling accounts: Admins, or Managers allowed to manage workers. */
-const manageWorkers = requireModule('workers', 'manage')
-const accountManagers: RequestHandler = (req, res, next) =>
-  isAdminRole(req.user!.role) ? next() : manageWorkers(req, res, next)
+/** Employee Management in the permission matrix: create and edit accounts (disabling is activation: lib/activation.ts). */
+const createAccounts = requireModule('workers', 'create')
+const editAccounts = requireModule('workers', 'edit')
+
+const ONLY_SUPER_ADMIN_ROLES = 'Only the Super Admin can change roles'
+
+/**
+ * Gives an account another role, inside the caller's transaction. The account and its history stay
+ * (nothing is deleted or recreated); permissions set for the user alone are removed, as they were
+ * set for the old role, and the user is signed out everywhere so the next sign-in uses the new role.
+ * Super Admin only; never one's own role, and the last active Super Admin keeps theirs.
+ */
+/** Records a refused role change (ROLE_CHANGE_DENIED) and refuses it. */
+async function denyRoleChange(req: Request, id: string | null, role: unknown): Promise<never> {
+  await audit(req, 'ROLE_CHANGE_DENIED', 'User', id, { newValue: { requestedRole: role } }).catch(() => {})
+  throw new HttpError(403, ONLY_SUPER_ADMIN_ROLES)
+}
+
+async function changeRole(req: Request, id: string, role: Role, tx: Transaction) {
+  if (req.user!.role !== 'SUPER_ADMIN') throw new HttpError(403, ONLY_SUPER_ADMIN_ROLES)
+  if (id === req.user!.id) throw new HttpError(403, 'You cannot change your own role')
+  const [before] = await tx.select().from(users).where(eq(users.id, id)).for('update')
+  if (!before) throw notFound('User')
+  if (before.role === role) return { before, changed: false }
+  if (before.role === 'SUPER_ADMIN') {
+    // The other Super Admins are locked too, so two demotions at the same moment cannot leave none.
+    const others = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.role, 'SUPER_ADMIN'), eq(users.isActive, true), ne(users.id, id)))
+      .for('update')
+    if (!others.length) throw badRequest('At least one active Super Admin must remain')
+  }
+  await tx
+    .update(users)
+    .set({ role, tokenVersion: sql`${users.tokenVersion} + 1` })
+    .where(eq(users.id, id))
+  await clearUserModules(id, tx)
+  await audit(
+    req,
+    'CHANGE_ROLE',
+    'User',
+    id,
+    {
+      oldValue: { user: `${before.name} (${before.employeeId})`, role: before.role },
+      newValue: { user: `${before.name} (${before.employeeId})`, role, change: `${ROLE_NAME[before.role]} → ${ROLE_NAME[role]}` }
+    },
+    tx
+  )
+  return { before, changed: true }
+}
 
 const base = {
   employeeId: z.string().trim().min(1, 'Employee ID is required').max(40),
@@ -118,8 +162,15 @@ usersRouter.get('/', requireAnyView('workers', 'schedules', 'checks', 'jobs', 'e
   res.json(rows)
 })
 
-usersRouter.post('/', accountManagers, async (req, res) => {
+usersRouter.post('/', createAccounts, async (req, res) => {
   const { password, ...data } = createInput.parse(req.body)
+  // Giving a new account a staff role is a role change: the Super Admin's alone.
+  if (data.role !== 'WORKER' && req.user!.role !== 'SUPER_ADMIN') {
+    await audit(req, 'ROLE_CHANGE_DENIED', 'User', null, { newValue: { requestedRole: data.role, newAccount: data.employeeId } }).catch(() => {})
+    throw new HttpError(403, 'Only the Super Admin can create Manager or Admin accounts')
+  }
+  // A new account is active; creating one disabled is deactivating it.
+  await assertActivation(req, 'User', null, true, data.isActive)
   assertCanManageAccount(req.user!, data.role)
   const [row] = await db
     .insert(users)
@@ -130,7 +181,7 @@ usersRouter.post('/', accountManagers, async (req, res) => {
   res.status(201).json(row)
 })
 
-usersRouter.put('/:id', accountManagers, async (req, res) => {
+usersRouter.put('/:id', editAccounts, async (req, res) => {
   const id = idParam(req)
   const { password, ...sent } = updateInput.parse(req.body)
   const [before] = await db.select().from(users).where(eq(users.id, id))
@@ -151,6 +202,10 @@ usersRouter.put('/:id', accountManagers, async (req, res) => {
     isActive: pick('isActive') as boolean,
     appAccess: pick('appAccess') as boolean
   }
+  const roleChange = data.role !== before.role
+  if (roleChange && req.user!.role !== 'SUPER_ADMIN') await denyRoleChange(req, id, data.role)
+  // Disabling or enabling an account is the Super Admin's alone.
+  await assertActivation(req, 'User', id, before.isActive, data.isActive)
   assertCanManageAccount(req.user!, before.role, data.role)
   if (password !== undefined) {
     // The Super Admin changes their own password in My Account, which asks for the current one.
@@ -170,44 +225,73 @@ usersRouter.put('/:id', accountManagers, async (req, res) => {
   // is refused on its next request (lib/auth.ts).
   const signOut =
     password !== undefined || (before.isActive && !data.isActive) || (before.role === 'WORKER' && before.appAccess && !data.appAccess)
-  const [row] = await db
-    .update(users)
-    .set({
-      ...data,
-      ...(password ? await passwordColumns(password) : {}),
-      ...(signOut ? { tokenVersion: before.tokenVersion + 1 } : {})
-    })
-    .where(eq(users.id, id))
-    .returning(publicColumns)
-  // Signed out everywhere: the worker's shift sign-in ends now too, or the dashboard keeps showing
-  // "Signed in" until the shift ends.
-  if (signOut && before.role === 'WORKER') await recordShiftLogout(id)
-  invalidateCheckGeneration()
-  // A former Manager keeps no per-user rows: their module rows from before the Manager role got one
-  // shared set (no longer read), and any old delete permission, which must not come back if they
-  // are made an Admin. Delete permissions are only granted once the account is an Admin.
-  if (before.role === 'MANAGER' && data.role !== 'MANAGER') {
-    await db.delete(managerPermissions).where(eq(managerPermissions.userId, id))
+  // A new shift must be one that is in use (an inactive shift has no checks).
+  const shiftChange = data.shiftId !== before.shiftId
+  if (shiftChange && data.shiftId) {
+    const [shift] = await db.select({ isActive: shifts.isActive }).from(shifts).where(eq(shifts.id, data.shiftId))
+    if (!shift) throw badRequest('The chosen shift does not exist')
+    if (!shift.isActive) throw badRequest('The chosen shift is inactive. Choose an active shift.')
   }
-  // A former Admin keeps no delete permissions (they would come back on a later promotion).
-  if (before.role === 'ADMIN' && data.role !== 'ADMIN') await clearDeletePermissions(id)
-  await audit(req, password ? 'UPDATE_USER_AND_PASSWORD' : 'UPDATE_USER', 'User', id, {
-    oldValue: snapshot(before),
-    newValue: row
+  const passwordSet = password ? await passwordColumns(password) : {}
+  let scheduleSync = { schedules: 0, removedUpcomingChecks: 0 }
+  // One transaction: a role change (Super Admin only, audited as CHANGE_ROLE), the other fields and,
+  // for a new shift, the worker's Check Schedules (services/workerScheduleSync.ts) are saved
+  // together or not at all.
+  const row = await db.transaction(async (tx) => {
+    if (roleChange) await changeRole(req, id, data.role, tx)
+    const [row] = await tx
+      .update(users)
+      .set({
+        ...data,
+        ...passwordSet,
+        ...(signOut ? { tokenVersion: sql`${users.tokenVersion} + 1` } : {})
+      })
+      .where(eq(users.id, id))
+      .returning(publicColumns)
+    await audit(req, password ? 'UPDATE_USER_AND_PASSWORD' : 'UPDATE_USER', 'User', id, { oldValue: snapshot(before), newValue: row }, tx)
+    if (shiftChange) {
+      try {
+        scheduleSync = await syncWorkerSchedules(tx, req, row, data.shiftId)
+      } catch (err) {
+        console.error(JSON.stringify({ event: 'worker_schedule_sync_failed', workerId: id, shiftId: data.shiftId, error: err instanceof Error ? err.message : String(err) }))
+        throw err
+      }
+    }
+    return row
   })
-  res.json(row)
+  // Signed out everywhere (a role change does that too): the worker's shift sign-in ends now, or
+  // the dashboard keeps showing "Signed in" until the shift ends.
+  if ((signOut || roleChange) && before.role === 'WORKER') await recordShiftLogout(id)
+  invalidateCheckGeneration()
+  // scheduleSync: how many Check Schedules moved to the new shift, for the confirmation message.
+  res.json({ ...row, scheduleSync })
+})
+
+/**
+ * Promotes or demotes an account (Employee Management, one click): Super Admin only. The account,
+ * its history and its sign-in details stay; see changeRole.
+ */
+usersRouter.put('/:id/role', async (req, res) => {
+  const id = idParam(req)
+  if (req.user!.role !== 'SUPER_ADMIN') await denyRoleChange(req, id, (req.body as { role?: unknown } | undefined)?.role)
+  const { role } = z.object({ role: z.enum(ROLES) }).parse(req.body)
+  const { before, changed } = await db.transaction((tx) => changeRole(req, id, role, tx))
+  if (changed && before.role === 'WORKER') await recordShiftLogout(id)
+  if (changed) invalidateCheckGeneration()
+  const [row] = await db.select(publicColumns).from(users).where(eq(users.id, id))
+  res.json({ ...row, previousRole: before.role, changed })
 })
 
 /**
  * Each worker's shift sign-in: on shift or not, signed in or not, when the session ends
  * automatically, and the login reminders sent this shift (services/workerShifts.ts).
  */
-usersRouter.get('/shift-status', requireAnyView('workers'), async (_req, res) => {
+usersRouter.get('/shift-status', requireModule('shift_signin', 'view'), async (_req, res) => {
   res.json(await workerShiftStatuses())
 })
 
 /** Sends a test notification to the worker's phones so the admin can verify the setup. */
-usersRouter.post('/:id/test-notification', requireModule('workers', 'manage'), async (req, res) => {
+usersRouter.post('/:id/test-notification', requireModule('workers', 'edit'), async (req, res) => {
   const id = idParam(req)
   const [user] = await db.select().from(users).where(eq(users.id, id))
   if (!user) throw notFound('User')
@@ -245,8 +329,10 @@ usersRouter.post('/:id/password/reveal', async (req, res) => {
 })
 
 /** Users are never hard-deleted so check history keeps the worker's name. */
-usersRouter.delete('/:id', accountManagers, async (req, res) => {
+/** Disables an account (deactivating: the Super Admin only). */
+usersRouter.delete('/:id', async (req, res) => {
   const id = idParam(req)
+  if (!isSuperAdmin(req)) await denyActivation(req, 'User', id, { to: false })
   if (id === req.user!.id) throw badRequest('You cannot disable your own account')
   const [before] = await db.select().from(users).where(eq(users.id, id))
   if (!before) throw notFound('User')

@@ -51,7 +51,7 @@ export const ExceptionsScreen: React.FC<{ params: { status?: string; from?: stri
             <Row
               key={e.id}
               title={e.machineName}
-              subtitle={`${e.activityName} · ${e.reason}`}
+              subtitle={`${e.activityName} · ${e.reason}${e.reading ? ` · ${e.reading}` : ''}`}
               detail={`${e.workerName ?? 'Unknown'} · ${formatDateTime(e.createdAt)}${e.media.length ? ' · photo' : ''}`}
               detailLines={1}
               accessibilityLabel={`${e.machineName} · ${e.activityName}`}

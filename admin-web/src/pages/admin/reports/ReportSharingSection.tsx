@@ -21,12 +21,12 @@ import {
   Shuffle,
   Users,
   Video,
-  X,
-  XCircle
+  X
 } from 'lucide-react'
 import type { ReportEmailLog, ReportSharingSettings, SamplePreviewResult } from '../../../types'
 import { api, errorText, fetchBlob } from '../../../lib/api'
 import { useAuth, useCanManage } from '../../../lib/auth'
+import { DeliveryStatusPill } from './DeliveryStatus'
 import { useToast } from '../../../components/common/Toast'
 import { askConfirm } from '../../../components/common/AppDialog'
 import { Button } from '../../../components/common/Button'
@@ -60,7 +60,7 @@ export const ReportSharingSection: React.FC = () => {
   // Saving the schedule, SMTP and sending need Reports manage (in practice Admin / Super Admin);
   // the PDF preview needs Export Reports as well. The server checks both again.
   const canManage = useCanManage('reports')
-  const canExport = useAuth().can('export')
+  const canExport = useAuth().can('reports', 'export')
 
   // State: Settings
   const [settings, setSettings] = useState<ReportSharingSettings | null>(null)
@@ -90,6 +90,10 @@ export const ReportSharingSection: React.FC = () => {
   const [smtpUser, setSmtpUser] = useState('')
   const [smtpPass, setSmtpPass] = useState('')
   const [smtpFrom, setSmtpFrom] = useState('')
+  // Where failure alerts of automated emails go: the Super Admin sets it.
+  const [failureAlertEmail, setFailureAlertEmail] = useState('')
+  const isSuperAdmin = useAuth().user?.role === 'SUPER_ADMIN'
+  const [retrying, setRetrying] = useState<string | null>(null)
 
   // State: Manual Send. The period fields hold the plant's wall-clock time (YYYY-MM-DDTHH:mm).
   const [manualFrom, setManualFrom] = useState<string>(() => `${dateKey()}T00:00`)
@@ -150,6 +154,7 @@ export const ReportSharingSection: React.FC = () => {
       setSmtpUser(data.smtpUser || '')
       setSmtpPass(data.smtpPass || '')
       setSmtpFrom(data.smtpFrom || '')
+      setFailureAlertEmail(data.failureAlertEmail || '')
       setDailyReportTime(data.dailyReportTime || '08:30')
       if (manualRecipients.length === 0 && data.recipients?.length) {
         setManualRecipients(data.recipients)
@@ -220,6 +225,21 @@ export const ReportSharingSection: React.FC = () => {
     }
   }
 
+  /** Retry Sending (Super Admin): the same email again, to the recipients it failed for. */
+  const retryLog = async (log: ReportEmailLog) => {
+    setRetrying(log.id)
+    try {
+      const result = await api.post<{ status: string; sent: string[]; error: string | null }>(`/api/reports/sharing/logs/${log.id}/retry`)
+      if (result.status === 'SENT') notify('success', 'Email sent', 'The mail server accepted it.')
+      else notify('error', 'Still failing', result.error ?? 'Unknown error')
+    } catch (err) {
+      notify('error', 'Could not retry', errorText(err))
+    } finally {
+      setRetrying(null)
+      void loadLogs()
+    }
+  }
+
   useEffect(() => {
     loadSettings()
     loadLogs()
@@ -252,7 +272,8 @@ export const ReportSharingSection: React.FC = () => {
         smtpUser: smtpUser.trim() || null,
         smtpPass: smtpPass || null,
         smtpFrom: smtpFrom.trim() || null,
-        dailyReportTime
+        dailyReportTime,
+        ...(isSuperAdmin ? { failureAlertEmail: failureAlertEmail.trim() || null } : {})
       }
       const updated = await api.put<ReportSharingSettings>('/api/reports/sharing/settings', payload)
       setSettings(updated)
@@ -682,6 +703,26 @@ export const ReportSharingSection: React.FC = () => {
                   No recipients added. Automated reports will not be sent until at least one email is added.
                 </div>
               )}
+              {/* Failure alerts: the Super Admin decides where they go (the server refuses anyone else). */}
+              <div className="pt-2 mt-1 border-t border-line">
+                <Field
+                  label="Failure alert email"
+                  hint={
+                    isSuperAdmin
+                      ? 'Gets one email when an automated report email cannot be sent. Empty: no alert email (the Super Admin still sees a popup).'
+                      : 'Set by the Super Admin'
+                  }
+                >
+                  <TextInput
+                    type="email"
+                    aria-label="Failure alert email"
+                    placeholder={isSuperAdmin ? 'e.g. it-support@company.com' : 'Not set'}
+                    value={failureAlertEmail}
+                    onChange={(e) => setFailureAlertEmail(e.target.value)}
+                    disabled={!isSuperAdmin || !canManage}
+                  />
+                </Field>
+              </div>
             </div>
           </Card>
 
@@ -947,8 +988,8 @@ export const ReportSharingSection: React.FC = () => {
         <CardHeader
           icon={<History className="w-4 h-4" />}
           title="Delivery log"
-          subtitle={`${logs.length} report ${logs.length === 1 ? 'email' : 'emails'} sent`}
-          info="Complete audit log of all automated and manual report email dispatches."
+          subtitle={`${logs.length} report ${logs.length === 1 ? 'email' : 'emails'}`}
+          info="Every automated and manual report email. Sent means the mail server accepted it; whether it was received or read is not known. Temporary failures are retried automatically after 5, 15 and 30 minutes."
           actions={
             <IconButton label="Refresh logs" onClick={loadLogs} disabled={loadingLogs}>
               <RefreshCw className={`w-4 h-4 ${loadingLogs ? 'animate-spin' : ''}`} />
@@ -960,7 +1001,7 @@ export const ReportSharingSection: React.FC = () => {
             <table className="data-table stack-sm">
               <thead>
                 <tr>
-                  <th>Sent</th>
+                  <th>Time</th>
                   <th>Status</th>
                   <th>Trigger</th>
                   <th>Recipients</th>
@@ -970,8 +1011,9 @@ export const ReportSharingSection: React.FC = () => {
               </thead>
               <tbody>
                 {logs.map((log) => {
-                  const isSuccess = log.status === 'SUCCESS'
                   const isAuto = log.trigger !== 'MANUAL'
+                  const people = log.recipientStatus?.length ? log.recipientStatus : log.recipients.map((email) => ({ email, status: log.status, error: null }))
+                  const sentCount = people.filter((r) => r.status === 'SENT').length
                   return (
                     <tr key={log.id}>
                       <td className="whitespace-nowrap">
@@ -979,17 +1021,24 @@ export const ReportSharingSection: React.FC = () => {
                         <div className="text-[11.5px] text-ink-muted">{log.sentByName || (isAuto ? 'System Scheduler' : 'Admin')}</div>
                       </td>
                       <td className="whitespace-nowrap">
-                        <span
-                          className={`${pillBase} gap-1 ${isSuccess ? 'bg-success-bg text-success ring-success-line' : 'bg-missed-bg text-missed ring-missed-line'}`}
-                          title={!isSuccess && log.errorMessage ? log.errorMessage : undefined}
-                        >
-                          {isSuccess ? <CheckCircle2 className="w-3 h-3" aria-hidden /> : <XCircle className="w-3 h-3" aria-hidden />}
-                          {isSuccess ? 'Sent' : 'Failed'}
-                        </span>
-                        {!isSuccess && log.errorMessage && (
-                          <div className="mt-0.5 max-w-[220px] truncate text-[11.5px] text-missed" title={log.errorMessage}>
+                        <div className="flex items-center gap-1.5">
+                          <DeliveryStatusPill status={log.status} />
+                          {isSuperAdmin && (log.status === 'FAILED' || log.status === 'RETRYING') && (
+                            <Button size="sm" variant="ghost" onClick={() => void retryLog(log)} loading={retrying === log.id} disabled={retrying !== null} title="Send the same email again to the recipients it failed for">
+                              Retry
+                            </Button>
+                          )}
+                        </div>
+                        {log.status !== 'SENT' && log.errorMessage && (
+                          <div className="mt-0.5 max-w-[240px] truncate text-[11.5px] text-missed" title={log.errorMessage}>
                             {log.errorMessage}
                           </div>
+                        )}
+                        {log.status === 'RETRYING' && log.nextRetryAt && (
+                          <div className="text-[11.5px] text-ink-muted">Retry at {formatDateTime(new Date(log.nextRetryAt))}</div>
+                        )}
+                        {log.status === 'SENT' && log.recoveredAt && (
+                          <div className="text-[11.5px] text-ink-muted">After {(log.attempts ?? 2) - 1} retr{(log.attempts ?? 2) - 1 === 1 ? 'y' : 'ies'}, {formatDateTime(new Date(log.recoveredAt))}</div>
                         )}
                       </td>
                       <td className="whitespace-nowrap">
@@ -998,9 +1047,19 @@ export const ReportSharingSection: React.FC = () => {
                           {log.trigger === 'DAILY' ? 'Daily' : isAuto ? 'Auto' : 'Manual'}
                         </span>
                       </td>
-                      <td className="max-w-[280px]" title={log.recipients.join(', ')}>
-                        <div className="truncate text-ink">{log.recipients[0] ?? '—'}</div>
-                        {log.recipients.length > 1 && <div className="text-[11.5px] text-ink-muted">+{log.recipients.length - 1} more</div>}
+                      <td className="max-w-[300px]">
+                        {/* Each recipient with what the mail server did for them. */}
+                        <ul className="space-y-0.5">
+                          {people.map((r) => (
+                            <li key={r.email} className="flex items-center gap-1.5 min-w-0" title={r.error ?? undefined}>
+                              {people.length > 1 || r.status !== log.status ? <DeliveryStatusPill status={r.status} /> : null}
+                              <span className="truncate text-ink">{r.email}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        {people.length > 1 && log.status !== 'SENT' && (
+                          <div className="text-[11.5px] text-ink-muted">{sentCount} of {people.length} sent</div>
+                        )}
                       </td>
                       <td className="num">
                         <div className="font-semibold text-ink">{log.checksCount}</div>

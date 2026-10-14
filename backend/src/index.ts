@@ -18,9 +18,11 @@ import { ensureWeeklyOffSetting, purgeAllClosedDays } from './services/plantCale
 import { ensureDefaultWeeklyRules } from './services/weeklyRules'
 import { adoptExistingFutureEntries } from './services/calendarYears'
 import { checkPushReceipts, notifyDueChecks } from './services/notifications'
+import { sendPresenceProbes } from './services/wifiRule'
 import { cleanOldTempFiles, kickVideoOptimization, videoOptimizationEnabled } from './services/mediaOptimizer'
 import { executeAutomatedReportRun } from './services/automatedReports'
 import { executeDailyTaskReport } from './services/dailyTaskReport'
+import { processReportEmailRetries } from './services/reportDelivery'
 import { purgeExpiredRevokedTokens } from './routes/auth'
 import { runShiftLoginTick } from './services/workerShifts'
 
@@ -53,6 +55,8 @@ async function tick() {
     const sent = await notifyDueChecks()
     if (sent.messages) console.log(`Notified ${sent.messages} device(s) about ${sent.checks} due check(s)`)
     await checkPushReceipts()
+    // Company Wi-Fi rule: probe unseen phones of workers on shift (does nothing while the rule is off).
+    await sendPresenceProbes().catch((err) => console.error('[Wi-Fi rule] Presence probes failed', err))
     await purgeExpiredRevokedTokens()
     // Workers' shift sign-in: logouts at shift end and shift-start login reminders.
     const shiftLogin = await runShiftLoginTick()
@@ -62,6 +66,8 @@ async function tick() {
     await executeAutomatedReportRun()
     // Its own try: a failing daily report never stops the rest of the tick, and the other way round.
     await executeDailyTaskReport().catch((err) => console.error('[Daily task report] failed', err))
+    // Report emails that failed for a temporary reason: sent again when their retry is due.
+    await processReportEmailRetries().catch((err) => console.error('[Report email retries] failed', err))
   } catch (err) {
     console.error('Scheduler tick failed', err)
   } finally {

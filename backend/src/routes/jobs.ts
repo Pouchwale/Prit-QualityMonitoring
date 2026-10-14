@@ -167,7 +167,7 @@ jobsRouter.put('/:id', requireModule('jobs', 'manage'), async (req, res) => {
 })
 
 /** Hands a running job to another worker (e.g. the previous worker left without a handover). */
-jobsRouter.post('/:id/handover', requireModule('jobs', 'manage'), async (req, res) => {
+jobsRouter.post('/:id/handover', requireModule('jobs', 'edit'), async (req, res) => {
   const id = idParam(req)
   const body = z
     .object({ toUserId: z.uuid('Choose the worker'), shiftId: z.uuid().nullish(), note: z.string().trim().max(500).optional() })
@@ -188,7 +188,7 @@ jobsRouter.post('/:id/handover', requireModule('jobs', 'manage'), async (req, re
  * Force close: ends a running job without its remaining checks (e.g. a stuck Job End check), or
  * cancels a planned one. Open job checks are removed; submitted records stay with the job.
  */
-jobsRouter.post('/:id/end', requireModule('jobs', 'manage'), async (req, res) => {
+jobsRouter.post('/:id/end', requireModule('jobs', 'edit'), async (req, res) => {
   const id = idParam(req)
   const job = await jobById(id)
   if (!job) throw notFound('Job')

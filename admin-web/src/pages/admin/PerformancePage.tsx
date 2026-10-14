@@ -13,28 +13,10 @@ import { StatCard } from '../../components/ui/StatCard'
 import { BarList, ChartLegend, DonutChart, ProgressBar, SegmentBar, STATUS_SERIES, type BarListRow } from '../../components/ui/charts'
 import { IconButton, ResultCount, Segmented } from '../../components/ui/Toolbar'
 import { Pagination, usePagination } from '../../components/ui/Pagination'
-import { useAuth } from '../../lib/auth'
 import { WeeklyScores } from './WeeklyScores'
 import { ScoreFormulaCard } from './ScoreFormula'
 import { OverallScores } from './OverallScores'
-
-/** The score is a percentage, and always carries its sign. */
-const scoreText = (score: number) => `${score}%`
-
-/** Negative scores in red, zero in green: "0%" means every assigned check was done. */
-const ScorePill: React.FC<{ score: number }> = ({ score }) => (
-  <span
-    className={`inline-flex items-center gap-1 h-5 px-1.5 rounded-full text-[11.5px] font-semibold tabular-nums ring-1 ring-inset whitespace-nowrap ${
-      score < 0 ? 'bg-missed-bg text-missed ring-missed-line' : 'bg-success-bg text-success ring-success-line'
-    }`}
-  >
-    {score < 0 ? <XCircle className="w-3 h-3" aria-hidden /> : <CheckCircle2 className="w-3 h-3" aria-hidden />}
-    {scoreText(score)}
-  </span>
-)
-
-const SCORE_INFO =
-  'Assigned = checks whose time window has ended (or that are finished); checks still open are shown but not counted. Score = completion − 100, where an exception counts as done: everything done is 0%; 80 of 100 done is −20%. Missed = checks marked Missed.'
+import { Num, SCORE_INFO, ScorePill, scoreText } from './scoreParts'
 
 /** This week's Sunday (plant date); a week runs Sunday to Saturday. */
 const weekSunday = () => addDaysKey(dateKey(), -new Date(`${dateKey()}T00:00:00Z`).getUTCDay())
@@ -57,7 +39,6 @@ const filterLabel = 'block text-[11px] font-medium text-ink-muted mb-1'
 const activeClass = (on: boolean) => (on ? 'border-accent bg-accent-soft/40' : '')
 
 export const PerformancePage: React.FC = () => {
-  const { isAdmin } = useAuth()
   const [from, setFrom] = useState(weekSunday)
   const [to, setTo] = useState(() => addDaysKey(weekSunday(), 6))
   const [workerId, setWorkerId] = useState('')
@@ -426,39 +407,30 @@ export const PerformancePage: React.FC = () => {
       </DataState>
 
       {/* 2. Overall score: each worker from their first check up to today (not the filters above).
-          Admins and the Super Admin only (the API refuses Managers). */}
-      {isAdmin && (
-        <section aria-labelledby="overall-score-heading" className="space-y-3 pt-5 border-t border-line">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-            <h2 id="overall-score-heading" className="text-[15px] font-semibold text-ink">
-              Overall score
-            </h2>
-            <p className="text-[12px] text-ink-muted">From each worker's first check up to today</p>
-          </div>
-          <OverallScores />
-        </section>
-      )}
+          Shown with Worker Performance view, like the rest of the page (the server checks the same). */}
+      <section aria-labelledby="overall-score-heading" className="space-y-3 pt-5 border-t border-line">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+          <h2 id="overall-score-heading" className="text-[15px] font-semibold text-ink">
+            Overall score
+          </h2>
+          <p className="text-[12px] text-ink-muted">From each worker's first check up to today</p>
+        </div>
+        <OverallScores />
+      </section>
 
-      {/* 3. Weekly scores: everyone's day-wise scores, with its own week (not the filters above).
-          Admins and the Super Admin only (the API refuses Managers). */}
-      {isAdmin && (
-        <section aria-labelledby="weekly-scores-heading" className="space-y-3 pt-5 border-t border-line">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-            <h2 id="weekly-scores-heading" className="text-[15px] font-semibold text-ink">
-              Weekly scores
-            </h2>
-            <p className="inline-flex items-center gap-1.5 text-[12px] text-ink-muted">
-              <CalendarDays className="w-3 h-3" aria-hidden />
-              Sunday to Saturday · choose the week with the arrows
-            </p>
-          </div>
-          <WeeklyScores />
-        </section>
-      )}
+      {/* 3. Weekly scores: everyone's day-wise scores, with its own week (not the filters above). */}
+      <section aria-labelledby="weekly-scores-heading" className="space-y-3 pt-5 border-t border-line">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+          <h2 id="weekly-scores-heading" className="text-[15px] font-semibold text-ink">
+            Weekly scores
+          </h2>
+          <p className="inline-flex items-center gap-1.5 text-[12px] text-ink-muted">
+            <CalendarDays className="w-3 h-3" aria-hidden />
+            Sunday to Saturday · choose the week with the arrows
+          </p>
+        </div>
+        <WeeklyScores />
+      </section>
     </div>
   )
 }
-
-const Num: React.FC<{ value: number; tone: string }> = ({ value, tone }) => (
-  <td className={`num ${value > 0 ? `${tone} font-semibold` : 'text-ink-faint'}`}>{value}</td>
-)

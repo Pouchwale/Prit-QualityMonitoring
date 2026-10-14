@@ -392,7 +392,7 @@ export const DetailedRecords: React.FC<{ checks: QualityCheck[]; onViewCheck?: (
                     )}
                     {c.exception && (
                       <div className="mt-1 text-[12px] text-exception">
-                        <span className="font-semibold">Exception:</span> {[c.exception.reason, c.exception.remark].filter(Boolean).join(' — ')}
+                        <span className="font-semibold">Exception:</span> {[c.exception.reason, c.exception.reading, c.exception.remark].filter(Boolean).join(' — ')}
                         <span className="text-ink-muted">
                           {' '}
                           · {c.exception.status}

@@ -20,7 +20,7 @@ import {
 import type { CheckKind, Department, JobHandover, JobRow, JobStatus, Machine, QualityCheck, Shift, User } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { useCanManage } from '../../lib/auth'
+import { useModuleActions } from '../../lib/auth'
 import { addDaysKey, dateKey, formatDate, formatDateTime } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { PageHeader } from '../../components/common/PageHeader'
@@ -123,7 +123,8 @@ const emptyPlan: PlanForm = { machineId: '', jobNo: '', itemCode: '', plannedFor
  * prefixes set on the Department Configuration page. View needs the Jobs module; changes need Jobs manage.
  */
 export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: React.ReactNode }> = ({ onViewCheck, tabs }) => {
-  const canManage = useCanManage('jobs')
+  // Jobs in Roles & Permissions: create plans jobs; edit changes, hands over and closes them.
+  const { canCreate: canPlan, canEdit: canManage, canWrite: canManageAny } = useModuleActions('jobs')
   const notify = useToast()
   const [filter, setFilter] = useState('running')
   const [machineId, setMachineId] = useState('')
@@ -141,8 +142,8 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
   })
   const { data: machines } = useApi<Machine[]>('/api/machines')
   const { data: departments } = useApi<Department[]>('/api/departments')
-  const { data: workers } = useApi<User[]>(canManage ? '/api/users' : null, { role: 'WORKER' })
-  const { data: shifts } = useApi<Shift[]>(canManage ? '/api/shifts' : null)
+  const { data: workers } = useApi<User[]>(canManageAny ? '/api/users' : null, { role: 'WORKER' })
+  const { data: shifts } = useApi<Shift[]>(canManageAny ? '/api/shifts' : null)
 
   const [openId, setOpenId] = useState<string | null>(null)
   const detail = useApi<{ job: JobRow; checks: QualityCheck[]; handovers: JobHandover[] }>(openId ? `/api/jobs/${openId}` : null)
@@ -274,7 +275,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
             <IconButton label="Refresh" size="md" onClick={refreshAll} className="border border-line-strong bg-white">
               <RefreshCw className={`w-4 h-4 ${loading && data !== null ? 'animate-spin' : ''}`} />
             </IconButton>
-            {canManage && (
+            {canPlan && (
               <Button size="sm" variant="primary" onClick={() => openPlan(null)} icon={<Plus className="w-3.5 h-3.5" />}>
                 Plan Job
               </Button>
@@ -369,7 +370,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
             icon={<Briefcase className="w-5 h-5" />}
             title={search.trim() ? `No jobs match “${search.trim()}”.` : 'No jobs for these filters.'}
             action={
-              canManage && !search.trim() ? (
+              canPlan && !search.trim() ? (
                 <Button size="sm" variant="outline" onClick={() => openPlan(null)} icon={<Plus className="w-3.5 h-3.5" />}>
                   Plan Job
                 </Button>
@@ -602,7 +603,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
                           {c.exception && (
                             <div className="mt-1.5 flex items-start gap-1 text-exception">
                               <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" aria-hidden />
-                              <span>Exception: {[c.exception.reason, c.exception.remark].filter(Boolean).join(' — ')}</span>
+                              <span>Exception: {[c.exception.reason, c.exception.reading, c.exception.remark].filter(Boolean).join(' — ')}</span>
                             </div>
                           )}
                         </li>
@@ -648,7 +649,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
             <Field label="PO No." required>
               <TextInput value={plan.jobNo} onChange={(e) => setPlan({ ...plan, jobNo: e.target.value })} className="font-mono" maxLength={60} />
             </Field>
-            <Field label="Item Code" required hint="The department is set automatically from the Item Code prefix (see Department Configuration)." error={itemCodeError(plan.itemCode) ?? undefined}>
+            <Field label="Item Code" required hint="Several allowed, separated by commas (FGPO123, FGPO234), all of one department. The department is set automatically from the Item Code prefix (see Department Configuration)." error={itemCodeError(plan.itemCode) ?? undefined}>
               <TextInput value={plan.itemCode} onChange={(e) => setPlan({ ...plan, itemCode: e.target.value })} className="font-mono" maxLength={60} />
             </Field>
           </div>

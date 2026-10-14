@@ -135,6 +135,7 @@ export const ExceptionsPage: React.FC<{ onViewCheck: (id: string) => void }> = (
                       {/* Reason, the worker's remark and any resolution notes in one cell. */}
                       <td className="min-w-[200px] max-w-[340px]">
                         <div className="font-medium text-ink">{e.reason}</div>
+                        {e.reading && <div className="text-[12px] font-medium text-ink-secondary">{e.reading}</div>}
                         {e.remark && (
                           <div className="text-[11.5px] text-ink-secondary line-clamp-2" title={e.remark}>
                             {e.remark}

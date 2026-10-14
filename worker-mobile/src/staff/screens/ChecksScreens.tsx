@@ -111,7 +111,8 @@ export const ChecksScreen: React.FC<{ params: ChecksParams }> = ({ params }) => 
         c.submittedAt ? formatDateTime(c.submittedAt) : '',
         c.values.map((v) => `${reading(v)} (${v.result === 'PASS' ? 'within limits' : v.result === 'FAIL' ? 'outside limits' : 'no limit'})`).join('; '),
         c.values.filter((v) => v.result === 'FAIL').map(reading).join('; '),
-        c.exception?.reason
+        c.exception?.reason,
+        c.exception?.reading
       ])
     )
     try {
@@ -373,6 +374,7 @@ export const CheckDetailScreen: React.FC<{ params: { id: string } }> = ({ params
                   <List>
                     <KV label="Status" value={<StatusBadge status={check.exception.status} />} />
                     <KV label="Reason" value={check.exception.reason} />
+                    {check.exception.reading ? <KV label="Reading" value={check.exception.reading} /> : null}
                     <KV label="Raised" value={formatDateTime(check.exception.createdAt)} />
                     <KV label="Worker remark" value={check.exception.remark} />
                     <KV label="Reviewed by" value={check.exception.reviewedByName} />

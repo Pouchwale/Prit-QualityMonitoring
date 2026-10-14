@@ -10,6 +10,7 @@ import { activities, checkExceptions, departments, jobs, machines, media, qualit
 import { config } from '../config'
 import { formatDateTime, formatDate, formatTime } from './reportData'
 import { resultOf } from '../lib/result'
+import { readingText } from '../lib/validate'
 import { weeklyScores, type DayScore } from './performance'
 import { formatDateKey } from '../lib/time'
 
@@ -121,6 +122,8 @@ export interface CrystalReportCheck {
   exception: {
     id: string
     reason: string
+    /** The reading the reason asked for, e.g. "Viscosity: 21.5 sec". */
+    reading?: string | null
     remark: string | null
     status: string
     createdAt: Date
@@ -210,7 +213,8 @@ export async function getChecksForCrystalReport(checkIds: string[]): Promise<Cry
 
     const photos = checkMedia.filter((m) => m.kind === 'PHOTO').map(photoOf)
 
-    const videos = checkMedia
+    // The check's videos and its exception's (the emailed report attaches them too).
+    const videos = [...checkMedia, ...(exc ? exceptionMedia.filter((m) => m.exceptionId === exc.id) : [])]
       .filter((m) => m.kind === 'VIDEO')
       .map((m) => ({
         id: m.id,
@@ -258,6 +262,7 @@ export async function getChecksForCrystalReport(checkIds: string[]): Promise<Cry
         ? {
             id: exc.id,
             reason: exc.reason,
+            reading: readingText(exc),
             remark: exc.remark,
             status: exc.status,
             createdAt: exc.createdAt,
@@ -734,6 +739,7 @@ function buildCheckSheet(check: CrystalReportCheck, data: CrystalReportBatchData
                     { width: 'auto', text: humanize(exc.status), fontSize: 8, bold: true, color: C.warn }
                   ]
                 },
+                ...(exc.reading ? [{ text: exc.reading, fontSize: 9, bold: true, color: C.text, margin: [0, 3, 0, 0] as [number, number, number, number] }] : []),
                 ...(exc.remark ? [{ text: exc.remark, fontSize: 8.5, color: C.text, margin: [0, 3, 0, 0] as [number, number, number, number] }] : []),
                 { text: `Reported ${formatDateTime(exc.createdAt)}`, fontSize: 7.5, color: C.muted, margin: [0, 4, 0, 0] }
               ]
