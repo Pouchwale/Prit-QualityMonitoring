@@ -10,7 +10,7 @@ import { audit } from '../lib/audit'
 import { requireModule } from '../lib/permissions'
 import { addDays, dateKey, parseDateKey, startOfDay } from '../lib/time'
 import { invalidateCheckGeneration } from '../services/checkGenerator'
-import { removeChecksIfClosed } from '../services/plantCalendar'
+import { removeChecksIfClosed, trackTodayReopening } from '../services/plantCalendar'
 import {
   CALENDAR_V2_START,
   WEEKDAY_NAMES,
@@ -238,7 +238,7 @@ weeklyRulesRouter.post('/', manage, async (req, res) => {
 weeklyRulesRouter.put('/:id', manage, async (req, res) => {
   const id = idParam(req)
   const input = ruleInput.partial().parse(req.body)
-  const result = await updateWeeklyRule(id, input, req.user!.id)
+  const result = await trackTodayReopening(true, () => updateWeeklyRule(id, input, req.user!.id))
   if (!result) throw notFound('Weekly rule')
   const removedChecks = await afterRuleChange()
   await audit(req, 'UPDATE_WEEKLY_RULE', 'PlantCalendar', id, {
@@ -250,7 +250,7 @@ weeklyRulesRouter.put('/:id', manage, async (req, res) => {
 
 weeklyRulesRouter.delete('/:id', manage, async (req, res) => {
   const id = idParam(req)
-  const rule = await deleteWeeklyRule(id)
+  const rule = await trackTodayReopening(true, () => deleteWeeklyRule(id))
   if (!rule) throw notFound('Weekly rule')
   const removedChecks = await afterRuleChange()
   await audit(req, 'DELETE_WEEKLY_RULE', 'PlantCalendar', id, { oldValue: { rule: describeRule(rule), note: rule.note } })

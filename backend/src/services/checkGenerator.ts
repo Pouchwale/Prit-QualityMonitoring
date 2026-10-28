@@ -3,10 +3,11 @@ import { randomBytes } from 'node:crypto'
 import { db } from '../db/client'
 import { activities, jobs, machines, qualityChecks, scheduleTimers, schedules, shifts, users } from '../db/schema'
 import { MINUTE, addDays, atTime, dateKey, startOfDay } from '../lib/time'
-import { machineOffBetween, purgeClosedDays } from './plantCalendar'
+import { machineOffBetween, purgeClosedDays, reopenedToday } from './plantCalendar'
 import { generateJobIntervalChecks } from './jobMonitoring'
 import { checkTypeInDepartment } from './checkTypeScope'
 import { keepChecksOutOfBreaks, loadBreaks, outsideBreak } from './workerBreaks'
+import { applyDayPlan, workerDayPlans } from './leave'
 
 /**
  * The rolling scheduler: every schedule (machine + check type + shift) has **one open check at a
@@ -51,6 +52,8 @@ export interface Occurrence {
   /** When this schedule's window opens and closes on this shift occurrence. */
   start: Date
   end: Date
+  /** An approved shift change: the shift the worker works in this occurrence instead (services/leave.ts). */
+  shiftId?: string
 }
 
 type ScheduleRow = typeof schedules.$inferSelect
@@ -226,6 +229,11 @@ export async function planChecks(now: Date, options: { ignoreOpen?: boolean; mar
   const machineOff = await machineOffBetween(addDays(startOfDay(now), -1), addDays(startOfDay(now), 10))
   // Worker breaks: no check of a worker is due, or ends, during their break (services/workerBreaks.ts).
   const breaks = await loadBreaks()
+  // Today reopened during the day (holiday removed, Adjustment Working Day added): its checks start then.
+  const reopened = await reopenedToday(now)
+  // Approved leave and shift changes (services/leave.ts): no checks while a worker is on leave
+  // (half a day: that half of the shift); on a shift change, the checks follow the requested shift.
+  const plans = await workerDayPlans(null, dateKey(addDays(startOfDay(now), -2)), dateKey(addDays(startOfDay(now), 10)))
 
   const inserts: (typeof qualityChecks.$inferInsert)[] = []
   for (const { schedule, shift, activityDepartmentId, activityModule, activityGraceMinutes } of rows) {
@@ -255,7 +263,18 @@ export async function planChecks(now: Date, options: { ignoreOpen?: boolean; mar
     const past = historyBySchedule.get(schedule.id) ?? []
 
     let created = false
-    for (const occurrence of occurrences(schedule, shift, now)) {
+    const workerPlans = targetWorkerId ? plans.get(targetWorkerId) : undefined
+    const windows: Occurrence[] = workerPlans
+      ? occurrences(schedule, shift, now)
+          .flatMap((o) => {
+            const plan = workerPlans.get(dateKey(o.start))
+            // A shift change moves the worker's own schedules only, not a machine's job checks.
+            const w = applyDayPlan(o, plan, isWorkerSchedule)
+            return w ? [{ ...w, shiftId: isWorkerSchedule && plan?.shift ? plan.shift.id : undefined }] : []
+          })
+          .sort((a, b) => a.start.getTime() - b.start.getTime())
+      : occurrences(schedule, shift, now)
+    for (const occurrence of windows) {
       if (occurrence.end <= now) continue
 
       let from = occurrence.start
@@ -302,6 +321,12 @@ export async function planChecks(now: Date, options: { ignoreOpen?: boolean; mar
           nextDue = nextDay
           continue
         }
+        // A slot of today that was already over when today reopened is not created (never Missed).
+        if (reopened && dateKey(nextDue) === reopened.date && nextDue.getTime() + grace <= reopened.at.getTime()) {
+          const steps = Math.ceil((reopened.at.getTime() - grace - nextDue.getTime() + 1) / interval)
+          nextDue = new Date(nextDue.getTime() + steps * interval)
+          continue
+        }
         const slot = outsideBreak(targetWorkerId ? breaks.get(targetWorkerId) : undefined, nextDue, new Date(nextDue.getTime() + grace))
         const windowEndsAt = slot.windowEndsAt
         nextDue = slot.scheduledAt
@@ -314,7 +339,7 @@ export async function planChecks(now: Date, options: { ignoreOpen?: boolean; mar
           module: schedule.module ?? activityModule ?? 'IPQC',
           workerId: targetWorkerId,
           departmentId: targetDepartmentId,
-          shiftId: schedule.shiftId ?? null,
+          shiftId: occurrence.shiftId ?? schedule.shiftId ?? null,
           jobId: targetJobId,
           scheduledAt: nextDue,
           windowEndsAt,

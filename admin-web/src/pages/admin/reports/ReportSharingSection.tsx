@@ -24,7 +24,8 @@ import {
   X
 } from 'lucide-react'
 import type { ReportEmailLog, ReportSharingSettings, SamplePreviewResult } from '../../../types'
-import { api, errorText, fetchBlob } from '../../../lib/api'
+import { api, errorText } from '../../../lib/api'
+import { PdfPreview } from '../../../components/common/PdfPreview'
 import { useAuth, useCanManage } from '../../../lib/auth'
 import { DeliveryStatusPill } from './DeliveryStatus'
 import { useToast } from '../../../components/common/Toast'
@@ -421,11 +422,11 @@ export const ReportSharingSection: React.FC = () => {
   }
 
   /*
-   * Opens the PDF preview in a new tab. The PDF is fetched with the signed-in user's token in the
-   * Authorization header (never in the link) and shown from a temporary blob URL. The tab is opened
-   * straight away, while the click still counts, so the browser does not block it as a pop-up.
+   * The PDF preview, shown inside the page (components/common/PdfPreview.tsx): no new tab that a
+   * pop-up blocker could stop, and a "Preparing" message while the server builds a large PDF.
    */
-  const handleOpenPdfPreview = async () => {
+  const [pdfPreview, setPdfPreview] = useState<{ path: string; count: number } | null>(null)
+  const handleOpenPdfPreview = () => {
     if (!previewSample?.sampledCheckIds.length) {
       notify('error', 'Preview Unavailable', 'Generate a sample preview first to inspect the PDF.')
       return
@@ -434,18 +435,7 @@ export const ReportSharingSection: React.FC = () => {
     if (ids.length < previewSample.sampledCheckIds.length) {
       notify('info', 'Preview Shortened', `The preview shows the first ${MAX_PREVIEW_CHECKS} sampled checks.`)
     }
-    const tab = window.open('', '_blank')
-    try {
-      const blob = await fetchBlob(`/api/reports/sharing/preview-pdf?checkIds=${encodeURIComponent(ids.join(','))}`)
-      const url = URL.createObjectURL(blob)
-      if (tab) tab.location.href = url
-      else window.open(url, '_blank')
-      // The tab has loaded the PDF by then; free the memory.
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
-    } catch (err) {
-      tab?.close()
-      notify('error', 'Preview Failed', errorText(err))
-    }
+    setPdfPreview({ path: `/api/reports/sharing/preview-pdf?checkIds=${encodeURIComponent(ids.join(','))}`, count: ids.length })
   }
 
   const scheduleText =
@@ -1044,7 +1034,7 @@ export const ReportSharingSection: React.FC = () => {
                       <td className="whitespace-nowrap">
                         <span className={`${pillBase} gap-1 ${isAuto ? 'bg-subtle text-ink-secondary ring-line' : 'bg-accent-soft text-accent-strong ring-accent-line'}`}>
                           {isAuto ? <Clock className="w-3 h-3" aria-hidden /> : <Send className="w-3 h-3" aria-hidden />}
-                          {log.trigger === 'DAILY' ? 'Daily' : isAuto ? 'Auto' : 'Manual'}
+                          {log.trigger === 'DAILY' ? 'Daily' : log.trigger === 'LEAVE' ? 'Leave' : isAuto ? 'Auto' : 'Manual'}
                         </span>
                       </td>
                       <td className="max-w-[300px]">
@@ -1090,6 +1080,14 @@ export const ReportSharingSection: React.FC = () => {
           />
         )}
       </Card>
+
+      <PdfPreview
+        path={pdfPreview?.path ?? null}
+        title="Quality Inspection Report – preview"
+        detail={pdfPreview ? `${pdfPreview.count} sampled check${pdfPreview.count === 1 ? '' : 's'}` : undefined}
+        fileName={`quality-inspection-preview_${dateKey()}.pdf`}
+        onClose={() => setPdfPreview(null)}
+      />
     </div>
   )
 }

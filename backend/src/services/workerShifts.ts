@@ -3,6 +3,7 @@ import { db } from '../db/client'
 import { auditLogs, pushTokens, schedules, settings, shifts, users, workerShiftLogins } from '../db/schema'
 import { addDays, atTime, dateKey, formatLocalTime, startOfDay } from '../lib/time'
 import { closureOn } from './plantCalendar'
+import { applyDayPlan, workerDayPlans, type DayPlan } from './leave'
 import { sendShiftLoginReminder } from './notifications'
 
 /**
@@ -76,22 +77,32 @@ export interface ShiftBlock {
   end: Date
 }
 
-/** The occurrences of these shifts from the day before `at` to two days after, oldest first. */
-function occurrences(list: ShiftRow[], at: Date): ShiftBlock[] {
+/**
+ * The occurrences of these shifts from the day before `at` to two days after, oldest first. `plans`
+ * (services/leave.ts): on a date with an approved shift change the requested shift is worked
+ * instead; approved leave removes the day, or that half of the shift.
+ */
+function occurrences(list: ShiftRow[], at: Date, plans?: Map<string, DayPlan>): ShiftBlock[] {
   const today = startOfDay(at)
   const result: ShiftBlock[] = []
-  for (const s of list) {
-    for (const offset of [-1, 0, 1, 2]) {
-      const day = addDays(today, offset)
+  for (const offset of [-1, 0, 1, 2]) {
+    const day = addDays(today, offset)
+    const plan = plans?.get(dateKey(day))
+    for (const s of plan?.shift ? [plan.shift] : list) {
       const start = atTime(day, s.startTime)
       let end = atTime(day, s.endTime)
       // Overnight: the shift ends on the next day.
       if (end <= start) end = addDays(end, 1)
-      result.push({ shiftId: s.id, shiftName: s.name, start, end })
+      const window = applyDayPlan({ start, end }, plan && { leave: plan.leave }, false)
+      if (window) result.push({ shiftId: s.id, shiftName: s.name, start: window.start, end: window.end })
     }
   }
   return result.sort((a, b) => a.start.getTime() - b.start.getTime())
 }
+
+/** Approved leave and shift changes around `at` (the days occurrences() looks at). */
+const plansAround = (workerIds: string[] | null, at: Date) =>
+  workerDayPlans(workerIds, dateKey(addDays(startOfDay(at), -1)), dateKey(addDays(startOfDay(at), 2)))
 
 /** Occurrences that overlap or touch are joined, so back-to-back shifts are one stretch of work. */
 function mergeBlocks(blocks: ShiftBlock[]): ShiftBlock[] {
@@ -108,8 +119,8 @@ function mergeBlocks(blocks: ShiftBlock[]): ShiftBlock[] {
 }
 
 /** The stretch of work running at `at`, and the next one starting after it. */
-export function shiftBlocksAt(list: ShiftRow[], at: Date) {
-  const blocks = mergeBlocks(occurrences(list, at))
+export function shiftBlocksAt(list: ShiftRow[], at: Date, plans?: Map<string, DayPlan>) {
+  const blocks = mergeBlocks(occurrences(list, at, plans))
   const current = blocks.find((b) => b.start <= at && at < b.end) ?? null
   const next = blocks.find((b) => b.start > at) ?? null
   return { current, next }
@@ -122,19 +133,20 @@ export function shiftBlocksAt(list: ShiftRow[], at: Date) {
 export async function onShiftNow(workerIds: string[], now = new Date()): Promise<Map<string, boolean | null>> {
   const result = new Map<string, boolean | null>()
   if (!workerIds.length) return result
-  const [people, shiftRows, scheduleRows] = await Promise.all([
+  const [people, shiftRows, scheduleRows, plans] = await Promise.all([
     db.select({ id: users.id, shiftId: users.shiftId }).from(users).where(inArray(users.id, workerIds)),
     db.select({ id: shifts.id, name: shifts.name, startTime: shifts.startTime, endTime: shifts.endTime }).from(shifts).where(eq(shifts.isActive, true)),
     db
       .select({ workerId: schedules.workerId, shiftId: schedules.shiftId })
       .from(schedules)
-      .where(and(eq(schedules.isActive, true), inArray(schedules.workerId, workerIds), isNotNull(schedules.shiftId)))
+      .where(and(eq(schedules.isActive, true), inArray(schedules.workerId, workerIds), isNotNull(schedules.shiftId))),
+    plansAround(workerIds, now)
   ])
   const byId = new Map(shiftRows.map((s) => [s.id, s]))
   for (const p of people) {
     const ids = new Set([p.shiftId, ...scheduleRows.filter((s) => s.workerId === p.id).map((s) => s.shiftId)])
     const list = [...ids].map((id) => (id ? byId.get(id) : undefined)).filter((s): s is ShiftRow => !!s)
-    result.set(p.id, list.length ? !!shiftBlocksAt(list, now).current : null)
+    result.set(p.id, list.length ? !!shiftBlocksAt(list, now, plans.get(p.id)).current : null)
   }
   return result
 }
@@ -168,7 +180,8 @@ export async function signInWindow(workerId: string, at = new Date(), settingsNo
   if (!config.autoLogout) return { kind: 'none' }
   const list = await workerShiftList(workerId)
   if (!list.length) return { kind: 'none' }
-  const { current, next } = shiftBlocksAt(list, at)
+  const plans = await plansAround([workerId], at)
+  const { current, next } = shiftBlocksAt(list, at, plans.get(workerId))
   if (current) return { kind: 'on', block: current }
   if (next && next.start.getTime() - at.getTime() <= config.earlyLoginMinutes * 60_000) return { kind: 'on', block: next }
   return { kind: 'off', next, earlyLoginMinutes: config.earlyLoginMinutes }
@@ -288,6 +301,7 @@ export async function runShiftLoginTick(now = new Date()) {
     ).map((r) => r.workerId)
   )
   const closedByDay = new Map<string, boolean>()
+  const plans = await plansAround(null, now)
   const intervalMs = Math.max(1, config.reminderIntervalMinutes) * 60_000
   let sent = 0
 
@@ -296,7 +310,8 @@ export async function runShiftLoginTick(now = new Date()) {
     const ids = new Set([w.shiftId, ...scheduleRows.filter((s) => s.workerId === w.id).map((s) => s.shiftId)])
     const list = [...ids].map((id) => (id ? shiftById.get(id) : undefined)).filter((s): s is ShiftRow => !!s)
     if (!list.length) continue
-    const { current } = shiftBlocksAt(list, now)
+    // Approved leave: no shift (no reminder); a shift change: the requested shift's times.
+    const { current } = shiftBlocksAt(list, now, plans.get(w.id))
     if (!current) continue
 
     // The plant is closed on the shift's day (weekly off, holiday): nobody is expected to sign in.
@@ -395,6 +410,7 @@ export async function workerShiftStatuses(now = new Date()): Promise<WorkerShift
     .groupBy(pushTokens.userId)
   const seenBy = new Map(seenRows.map((r) => [r.userId, r.at ? new Date(r.at) : null]))
   const shiftById = new Map(shiftRows.map((s) => [s.id, s]))
+  const statusPlans = await plansAround(null, now)
   // A closed day (Week Off, holiday, shutdown), judged by the shift's start date as the sign-in reminders are.
   const closedByDay = new Map<string, string | null>()
   const dayOffOf = async (start: Date) => {
@@ -405,8 +421,10 @@ export async function workerShiftStatuses(now = new Date()): Promise<WorkerShift
   return Promise.all(workers.map(async (w) => {
     const ids = new Set([w.shiftId, ...scheduleRows.filter((s) => s.workerId === w.id).map((s) => s.shiftId)])
     const list = [...ids].map((id) => (id ? shiftById.get(id) : undefined)).filter((s): s is ShiftRow => !!s)
-    const { current, next } = list.length ? shiftBlocksAt(list, now) : { current: null, next: null }
-    const dayOff = current ? await dayOffOf(current.start) : null
+    const plan = statusPlans.get(w.id)
+    const { current, next } = list.length ? shiftBlocksAt(list, now, plan) : { current: null, next: null }
+    // On approved leave for the whole day: off, and said so.
+    const dayOff = current ? await dayOffOf(current.start) : plan?.get(dateKey(now))?.leave === 'FULL' ? 'On leave' : null
     const mine = sessions.filter((s) => s.workerId === w.id).sort((a, b) => b.shiftStart.getTime() - a.shiftStart.getTime())
     const row = current ? mine.find((s) => s.shiftStart.getTime() === current.start.getTime()) : undefined
     const latestLogin = mine.find((s) => s.loginAt)

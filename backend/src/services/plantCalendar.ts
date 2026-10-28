@@ -137,6 +137,43 @@ export async function closureOn(day: Date) {
   return { id: null, date: state.date, type: 'CLOSED' as const, reason: null, label: state.label!, weeklyOff: true }
 }
 
+// ---- Today reopened during the day ----
+
+const REOPENED_KEY = 'plant_reopened_today'
+
+/**
+ * When today was closed (Holiday, Plant Closed, Shutdown, Weekly Off) and a calendar change opened it
+ * during the day (the holiday removed, an Adjustment Working Day added, a weekly rule ended), the
+ * moment it reopened. The check generator assigns today's checks only from then on: the slots that
+ * were over before it are not created, so nobody gets a Missed check (or a lower score) for hours
+ * that were a holiday when they happened. Only today's date is kept, so future dates and past
+ * records are never affected.
+ */
+export async function reopenedToday(now = new Date()): Promise<{ date: string; at: Date } | null> {
+  const [row] = await db.select().from(settings).where(eq(settings.key, REOPENED_KEY))
+  const value = row?.value as { date?: string; at?: string } | undefined
+  if (!value?.date || !value.at || value.date !== dateKey(now)) return null
+  return { date: value.date, at: new Date(value.at) }
+}
+
+/**
+ * Runs a calendar change and, when it opens today after today was closed, records the moment it
+ * did. Changes that do not touch today, or that leave it closed (or open), record nothing.
+ */
+export async function trackTodayReopening<T>(touchesToday: boolean, change: () => Promise<T>): Promise<T> {
+  const today = new Date()
+  const wasClosed = touchesToday ? (await closureOn(today)) !== null : false
+  const result = await change()
+  if (wasClosed && (await closureOn(new Date())) === null) {
+    const value = { date: dateKey(today), at: new Date().toISOString() }
+    await db
+      .insert(settings)
+      .values({ key: REOPENED_KEY, value })
+      .onConflictDoUpdate({ target: settings.key, set: { value, updatedAt: new Date() } })
+  }
+  return result
+}
+
 // ---- Machine day plans ----
 
 /** The machines that run on each planned date between two date keys (inclusive). Unplanned dates are absent. */

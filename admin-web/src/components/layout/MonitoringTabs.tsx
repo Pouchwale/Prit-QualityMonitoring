@@ -17,7 +17,7 @@ export const MonitoringTabs: React.FC<{ current: MonitoringTab }> = ({ current }
   if (tabs.length < 2) return null
 
   return (
-    <nav aria-label="Quality Monitoring views" className="flex items-center gap-1 border-b border-line max-w-full overflow-x-auto -mb-px">
+    <nav aria-label="Quality Monitoring views" className="scroll-hint flex items-center gap-1 border-b border-line max-w-full overflow-x-auto -mb-px">
       {tabs.map((tab) => {
         const active = tab === current
         return (

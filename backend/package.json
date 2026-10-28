@@ -13,6 +13,8 @@
     "test:shift-sync": "tsx tests/shift-sync.mts",
     "test:exception-reading": "tsx tests/exception-reading.mts",
     "test:overall-scores": "tsx tests/overall-scores.mts",
+    "test:leave": "tsx tests/leave.mts",
+    "test:plant-calendar": "tsx tests/plant-calendar.mts",
     "db:generate": "drizzle-kit generate",
     "db:create": "tsx src/db/create.ts",
     "db:migrate": "tsx src/db/migrate.ts",

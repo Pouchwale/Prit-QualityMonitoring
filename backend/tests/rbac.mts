@@ -79,15 +79,15 @@ const stamp = Date.now().toString().slice(-6)
   })
   check('0a a Manager’s session has exactly the Manager role’s stored permissions (no own rows)', me.status === 200 && mismatch.length === 0, mismatch.join(', '))
   const summary = me.json.permissions as Record<string, string>
-  check('0b the older one-word summary matches (manage = any of create, edit, delete)', Object.keys(a).every((m) => summary[m] === (a[m].create || a[m].edit || a[m].delete ? 'manage' : a[m].view ? 'view' : 'none')))
+  check('0b the older one-word summary matches (manage = any of create, edit, delete, approve)', Object.keys(a).every((m) => summary[m] === (a[m].create || a[m].edit || a[m].delete || a[m].approve ? 'manage' : a[m].view || a[m].export ? 'view' : 'none')))
   // can_manage = any of create, edit, delete, approve; a write implies view, except for worker app
   // features that have no view action (Jobs in the app: start and end only).
   check(
     '0c stored rows are consistent (can_manage = any write, a write implies view)',
-    rows.every((r) => r.canManage === (r.canCreate || r.canEdit || r.canDelete || r.canApprove) && (!r.canManage || r.canView || r.module === 'app_jobs'))
+    rows.every((r) => r.canManage === (r.canCreate || r.canEdit || r.canDelete || r.canApprove) && (!r.canManage || r.canView || r.module === 'app_jobs' || r.module === 'app_leave'))
   )
   const adminRows = rows.filter((r) => r.role === 'ADMIN')
-  check('0d the Admin role has a row for each of the 19 modules', adminRows.length === 19, `${adminRows.length}`)
+  check('0d the Admin role has a row for each of the 21 modules', adminRows.length === 21, `${adminRows.length}`)
 }
 
 // Accounts for the tests, created by the Super Admin through the API.

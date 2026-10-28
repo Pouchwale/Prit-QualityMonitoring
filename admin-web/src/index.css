@@ -277,6 +277,16 @@
   table.stack-sm td > .flex {
     flex-wrap: wrap;
   }
+  /* Values one level deeper (a name with a badge) and narrow blocks (a rule chip, a short ID) sit on the right too */
+  table.stack-sm td:not([colspan]) > div > .flex,
+  table.stack-sm td:not([colspan]) > div > .inline-flex {
+    justify-content: flex-end;
+  }
+  table.stack-sm td:not([colspan]) > code,
+  table.stack-sm td:not([colspan]) > [class*='w-fit'],
+  table.stack-sm td:not([colspan]) > div[class*='max-w-'] {
+    margin-left: auto;
+  }
   /* Cells with no column name (row actions, expand toggles) sit on the right without a label */
   table.stack-sm td[data-label='']::before {
     content: none;
@@ -336,4 +346,24 @@
     box-shadow: none !important;
     page-break-inside: avoid;
   }
+}
+
+/* Sideways-scrolling tab and filter rows (lib/scrollHints.ts): the side with more is faded. */
+.scroll-hint {
+  scrollbar-width: none;
+}
+.scroll-hint::-webkit-scrollbar {
+  display: none;
+}
+.scroll-hint[data-more='right'] {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.scroll-hint[data-more='left'] {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+}
+.scroll-hint[data-more='both'] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
 }

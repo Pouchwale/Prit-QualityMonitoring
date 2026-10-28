@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertCircle, Loader2 } from 'lucide-react'
-import type { DashboardData, Settings } from './types'
+import type { DashboardData, LeavePendingCount, Settings } from './types'
 import { api, hasSession } from './lib/api'
 import { dateKey } from './lib/format'
 import { AuthProvider, useAuth } from './lib/auth'
@@ -8,8 +8,9 @@ import { ToastProvider } from './components/common/Toast'
 import { Button } from './components/common/Button'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Sidebar, NAV_LABEL, NAV_ORDER, useCanOpen, type NavTab } from './components/layout/Sidebar'
-import { LOGIN_PATH, MONITORING_LABEL, MONITORING_TAB_LABEL, NAV_PATH, checkPath, isMonitoringTab, safeNext, signOutIntent, tabFromPath } from './lib/routes'
+import { LEAVE_LABEL, LEAVE_TAB_LABEL, LOGIN_PATH, MONITORING_LABEL, MONITORING_TAB_LABEL, NAV_PATH, checkPath, isLeaveTab, isMonitoringTab, safeNext, signOutIntent, tabFromPath, type LeaveTab } from './lib/routes'
 import { MonitoringTabs } from './components/layout/MonitoringTabs'
+import { LeaveTabs } from './components/layout/LeaveTabs'
 import { Topbar } from './components/layout/Topbar'
 import { ReportEmailFailurePopup } from './components/layout/ReportEmailFailurePopup'
 import { LoginPage } from './pages/LoginPage'
@@ -33,6 +34,9 @@ import { PlantCalendarPage } from './pages/admin/PlantCalendarPage'
 import { AuditLogsPage } from './pages/admin/AuditLogsPage'
 import { RolesPermissionsPage } from './pages/admin/RolesPermissionsPage'
 import { AccountPage } from './pages/admin/AccountPage'
+import { LeaveRequestsPage } from './pages/admin/leave/LeaveRequestsPage'
+import { LeaveReportsPage } from './pages/admin/leave/LeaveReportsPage'
+import { LeaveSettingsPage } from './pages/admin/leave/LeaveSettingsPage'
 
 /** Redirects to the first page this user may open (e.g. "/" or a page whose access was removed). */
 const FirstAllowed: React.FC = () => {
@@ -93,6 +97,24 @@ const Shell: React.FC = () => {
     }
   }, [seesCounts])
 
+  // The Leave Approval badges: requests waiting for a decision.
+  const seesLeave = can('leave')
+  const [leavePending, setLeavePending] = useState<LeavePendingCount | undefined>()
+  const refreshLeave = useCallback(async () => {
+    if (!seesLeave) return setLeavePending(undefined)
+    try {
+      setLeavePending(await api.get<LeavePendingCount>('/api/leave/pending-count'))
+    } catch {
+      /* badges are best-effort */
+    }
+  }, [seesLeave])
+  useEffect(() => {
+    if (!user) return
+    refreshLeave()
+    const timer = setInterval(refreshLeave, 60_000)
+    return () => clearInterval(timer)
+  }, [user, refreshLeave])
+
   useEffect(() => {
     if (!user) return
     api
@@ -114,8 +136,10 @@ const Shell: React.FC = () => {
   // Overview, Checks and Jobs are one module: the sidebar and the header name the module, while
   // the browser tab names the view, so two open tabs can still be told apart.
   const onMonitoring = !isDetail && isMonitoringTab(current)
-  const title = isDetail ? 'Check Details' : onMonitoring ? MONITORING_LABEL : current ? NAV_LABEL[current] : 'Page not found'
-  const browserTitle = !isDetail && isMonitoringTab(current) ? MONITORING_TAB_LABEL[current] : title
+  // Leave Management likewise: the leave pages and the Plant Calendar are its views.
+  const onLeave = !isDetail && isLeaveTab(current)
+  const title = isDetail ? 'Check Details' : onMonitoring ? MONITORING_LABEL : onLeave ? LEAVE_LABEL : current ? NAV_LABEL[current] : 'Page not found'
+  const browserTitle = !isDetail && isMonitoringTab(current) ? MONITORING_TAB_LABEL[current] : !isDetail && isLeaveTab(current) ? LEAVE_TAB_LABEL[current] : title
 
   // Every page starts at the top (the menu closes from its own link), and the browser tab names the page.
   // After moving to another page (not on the first load) focus goes to the page content, so keyboard
@@ -139,6 +163,15 @@ const Shell: React.FC = () => {
   const navigate = (next: NavTab) => {
     if (canOpen(next)) navigateTo(NAV_PATH[next])
   }
+  /** A Leave Management view, with the module's tabs above it. */
+  const leaveView = (tab: LeaveTab, page: React.ReactNode) => (
+    <Guard tab={tab}>
+      <div className="space-y-4">
+        <LeaveTabs current={tab} pending={leavePending} />
+        {page}
+      </div>
+    </Guard>
+  )
   const viewCheck = (id: string) => navigateTo(checkPath(id), { state: { from: current ?? 'checks' } })
 
   return (
@@ -159,6 +192,7 @@ const Shell: React.FC = () => {
         onSelectTab={closeMenu}
         missedCount={counts.missed}
         exceptionCount={counts.exceptions}
+        leavePending={leavePending}
         plantName={plantName}
         mobileOpen={menuOpen}
         onMobileClose={closeMenu}
@@ -201,10 +235,18 @@ const Shell: React.FC = () => {
             <Route path={NAV_PATH['department-config']} element={<Guard tab="department-config"><DepartmentConfigPage /></Guard>} />
             <Route path={NAV_PATH.parameters} element={<Guard tab="parameters"><ParametersPage /></Guard>} />
             <Route path={NAV_PATH.activities} element={<Guard tab="activities"><ActivitiesPage /></Guard>} />
-            <Route path={NAV_PATH.calendar} element={<Guard tab="calendar"><PlantCalendarPage /></Guard>} />
+            <Route path={NAV_PATH.calendar} element={leaveView('calendar', <PlantCalendarPage />)} />
             <Route path={NAV_PATH.schedules} element={<Guard tab="schedules"><SchedulesPage /></Guard>} />
             <Route path={NAV_PATH.workers} element={<Guard tab="workers"><WorkersPage /></Guard>} />
             <Route path={NAV_PATH.shifts} element={<Guard tab="shifts"><ShiftsPage /></Guard>} />
+            <Route path={NAV_PATH['leave-approval']} element={leaveView('leave-approval', <LeaveRequestsPage key="la" mode="approval" onCountsChange={refreshLeave} />)} />
+            {/* Shift Change Approval was merged into Approvals. */}
+            <Route path="/leave/shift-changes" element={<Navigate to={NAV_PATH['leave-approval']} replace />} />
+            <Route path={NAV_PATH['leave-requests']} element={leaveView('leave-requests', <LeaveRequestsPage key="lr" mode="all" onCountsChange={refreshLeave} />)} />
+            {/* The Leave Calendar was merged into the Plant Calendar, which shows who is on leave. */}
+            <Route path="/leave/calendar" element={<Navigate to={NAV_PATH.calendar} replace />} />
+            <Route path={NAV_PATH['leave-reports']} element={leaveView('leave-reports', <LeaveReportsPage />)} />
+            <Route path={NAV_PATH['leave-settings']} element={leaveView('leave-settings', <LeaveSettingsPage />)} />
             <Route path={NAV_PATH['audit-logs']} element={<Guard tab="audit-logs"><AuditLogsPage /></Guard>} />
             <Route path={NAV_PATH.access} element={<Guard tab="access"><RolesPermissionsPage /></Guard>} />
             <Route path={NAV_PATH.account} element={<AccountPage />} />

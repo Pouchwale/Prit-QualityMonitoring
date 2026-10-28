@@ -87,7 +87,8 @@ export const MachinesPage: React.FC = () => {
   // KPI strip: machine statuses counted from the list already loaded.
   const counts = useMemo(() => {
     const c: Record<MachineStatus, number> = { ACTIVE: 0, MAINTENANCE: 0, IDLE: 0 }
-    for (const m of machines) c[m.status] = (c[m.status] ?? 0) + 1
+    // Disabled machines get no checks whatever their status, so only enabled ones are counted here.
+    for (const m of machines) if (m.isActive) c[m.status] = (c[m.status] ?? 0) + 1
     return c
   }, [machines])
   const disabledCount = machines.filter((m) => !m.isActive).length

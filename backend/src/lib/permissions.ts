@@ -45,10 +45,13 @@ export const MODULES = [
   'performance',
   'shift_signin',
   'wifi_rule',
+  'leave',
+  'leave_settings',
   // The worker app's switchable features (Worker role only).
   'app_jobs',
   'app_performance',
-  'app_history'
+  'app_history',
+  'app_leave'
 ] as const
 
 export type Module = (typeof MODULES)[number]
@@ -153,6 +156,23 @@ const DEFS: Record<Module, ModuleDef> = {
     actions: ['view', 'edit'],
     notes: { view: 'The rule and when each phone was last on the company network', edit: 'Turn the rule on or off and change its timings' }
   },
+  leave: {
+    label: 'Leave Management',
+    description: 'Workers’ leave and shift change requests, who is on leave (Plant Calendar) and reports',
+    actions: ['view', 'edit', 'approve', 'export'],
+    notes: {
+      view: 'All requests, balances, who is on leave and reports',
+      edit: 'Cancel a worker’s request',
+      approve: 'Approve or reject leave and shift change requests',
+      export: 'Download leave reports (CSV)'
+    }
+  },
+  leave_settings: {
+    label: 'Leave Settings',
+    description: 'Leave types and quotas, and the leave email recipients (those: the Super Admin only)',
+    actions: ['view', 'create', 'edit', 'delete'],
+    notes: { create: 'Add leave types', edit: 'Change leave types and settings', delete: 'Delete leave types' }
+  },
   app_jobs: {
     label: 'Jobs in the app',
     description: 'Start, end and hand over jobs on a machine',
@@ -161,7 +181,14 @@ const DEFS: Record<Module, ModuleDef> = {
     notes: { create: 'Start a job', edit: 'End a job, hand it over' }
   },
   app_performance: { label: 'My performance', description: 'The worker’s own checks and scores', actions: ['view'], audience: 'worker' },
-  app_history: { label: 'My check history', description: 'The worker’s own past checks and their records', actions: ['view'], audience: 'worker' }
+  app_history: { label: 'My check history', description: 'The worker’s own past checks and their records', actions: ['view'], audience: 'worker' },
+  app_leave: {
+    label: 'Leave in the app',
+    description: 'Apply for leave and shift changes, see own requests and balance',
+    actions: ['create'],
+    audience: 'worker',
+    notes: { create: 'Apply for leave and request shift changes' }
+  }
 }
 
 export const MODULE_INFO = Object.fromEntries(

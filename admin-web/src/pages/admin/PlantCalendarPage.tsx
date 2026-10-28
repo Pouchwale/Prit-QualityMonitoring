@@ -14,12 +14,13 @@ import {
   Pencil,
   Plus,
   Trash2,
-  TriangleAlert
+  TriangleAlert,
+  UserMinus
 } from 'lucide-react'
-import type { CalendarYearSummary, ClosureType, DayState, MachineDayPlan, PlantClosure, WeeklyRule } from '../../types'
+import type { CalendarYearSummary, ClosureType, DayState, LeaveCalendarData, LeaveRequest, MachineDayPlan, PlantClosure, WeeklyRule } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { useCanManage } from '../../lib/auth'
+import { useAuth, useCanManage } from '../../lib/auth'
 import { addDaysKey, calendarKey, dateKey, formatDateKey, formatLongDate } from '../../lib/format'
 import { CLOSURE_TYPES, WEEKDAY_NAMES, WEEKLY_OFF_STYLE, isClosedType } from '../../lib/closureTypes'
 import { Button } from '../../components/common/Button'
@@ -61,7 +62,7 @@ export const PlantCalendarPage: React.FC = () => {
         description="Closed days: no checks, no alerts, nothing marked Missed"
         info="Weekly off days, holidays and closed days: no checks, no alerts and nothing marked Missed. An Adjustment Working Day opens the plant on that date."
         tabs={
-          <div role="tablist" aria-label="Plant Calendar" className="flex items-center gap-1 border-b border-line max-w-full overflow-x-auto">
+          <div role="tablist" aria-label="Plant Calendar" className="scroll-hint flex items-center gap-1 border-b border-line max-w-full overflow-x-auto">
             {TABS.map((t) => {
               const active = tab === t.id
               return (
@@ -149,6 +150,18 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
   // Machine day plans: which machines run on a date (overrides the plant calendar per machine).
   const machinePlans = useApi<MachineDayPlan[]>('/api/machine-days', { from: grid[0], to: grid[grid.length - 1] })
   const planByDate = useMemo(() => new Map((machinePlans.data ?? []).map((p) => [p.date, p])), [machinePlans.data])
+
+  // Who is on approved leave (Leave Management), for those who may see leave.
+  const seesLeave = useAuth().can('leave')
+  const leave = useApi<LeaveCalendarData>(seesLeave ? '/api/leave/calendar' : null, { from: grid[0], to: grid[grid.length - 1] })
+  const leaveByDate = useMemo(() => {
+    const map = new Map<string, LeaveRequest[]>()
+    for (const l of leave.data?.leave ?? []) {
+      if (l.status !== 'APPROVED') continue
+      for (let d = l.startDate; d <= l.endDate; d = addDaysKey(d, 1)) map.set(d, [...(map.get(d) ?? []), l])
+    }
+    return map
+  }, [leave.data])
 
   const stateByDate = useMemo(() => new Map((monthData.data ?? []).map((s) => [s.date, s])), [monthData.data])
   const byDate = useMemo(
@@ -362,9 +375,10 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
               const weeklyOff = !closure && isWeeklyOff(key)
               const style = closure ? CLOSURE_TYPES[closure.type] : weeklyOff ? WEEKLY_OFF_STYLE : null
               const plan = planByDate.get(key)
+              const away = leaveByDate.get(key) ?? []
               const label = `${longDate(key)}${
                 closure ? `, ${CLOSURE_TYPES[closure.type].label}${closure.reason ? `: ${closure.reason}` : ''}` : weeklyOff ? ', Weekly Off' : ', plant open'
-              }${plan ? ', machine plan' : ''}`
+              }${plan ? ', machine plan' : ''}${away.length ? `, ${away.length} on leave` : ''}`
               return (
                 <button
                   key={key}
@@ -394,6 +408,16 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                       {keyToDate(key).getDate()}
                     </span>
                     <span className="inline-flex items-center gap-1">
+                      {away.length > 0 && (
+                        <span
+                          className={`inline-flex items-center justify-center gap-0.5 h-4 sm:h-5 min-w-4 sm:min-w-5 px-0.5 sm:px-1 rounded ring-1 ring-inset ring-due-line bg-due-bg text-due text-[9px] sm:text-[11px] font-semibold leading-none tabular-nums ${inMonth ? '' : 'opacity-60'}`}
+                          title={`On leave: ${away.map((l) => l.workerName).join(', ')}`}
+                          aria-hidden
+                        >
+                          <UserMinus className="hidden sm:block w-3 h-3" />
+                          {away.length}
+                        </span>
+                      )}
                       {plan && (
                         <span
                           className={`inline-flex items-center justify-center h-4 sm:h-5 min-w-4 sm:min-w-5 px-0.5 sm:px-1 rounded ring-1 ring-inset ring-accent-line bg-accent-soft text-accent-strong text-[9px] sm:text-[11px] font-semibold leading-none tabular-nums ${inMonth ? '' : 'opacity-60'}`}
@@ -405,6 +429,12 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                       )}
                     </span>
                   </span>
+                  {away.length > 0 && (
+                    <span className={`hidden lg:block mt-1 px-0.5 text-[11px] leading-tight text-due truncate ${inMonth ? '' : 'opacity-60'}`} aria-hidden>
+                      {away.slice(0, 2).map((l) => l.workerName).join(', ')}
+                      {away.length > 2 ? ` +${away.length - 2}` : ''}
+                    </span>
+                  )}
                   {style && (
                     <>
                       <span className={`sm:hidden mt-auto mx-auto mb-0.5 h-1.5 w-1.5 rounded-full ${style.dot}`} aria-hidden />
@@ -449,6 +479,14 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
               </span>
               Machine plan
             </span>
+            {seesLeave && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex items-center justify-center h-4 px-1 rounded ring-1 ring-inset ring-due-line bg-due-bg text-due" aria-hidden>
+                  <UserMinus className="w-2.5 h-2.5" />
+                </span>
+                On leave
+              </span>
+            )}
             {canEdit && (
               <span className="text-[11.5px] text-ink-muted sm:ml-auto">
                 <span className="lg:hidden">Tap a day to mark or edit it</span>
@@ -489,6 +527,8 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
               </p>
             )}
           </SelectedDay>
+
+          {seesLeave && <OnLeaveCard date={selected} leave={leaveByDate.get(selected) ?? []} loading={leave.loading && !leave.data} error={leave.error} />}
 
           <WeeklySummaryCard legacyDays={legacy.data?.weeklyOffDays ?? null} rules={rules.data?.rules ?? null} today={today} onOpenRules={() => onOpen('rules')} />
 
@@ -911,3 +951,35 @@ const ClosureModal: React.FC<{
     </Modal>
   )
 }
+
+const HALF: Record<LeaveRequest['dayPart'], string> = { FULL: '', FIRST_HALF: ' · First half', SECOND_HALF: ' · Second half' }
+
+/** Who is on approved leave on the selected date (from Leave Management; display only). */
+const OnLeaveCard: React.FC<{ date: string; leave: LeaveRequest[]; loading: boolean; error: string | null }> = ({ date, leave, loading, error }) => (
+  <Card className="overflow-hidden">
+    <CardHeader icon={<UserMinus className="w-4 h-4" />} title="On leave" subtitle={longDate(date)} />
+    {error ? (
+      <p className="px-4 py-4 text-[12px] text-missed" role="alert">
+        {error}
+      </p>
+    ) : leave.length === 0 ? (
+      <p className="px-4 py-5 text-[12px] text-ink-muted text-center">{loading ? 'Loading…' : 'Nobody is on leave.'}</p>
+    ) : (
+      <ul className="divide-y divide-line max-h-[300px] overflow-y-auto">
+        {leave.map((l) => (
+          <li key={l.id} className="px-4 py-2.5">
+            <span className="block text-[12.5px] font-semibold text-ink">
+              {l.workerName} <span className="font-normal text-ink-muted">({l.workerEmployeeId})</span>
+            </span>
+            <span className="block text-[11.5px] text-ink-muted">
+              {l.leaveTypeName}
+              {HALF[l.dayPart]}
+              {l.departmentName ? ` · ${l.departmentName}` : ''}
+              {l.startDate !== l.endDate ? ` · ${formatDateKey(l.startDate)} – ${formatDateKey(l.endDate)}` : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
+    )}
+  </Card>
+)

@@ -10,7 +10,7 @@ import { requireAnyView, requireModule } from '../lib/permissions'
 import { addDays, dateKey, formatDateKey, parseDateKey } from '../lib/time'
 import { invalidateCheckGeneration } from '../services/checkGenerator'
 import { CALENDAR_V2_START } from '../services/weeklyRules'
-import { CLOSURE_LABEL, dayStates, isClosedType, listClosures, plansBetween, removeChecksIfClosed, weeklyOffDays } from '../services/plantCalendar'
+import { CLOSURE_LABEL, dayStates, isClosedType, listClosures, plansBetween, removeChecksIfClosed, trackTodayReopening, weeklyOffDays } from '../services/plantCalendar'
 
 export const plantCalendarRouter = Router()
 
@@ -107,7 +107,8 @@ plantCalendarRouter.post('/', requireModule('calendar', 'manage'), async (req, r
   const byDate = new Map(existing.map((r) => [r.date, r]))
   const userId = req.user!.id
 
-  await db.transaction(async (tx) => {
+  // Today opened during the day (an Adjustment Working Day on a closed today): checks from now on only.
+  await trackTodayReopening(keys.includes(dateKey(new Date())), () => db.transaction(async (tx) => {
     const fresh = keys.filter((k) => !byDate.has(k))
     if (fresh.length) {
       await tx
@@ -120,7 +121,7 @@ plantCalendarRouter.post('/', requireModule('calendar', 'manage'), async (req, r
         .set({ type: body.type, reason: body.reason, updatedById: userId, updatedAt: new Date() })
         .where(inArray(plantClosures.date, existing.map((r) => r.date)))
     }
-  })
+  }))
 
   // An Adjustment Working Day opens the date even on a weekly off; checks come back from the schedules.
   const removedChecks = await removeChecksIfClosed(keys)
@@ -149,11 +150,14 @@ plantCalendarRouter.put('/:id', requireModule('calendar', 'manage'), async (req,
     if (clash) throw conflict(`${formatDateKey(body.date)} is already in the Plant Calendar. Edit that date instead.`)
   }
 
-  const [row] = await db
-    .update(plantClosures)
-    .set({ ...body, updatedById: req.user!.id, updatedAt: new Date() })
-    .where(eq(plantClosures.id, id))
-    .returning()
+  const today = dateKey(new Date())
+  const [row] = await trackTodayReopening(before.date === today || body.date === today, () =>
+    db
+      .update(plantClosures)
+      .set({ ...body, updatedById: req.user!.id, updatedAt: new Date() })
+      .where(eq(plantClosures.id, id))
+      .returning()
+  )
 
   // Both dates are checked: moving an Adjustment Working Day off a weekly off closes the old date again.
   const removedChecks = await removeChecksIfClosed([before.date, row.date])
@@ -174,7 +178,8 @@ plantCalendarRouter.delete('/:id', requireModule('calendar', 'manage'), async (r
   const [existing] = await db.select({ date: plantClosures.date }).from(plantClosures).where(eq(plantClosures.id, id))
   if (existing && existing.date >= CALENDAR_V2_START) throw conflict(MANAGED_BY_YEAR)
   if (existing) assertNotPast(existing.date)
-  const [row] = await db.delete(plantClosures).where(eq(plantClosures.id, id)).returning()
+  // Removing today's holiday during the day: today's checks start from now, nothing earlier is Missed.
+  const [row] = await trackTodayReopening(existing?.date === dateKey(new Date()), () => db.delete(plantClosures).where(eq(plantClosures.id, id)).returning())
   if (!row) throw notFound('Calendar date')
   invalidateCheckGeneration()
   const removedChecks = await removeChecksIfClosed([row.date])

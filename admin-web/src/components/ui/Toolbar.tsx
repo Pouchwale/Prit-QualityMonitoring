@@ -69,7 +69,7 @@ export function Segmented<T extends string>({
   className?: string
 }) {
   return (
-    <div role="group" aria-label={label} className={`inline-flex items-center gap-0.5 p-0.5 rounded-md bg-subtle border border-line max-w-full overflow-x-auto ${className}`}>
+    <div role="group" aria-label={label} className={`scroll-hint inline-flex items-center gap-0.5 p-0.5 rounded-md bg-subtle border border-line max-w-full overflow-x-auto ${className}`}>
       {options.map((o) => {
         const on = o.value === value
         return (

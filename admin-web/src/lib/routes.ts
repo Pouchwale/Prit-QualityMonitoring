@@ -17,6 +17,10 @@ export const NAV_PATH: Record<NavTab, string> = {
   departments: '/departments',
   'department-config': '/department-configuration',
   shifts: '/shifts',
+  'leave-approval': '/leave/approval',
+  'leave-requests': '/leave/requests',
+  'leave-reports': '/leave/reports',
+  'leave-settings': '/leave/settings',
   'audit-logs': '/audit-logs',
   access: '/roles-permissions',
   account: '/account'
@@ -40,6 +44,28 @@ export const MONITORING_TAB_LABEL: Record<MonitoringTab, string> = {
 
 export const isMonitoringTab = (tab: NavTab | null): tab is MonitoringTab =>
   !!tab && (MONITORING_TABS as readonly NavTab[]).includes(tab)
+
+/**
+ * Leave Management is one sidebar entry with these views as tabs: the leave pages and the Plant
+ * Calendar. Each keeps its own address (and its own permission module).
+ */
+export const LEAVE_TABS = ['leave-approval', 'leave-requests', 'calendar', 'leave-reports', 'leave-settings'] as const
+
+export type LeaveTab = (typeof LEAVE_TABS)[number]
+
+export const LEAVE_LABEL = 'Leave Management'
+
+export const LEAVE_TAB_LABEL: Record<LeaveTab, string> = {
+  // Leave and shift change requests together.
+  'leave-approval': 'Approvals',
+  'leave-requests': 'All Requests',
+  // Also shows who is on leave (the separate Leave Calendar was merged into it).
+  calendar: 'Plant Calendar',
+  'leave-reports': 'Reports',
+  'leave-settings': 'Settings'
+}
+
+export const isLeaveTab = (tab: NavTab | null): tab is LeaveTab => !!tab && (LEAVE_TABS as readonly NavTab[]).includes(tab)
 
 /** One quality check's detail page. */
 export const checkPath = (checkId: string) => `${NAV_PATH.checks}/${encodeURIComponent(checkId)}`

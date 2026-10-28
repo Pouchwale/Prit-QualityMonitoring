@@ -94,6 +94,11 @@ async function changeRole(req: Request, id: string, role: Role, tx: Transaction)
   return { before, changed: true }
 }
 
+/** An optional email (leave decisions, leave requests for approvers): empty clears it. */
+const optionalEmail = z
+  .union([z.literal(''), z.string().trim().max(200).email('Invalid email address'), z.null()])
+  .transform((v) => v || null)
+
 const base = {
   employeeId: z.string().trim().min(1, 'Employee ID is required').max(40),
   name: z.string().trim().min(1, 'Name is required').max(120),
@@ -102,6 +107,7 @@ const base = {
   departmentId: optionalUuid,
   shiftId: optionalUuid,
   phone: optionalText(30),
+  email: optionalEmail.optional(),
   workerQualityRole: z.enum(['IPQC', 'QC', 'BOTH']).default('IPQC'),
   isActive: z.boolean().default(true),
   appAccess: z.boolean().default(true),
@@ -121,6 +127,7 @@ const updateInput = z.object({
   departmentId: z.union([z.uuid(), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : v || null)),
   shiftId: z.union([z.uuid(), z.literal(''), z.null()]).optional().transform((v) => (v === undefined ? undefined : v || null)),
   phone: optionalText(30).optional(),
+  email: optionalEmail.optional(),
   workerQualityRole: z.enum(['IPQC', 'QC', 'BOTH']).optional(),
   isActive: z.boolean().optional(),
   appAccess: z.boolean().optional(),
@@ -141,6 +148,7 @@ const publicColumns = {
   departmentId: users.departmentId,
   shiftId: users.shiftId,
   phone: users.phone,
+  email: users.email,
   isActive: users.isActive,
   appAccess: users.appAccess,
   lastLoginAt: users.lastLoginAt,
@@ -198,6 +206,7 @@ usersRouter.put('/:id', editAccounts, async (req, res) => {
     departmentId: pick('departmentId') as string | null,
     shiftId: pick('shiftId') as string | null,
     phone: pick('phone') as string | null,
+    email: pick('email') as string | null,
     workerQualityRole: pick('workerQualityRole') as 'IPQC' | 'QC' | 'BOTH',
     isActive: pick('isActive') as boolean,
     appAccess: pick('appAccess') as boolean

@@ -399,6 +399,9 @@ const DELETED_WITH_USER = [
   'worker_shift_logins.worker_id',
   // The worker's daily break (Shifts → Break times): it goes with the worker (cascade).
   'worker_breaks.worker_id',
+  // The worker's leave and shift change requests go with the worker (cascade).
+  'leave_requests.worker_id',
+  'shift_change_requests.worker_id',
   'revoked_tokens.user_id'
 ]
 /** Detached references, with how the dialog names what stays. */
@@ -427,7 +430,11 @@ const DETACHED_LABEL: Record<string, string> = {
   'module_notification_assignments.updated_by_id': 'Notification module assignments edited',
   'report_email_logs.sent_by_id': 'Report emails sent',
   'report_email_alerts.read_by_id': 'Report email failure alerts opened',
-  'report_email_alerts.dismissed_by_id': 'Report email failure alerts dismissed'
+  'report_email_alerts.dismissed_by_id': 'Report email failure alerts dismissed',
+  'leave_requests.decided_by_id': 'Leave requests decided',
+  'leave_requests.cancelled_by_id': 'Leave requests cancelled',
+  'shift_change_requests.decided_by_id': 'Shift change requests decided',
+  'shift_change_requests.cancelled_by_id': 'Shift change requests cancelled'
 }
 const KEPT_WITH_USER = ['audit_logs.user_id']
 const USER_REFERENCES = [...DELETED_WITH_USER, ...Object.keys(DETACHED_LABEL), ...KEPT_WITH_USER]

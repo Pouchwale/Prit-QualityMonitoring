@@ -1,16 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, Text, View } from 'react-native'
 import { getMyPerformance } from '../services/api'
+import { TODAY_RANGE } from '../utils/score'
 import { MyPerformance } from '../types'
-import { dateKey } from '../utils/dates'
 import { friendlyMessage } from '../utils/friendlyError'
 import { Icon } from './ui/Icon'
 
 /** Today only: the week is on "My week" and everything so far on "Overall score". */
-const todayRange = () => {
-  const today = dateKey(new Date())
-  return { from: today, to: today }
-}
+const todayRange = TODAY_RANGE
 
 /**
  * "My performance" on the worker's Profile: today's figures of this worker only, from the backend
@@ -75,7 +72,7 @@ export const MyPerformanceCard: React.FC = () => {
             <Figure label="Missed" value={data.missed} last />
           </View>
           <Text className="mt-2 text-[13px] leading-[18px] text-ink-muted">
-            Assigned are the checks whose time is over. Exceptions count as done; only missed checks lower the score.
+            0% is the best score: each missed check lowers it. Assigned are the checks whose time is over; exceptions count as done.
             {data.open > 0
               ? ` ${data.open} check${data.open === 1 ? ' is' : 's are'} still open and not counted yet: submit ${data.open === 1 ? 'it' : 'them'} on time to keep the score.`
               : ''}

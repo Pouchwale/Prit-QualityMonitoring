@@ -91,26 +91,6 @@ export const MyWeekCard: React.FC = () => {
               <DayRow key={d} label={`${dayName(d)} ${shortDate(d)}`} today={d === today} score={data.days[i]} last={i === data.dates.length - 1} />
             ))}
           </View>
-          <View className="mt-3 flex-row items-end justify-between">
-            <View>
-              <Text className="text-[13px] text-ink-muted">Week score</Text>
-              {data.week?.score != null ? (
-                <Text className={`text-[30px] font-bold leading-[36px] ${tone(data.week.score)}`}>{data.week.score}%</Text>
-              ) : (
-                <Text className="text-[30px] font-bold leading-[36px] text-ink-faint">—</Text>
-              )}
-            </View>
-            {data.week && data.week.assigned > 0 ? (
-              <Text className="pb-1.5 text-right text-[13px] leading-[18px] text-ink-muted">
-                {data.week.done} of {data.week.assigned} done
-                {'\n'}
-                {data.week.missed} missed
-              </Text>
-            ) : null}
-          </View>
-          <Text className="mt-2 text-[13px] leading-[18px] text-ink-muted">
-            0% means every check was done; 8 of 10 done shows −20%. Exceptions count as done; days with no checks show —.
-          </Text>
         </>
       ) : null}
     </View>

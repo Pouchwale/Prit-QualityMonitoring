@@ -15,9 +15,11 @@ export interface WorkerFeatures {
   performance: boolean
   /** The worker's own check history. */
   history: boolean
+  /** Apply for leave and shift changes (the Leave tab). */
+  leave: boolean
 }
 
-const ALL_ON: WorkerFeatures = { startJobs: true, changeJobs: true, performance: true, history: true }
+const ALL_ON: WorkerFeatures = { startJobs: true, changeJobs: true, performance: true, history: true, leave: false }
 
 /** From the profile; a server that sends no permissions yet (older build) leaves everything on. */
 export function featuresOf(profile: Profile): WorkerFeatures {
@@ -27,7 +29,8 @@ export function featuresOf(profile: Profile): WorkerFeatures {
     startJobs: !!a.app_jobs?.create,
     changeJobs: !!a.app_jobs?.edit,
     performance: !!a.app_performance?.view,
-    history: !!a.app_history?.view
+    history: !!a.app_history?.view,
+    leave: !!a.app_leave?.create
   }
 }
 

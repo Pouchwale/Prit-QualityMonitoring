@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { Text, View } from 'react-native'
 import { getMyPerformance } from '../services/api'
-import { SCORE_RANGE } from '../utils/score'
+import { TODAY_RANGE } from '../utils/score'
 import { Icon } from './ui/Icon'
 
 /**
- * The small "Score" card next to the heading on the machine list: the worker's own score, and
+ * The small "Today's score" card next to the heading on the Today screen: the worker's own score for
+ * today (the same as Profile → My performance), and
  * nothing else. It is **display only** — it is not a button and opens nothing.
  *
  * The number comes from the backend (GET /api/worker/performance), the same score the admin panel
@@ -16,7 +17,7 @@ export const ScoreCard: React.FC<{ refreshKey?: number }> = ({ refreshKey = 0 })
 
   useEffect(() => {
     let alive = true
-    getMyPerformance(SCORE_RANGE())
+    getMyPerformance(TODAY_RANGE())
       .then((p) => {
         if (alive) setScore(p.score)
       })
@@ -32,14 +33,14 @@ export const ScoreCard: React.FC<{ refreshKey?: number }> = ({ refreshKey = 0 })
     <View
       className="ml-3 min-h-[64px] min-w-[76px] items-center justify-center rounded-2xl bg-surface px-3 py-2"
       accessible
-      accessibilityLabel={score === null ? 'My score' : `My score: ${score} percent`}
+      accessibilityLabel={score === null ? "Today's score" : `Today's score: ${score} percent`}
     >
       <View className="flex-row items-center">
         <Icon name="trophy-outline" size={14} color="muted" />
-        <Text className="ml-1 text-[13px] font-medium text-ink-muted">Score</Text>
+        <Text className="ml-1 text-[13px] font-medium text-ink-muted">{"Today's score"}</Text>
       </View>
       <Text className="mt-0.5 text-[22px] font-bold leading-[26px] text-ink" numberOfLines={1}>
-        {score === null ? '—' : score}
+        {score === null ? '—' : `${score}%`}
       </Text>
     </View>
   )

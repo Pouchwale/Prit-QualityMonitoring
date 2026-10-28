@@ -48,7 +48,8 @@ const ALERT_EMAIL_QUIET_MS = 6 * 3600_000
 export const TRIGGER_NAME: Record<string, string> = {
   AUTO: 'Automated Quality Inspection Report',
   DAILY: 'Daily previous-day task report',
-  MANUAL: 'Manual report email'
+  MANUAL: 'Manual report email',
+  LEAVE: 'Leave Management email'
 }
 
 type LogRow = typeof reportEmailLogs.$inferSelect

@@ -467,7 +467,7 @@ export const ReportsPage: React.FC = () => {
             </>
           }
           tabs={
-            <div role="tablist" aria-label="Report views" className="flex items-center gap-1 border-b border-line max-w-full overflow-x-auto -mb-px">
+            <div role="tablist" aria-label="Report views" className="scroll-hint flex items-center gap-1 border-b border-line max-w-full overflow-x-auto -mb-px">
               <ViewTab active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} icon={<BarChart3 className="w-3.5 h-3.5" />}>
                 Reports & Analytics
               </ViewTab>

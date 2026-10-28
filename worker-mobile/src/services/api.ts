@@ -20,7 +20,11 @@ import {
   Profile,
   SubmitResult,
   SubmitValue,
-  VoiceLanguage
+  VoiceLanguage,
+  DayPart,
+  LeaveOverview,
+  MyLeaveRequest,
+  MyShiftChange
 } from '../types'
 import { tokenStorage } from './storage'
 import { normalizeServerUrl } from './serverUrl'
@@ -775,3 +779,33 @@ export function submitException(
     onProgress
   )
 }
+
+// ---- Leave and shift changes (backend routes/leave.ts) ----
+
+export const getLeaveOverview = () => request<LeaveOverview>('GET', '/api/worker/leave')
+
+/** How many leave days a request would count (weekly offs and holidays left out), or why it is refused. */
+export const previewLeave = (body: { leaveTypeId: string; dayPart: DayPart; startDate: string; endDate: string }) =>
+  request<{ days: number; skipped: number }>('POST', '/api/worker/leave/preview', body)
+
+/** Sends the form fields, and the document when there is one, as one multipart request. */
+function sendWithFile<T>(path: string, fields: Record<string, string>, file: PickedFile | null) {
+  return upload<T>(path, () => {
+    const form = new FormData()
+    for (const [k, v] of Object.entries(fields)) form.append(k, v)
+    if (file) {
+      if (file.file) form.append('attachment', file.file, file.name)
+      else form.append('attachment', { uri: file.uri, name: file.name, type: file.mimeType || 'application/octet-stream' } as unknown as Blob)
+    }
+    return form
+  })
+}
+
+export const applyForLeave = (fields: { leaveTypeId: string; dayPart: DayPart; startDate: string; endDate: string; reason: string; customType?: string }, file: PickedFile | null) =>
+  sendWithFile<MyLeaveRequest>('/api/worker/leave/requests', Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)) as Record<string, string>, file)
+
+export const requestShiftChange = (fields: { requestedShiftId: string; startDate: string; endDate: string; reason: string }, file: PickedFile | null) =>
+  sendWithFile<MyShiftChange>('/api/worker/leave/shift-changes', fields, file)
+
+export const cancelLeaveRequest = (id: string) => request<MyLeaveRequest>('POST', `/api/worker/leave/requests/${id}/cancel`)
+export const cancelShiftChange = (id: string) => request<MyShiftChange>('POST', `/api/worker/leave/shift-changes/${id}/cancel`)

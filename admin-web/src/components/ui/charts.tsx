@@ -144,7 +144,7 @@ export const StackedBarChart: React.FC<{
         <div className="w-7 shrink-0" />
         <div className="flex-1 flex gap-[6%] px-[3%]">
           {data.map((d, i) => (
-            <span key={d.label + i} className={`flex-1 text-center text-[11px] truncate ${d.highlight ? 'font-semibold text-ink' : 'text-ink-muted'}`}>
+            <span key={d.label + i} className={`flex-1 text-center text-[11px] leading-tight break-words ${d.highlight ? 'font-semibold text-ink' : 'text-ink-muted'}`}>
               {d.label}
             </span>
           ))}

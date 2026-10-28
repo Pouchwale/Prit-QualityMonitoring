@@ -83,6 +83,7 @@ interface FormState {
   departmentId: string
   shiftId: string
   phone: string
+  email: string
   password: string
   isActive: boolean
   appAccess: boolean
@@ -97,6 +98,7 @@ const emptyForm: FormState = {
   departmentId: '',
   shiftId: '',
   phone: '',
+  email: '',
   password: '',
   isActive: true,
   appAccess: true,
@@ -170,7 +172,7 @@ export const WorkersPage: React.FC = () => {
     return users.filter((u) => {
       if (tab !== 'ALL' && u.role !== tab) return false
       if (!q) return true
-      return [u.name, u.employeeId, u.designation, u.departmentName, u.shiftName, u.phone].some((v) => v?.toLowerCase().includes(q))
+      return [u.name, u.employeeId, u.designation, u.departmentName, u.shiftName, u.phone, u.email].some((v) => v?.toLowerCase().includes(q))
     })
   }, [users, tab, search])
 
@@ -199,6 +201,7 @@ export const WorkersPage: React.FC = () => {
       departmentId: u.departmentId ?? '',
       shiftId: u.shiftId ?? '',
       phone: u.phone ?? '',
+      email: u.email ?? '',
       password: '',
       isActive: u.isActive,
       appAccess: u.appAccess,
@@ -228,6 +231,7 @@ export const WorkersPage: React.FC = () => {
         departmentId: form.departmentId || null,
         shiftId: form.shiftId || null,
         phone: form.phone.trim() || null,
+        email: form.email.trim() || null,
         isActive: form.isActive,
         // Only meaningful for workers; keep the stored value for others (turning it off would sign them out).
         appAccess: form.appAccess,
@@ -590,6 +594,9 @@ export const WorkersPage: React.FC = () => {
             </Field>
             <Field label="Phone">
               <TextInput type="tel" value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="Optional" maxLength={30} />
+            </Field>
+            <Field label="Email" hint="Leave Management emails: decisions for workers, new requests for approvers">
+              <TextInput type="email" value={form.email} onChange={(e) => set('email', e.target.value)} placeholder="Optional" maxLength={200} />
             </Field>
             {(editing === 'new' || canResetPassword) && (
               <Field

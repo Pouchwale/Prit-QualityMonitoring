@@ -10,6 +10,7 @@ import { guardActivation } from './lib/activation'
 import { activities, departmentMappings, departments, machines, parameters, schedules, shifts } from './db/schema'
 import { errorHandler, notFound } from './lib/http'
 import { authRouter } from './routes/auth'
+import { leaveRouter, workerLeaveRouter } from './routes/leave'
 import { departmentsRouter } from './routes/departments'
 import { departmentMappingsRouter } from './routes/departmentMappings'
 import { shiftAccessRouter, shiftsRouter } from './routes/shifts'
@@ -69,6 +70,8 @@ export function createApp() {
   app.use('/api/auth', authRouter)
 
   // Worker mobile app
+  // Leave and shift change requests in the worker app (routes/leave.ts).
+  app.use('/api/worker/leave', authenticate, requireRole('WORKER'), workerLeaveRouter)
   app.use('/api/worker', authenticate, requireRole('WORKER'), workerRouter)
   // The app's native voice service (no sign-in session when the app is closed): its remote voice log.
   app.use('/api/device', deviceRouter)
@@ -100,6 +103,7 @@ export function createApp() {
   admin.use('/deletions', deletionsRouter)
   admin.use('/jobs', jobsRouter)
   admin.use('/performance', performanceRouter)
+  admin.use('/leave', leaveRouter)
   admin.use('/reports/sharing', reportSharingRouter)
   admin.use('/', monitoringRouter)
   app.use('/api', admin)

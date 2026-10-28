@@ -125,6 +125,8 @@ export const users = pgTable('users', {
   departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
   shiftId: uuid('shift_id').references(() => shifts.id, { onDelete: 'set null' }),
   phone: text('phone'),
+  /** Optional email: leave decisions are sent here, and staff with the Leave approve permission get new requests. */
+  email: text('email'),
   isActive: boolean('is_active').notNull().default(true),
   /** Whether the user may sign in to the worker mobile app. */
   appAccess: boolean('app_access').notNull().default(true),
@@ -695,6 +697,96 @@ export const userPermissions = pgTable(
  * every day. An end before the start runs past midnight. No due check, notification or Missed
  * deadline of that worker falls inside it: those checks move to the end of the break.
  */
+/**
+ * Leave types (Leave Settings, services/leave.ts): the yearly quota (null: no limit, e.g. unpaid
+ * leave), paid or unpaid, and the rules a request of this type must meet.
+ */
+export const leaveTypes = pgTable('leave_types', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull().unique(),
+  code: text('code').notNull().unique(),
+  /** Days per leave year; null means no limit (nothing is deducted). */
+  annualQuota: doublePrecision('annual_quota'),
+  isPaid: boolean('is_paid').notNull().default(true),
+  allowHalfDay: boolean('allow_half_day').notNull().default(true),
+  requiresAttachment: boolean('requires_attachment').notNull().default(false),
+  /** Longest single request in leave days; null: no limit. */
+  maxConsecutiveDays: doublePrecision('max_consecutive_days'),
+  /** Days before the start date the request must be made (0: same day). */
+  advanceNoticeDays: integer('advance_notice_days').notNull().default(0),
+  /** Unused days carried into the next leave year, at most this many (0: none). */
+  carryForwardMax: doublePrecision('carry_forward_max').notNull().default(0),
+  /** Custom: the employee types the leave's own name (e.g. "Marriage leave") when applying. */
+  isCustom: boolean('is_custom').notNull().default(false),
+  isActive: boolean('is_active').notNull().default(true),
+  sortOrder: integer('sort_order').notNull().default(0),
+  ...timestamps
+})
+
+/** A request's state: waiting, decided, or withdrawn. */
+export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+
+/**
+ * A worker's leave request (worker app → Leave; decided on Leave Approval). `dayPart` is FULL for
+ * whole days, or FIRST_HALF / SECOND_HALF of the worker's shift for a single half day. `days` is
+ * the leave counted (weekly offs and holidays left out by the Leave Settings).
+ */
+export const leaveRequests = pgTable(
+  'leave_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workerId: uuid('worker_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    leaveTypeId: uuid('leave_type_id').notNull().references(() => leaveTypes.id, { onDelete: 'restrict' }),
+    dayPart: text('day_part').$type<'FULL' | 'FIRST_HALF' | 'SECOND_HALF'>().notNull().default('FULL'),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    days: doublePrecision('days').notNull(),
+    reason: text('reason').notNull(),
+    /** The leave's own name the employee entered, for a custom leave type. */
+    customType: text('custom_type'),
+    attachmentPath: text('attachment_path'),
+    attachmentName: text('attachment_name'),
+    attachmentType: text('attachment_type'),
+    status: text('status').$type<RequestStatus>().notNull().default('PENDING'),
+    decidedById: uuid('decided_by_id').references(() => users.id, { onDelete: 'set null' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionComment: text('decision_comment'),
+    cancelledById: uuid('cancelled_by_id').references(() => users.id, { onDelete: 'set null' }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    ...timestamps
+  },
+  (t) => [index('leave_requests_worker_idx').on(t.workerId, t.status), index('leave_requests_dates_idx').on(t.startDate, t.endDate)]
+)
+
+/**
+ * A worker's request to work another shift on a range of dates (worker app → Leave). Once approved,
+ * on those dates the worker's checks, sign-in and reminders follow the requested shift; afterwards
+ * their own shift again (services/leave.ts workerDayPlans).
+ */
+export const shiftChangeRequests = pgTable(
+  'shift_change_requests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workerId: uuid('worker_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    currentShiftId: uuid('current_shift_id').references(() => shifts.id, { onDelete: 'set null' }),
+    requestedShiftId: uuid('requested_shift_id').notNull().references(() => shifts.id, { onDelete: 'restrict' }),
+    startDate: date('start_date').notNull(),
+    endDate: date('end_date').notNull(),
+    reason: text('reason').notNull(),
+    attachmentPath: text('attachment_path'),
+    attachmentName: text('attachment_name'),
+    attachmentType: text('attachment_type'),
+    status: text('status').$type<RequestStatus>().notNull().default('PENDING'),
+    decidedById: uuid('decided_by_id').references(() => users.id, { onDelete: 'set null' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionComment: text('decision_comment'),
+    cancelledById: uuid('cancelled_by_id').references(() => users.id, { onDelete: 'set null' }),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    ...timestamps
+  },
+  (t) => [index('shift_change_requests_worker_idx').on(t.workerId, t.status)]
+)
+
 export const workerBreaks = pgTable('worker_breaks', {
   workerId: uuid('worker_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   startTime: text('start_time').notNull(),

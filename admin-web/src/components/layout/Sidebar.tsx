@@ -1,9 +1,9 @@
 import React, { useEffect } from 'react'
-import { AlertOctagon, Building2, CalendarClock, CalendarOff, Clock3, Cpu, Factory, FileSpreadsheet, Gauge, History, LayoutDashboard, ShieldCheck, SlidersHorizontal, Tags, UserRound, Users, Workflow, X } from 'lucide-react'
+import { AlertOctagon, Building2, CalendarCheck, CalendarClock, Clock3, Cpu, Factory, FileSpreadsheet, Gauge, History, LayoutDashboard, ShieldCheck, SlidersHorizontal, Tags, UserRound, Users, Workflow, X } from 'lucide-react'
 import type { ModuleKey } from '../../types'
 import { portalLabel, useAuth } from '../../lib/auth'
 import { Link } from 'react-router-dom'
-import { MONITORING_LABEL, MONITORING_TABS, NAV_PATH } from '../../lib/routes'
+import { LEAVE_LABEL, LEAVE_TABS, MONITORING_LABEL, MONITORING_TABS, NAV_PATH } from '../../lib/routes'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 
 export type NavTab =
@@ -22,6 +22,10 @@ export type NavTab =
   | 'calendar'
   | 'workers'
   | 'shifts'
+  | 'leave-approval'
+  | 'leave-requests'
+  | 'leave-reports'
+  | 'leave-settings'
   | 'audit-logs'
   | 'access'
   | 'account'
@@ -43,6 +47,10 @@ export const NAV_LABEL: Record<NavTab, string> = {
   departments: 'Departments',
   'department-config': 'Department Configuration',
   shifts: 'Shifts',
+  'leave-approval': 'Approvals',
+  'leave-requests': 'All Leave Requests',
+  'leave-reports': 'Leave Reports',
+  'leave-settings': 'Leave Settings',
   'audit-logs': 'Audit Logs',
   access: 'Roles & Permissions',
   account: 'My Account'
@@ -67,12 +75,17 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
   // Item Code prefix -> department mappings: view to see them, manage (Departments) to change them.
   'department-config': 'departments',
   shifts: 'shifts',
-  'audit-logs': 'audit_logs'
+  'audit-logs': 'audit_logs',
+  // Leave Management: requests, approvals, calendar and reports; its settings have their own module.
+  'leave-approval': 'leave',
+  'leave-requests': 'leave',
+  'leave-reports': 'leave',
+  'leave-settings': 'leave_settings'
 }
 
 /** Pages in menu order, used to find where to land when the current page is not allowed. */
 export const NAV_ORDER: NavTab[] = [
-  'dashboard', 'checks', 'jobs', 'exceptions', 'reports', 'performance', 'parameters', 'activities', 'machines', 'schedules', 'calendar',
+  'dashboard', 'checks', 'jobs', 'exceptions', 'reports', 'performance', 'leave-approval', 'leave-requests', 'leave-reports', 'leave-settings', 'parameters', 'activities', 'machines', 'schedules', 'calendar',
   'workers', 'departments', 'department-config', 'shifts', 'audit-logs', 'access', 'account'
 ]
 
@@ -95,6 +108,8 @@ interface SidebarProps {
   onSelectTab: (tab: NavTab) => void
   missedCount: number
   exceptionCount: number
+  /** Leave and shift change requests waiting for a decision. */
+  leavePending?: { leave: number; shiftChanges: number }
   plantName: string
   /** Below the `lg` breakpoint the sidebar is a slide-in panel opened from the header. */
   mobileOpen: boolean
@@ -119,6 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectTab,
   missedCount,
   exceptionCount,
+  leavePending,
   plantName,
   mobileOpen,
   onMobileClose
@@ -154,6 +170,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ]
     : []
 
+  // Leave Management is one entry for the leave pages and the Plant Calendar; the page offers them as tabs.
+  const leaveTab = LEAVE_TABS.find(canOpen)
+  const pendingLeave = (leavePending?.leave ?? 0) + (leavePending?.shiftChanges ?? 0)
+  const leaveItem: NavItem[] = leaveTab
+    ? [
+        {
+          id: leaveTab,
+          label: LEAVE_LABEL,
+          matches: [...LEAVE_TABS],
+          icon: <CalendarCheck className="w-4 h-4" />,
+          badge: pendingLeave || undefined,
+          badgeLabel: 'leave and shift change requests pending',
+          badgeColor: 'bg-due-bg text-due ring-due-line'
+        }
+      ]
+    : []
+
   const allGroups: { title: string; items: NavItem[] }[] = [
     {
       title: 'Monitoring',
@@ -167,7 +200,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           badgeColor: 'bg-exception-bg text-exception ring-exception-line'
         },
         { id: 'reports', icon: <FileSpreadsheet className="w-4 h-4" /> },
-        { id: 'performance', icon: <Gauge className="w-4 h-4" /> }
+        { id: 'performance', icon: <Gauge className="w-4 h-4" /> },
+        ...leaveItem
       ]
     },
     {
@@ -177,7 +211,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: 'activities', icon: <Workflow className="w-4 h-4" /> },
         { id: 'machines', icon: <Cpu className="w-4 h-4" /> },
         { id: 'schedules', icon: <CalendarClock className="w-4 h-4" /> },
-        { id: 'calendar', icon: <CalendarOff className="w-4 h-4" /> },
         { id: 'workers', icon: <Users className="w-4 h-4" /> },
         { id: 'departments', icon: <Building2 className="w-4 h-4" /> },
         { id: 'department-config', icon: <Tags className="w-4 h-4" /> },

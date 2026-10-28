@@ -519,3 +519,77 @@ export interface MyWeek {
   days: WeekDayScore[]
   week: WeekDayScore | null
 }
+
+// ---------------------------------------------------------------------------- Leave (backend services/leave.ts)
+
+export type LeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+export type DayPart = 'FULL' | 'FIRST_HALF' | 'SECOND_HALF'
+
+export interface LeaveTypeOption {
+  id: string
+  name: string
+  code: string
+  isPaid: boolean
+  allowHalfDay: boolean
+  requiresAttachment: boolean
+  /** The employee types the leave's own name (Custom Leave). */
+  isCustom?: boolean
+  advanceNoticeDays: number
+  maxConsecutiveDays: number | null
+  /** Days per leave year; null: no limit. */
+  quota: number | null
+}
+
+export interface LeaveBalance {
+  leaveTypeId: string
+  name: string
+  code: string
+  isPaid: boolean
+  quota: number | null
+  carriedForward: number
+  allocated: number | null
+  used: number
+  pending: number
+  remaining: number | null
+}
+
+interface MyRequestBase {
+  id: string
+  startDate: string
+  endDate: string
+  reason: string
+  status: LeaveStatus
+  hasAttachment: boolean
+  attachmentName: string | null
+  decidedByName: string | null
+  decidedAt: string | null
+  decisionComment: string | null
+  createdAt: string
+}
+
+export interface MyLeaveRequest extends MyRequestBase {
+  leaveTypeId: string
+  leaveTypeName: string
+  leaveTypeCode: string
+  dayPart: DayPart
+  dayPartLabel: string
+  days: number
+}
+
+export interface MyShiftChange extends MyRequestBase {
+  currentShiftName: string | null
+  requestedShiftId: string
+  requestedShiftName: string
+  requestedShiftTime: string
+}
+
+export interface LeaveOverview {
+  year: { start: string; end: string; label: string }
+  types: LeaveTypeOption[]
+  balances: LeaveBalance[]
+  leave: MyLeaveRequest[]
+  shiftChanges: MyShiftChange[]
+  shifts: { id: string; name: string; startTime: string; endTime: string }[]
+  currentShiftId: string | null
+  rules: { maxPastDays: number; maxShiftChangeDays: number; workerCanCancelApproved: boolean }
+}

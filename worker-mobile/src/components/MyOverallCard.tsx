@@ -71,7 +71,10 @@ export const MyOverallCard: React.FC = () => {
             <Figure label="Exceptions" value={o.exceptions} className="text-exception" divider />
             <Figure label="Missed" value={o.missed} className={o.missed ? 'text-missed' : 'text-ink'} divider />
           </View>
-          {o.pending ? <Text className="mt-2 text-[13px] text-ink-muted">{o.pending} check{o.pending === 1 ? ' is' : 's are'} still open and not counted yet.</Text> : null}
+          <Text className="mt-2 text-[13px] leading-[18px] text-ink-muted">
+            0% is the best score: each missed check lowers it.
+            {o.pending ? ` ${o.pending} check${o.pending === 1 ? ' is' : 's are'} still open and not counted yet.` : ''}
+          </Text>
         </>
       ) : (
         <Text className="mt-3 text-[14px] text-ink-muted">No checks counted yet.</Text>

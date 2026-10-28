@@ -10,7 +10,7 @@ import { addDays, dateKey, formatDateKey, parseDateKey, startOfDay, weekdayOf } 
 import { invalidateCheckGeneration } from './checkGenerator'
 import { extractRows, type ExtractionMethod } from './calendarExtraction'
 import { itemsFromRows } from './calendarImport'
-import { CLOSURE_LABEL, removeChecksIfClosed, type ClosureType } from './plantCalendar'
+import { CLOSURE_LABEL, removeChecksIfClosed, trackTodayReopening, type ClosureType } from './plantCalendar'
 import { CALENDAR_V2_START, ruleCloses, rulesBetween, WEEKDAY_NAMES } from './weeklyRules'
 
 /**
@@ -345,7 +345,7 @@ export async function approveYear(id: string, userId: string) {
   }
   const before = await liveEntries(year)
 
-  await db.transaction(async (tx) => {
+  await trackTodayReopening(today().startsWith(`${year.year}-`), () => db.transaction(async (tx) => {
     await tx.delete(plantClosures).where(and(gte(plantClosures.date, `${year.year}-01-01`), lte(plantClosures.date, `${year.year}-12-31`)))
     if (items.length) {
       await tx.insert(plantClosures).values(
@@ -356,7 +356,7 @@ export async function approveYear(id: string, userId: string) {
       .update(calendarYears)
       .set({ status: 'APPROVED', pendingChanges: false, approvedById: userId, approvedAt: new Date(), updatedAt: new Date() })
       .where(eq(calendarYears.id, id))
-  })
+  }))
 
   // Today onwards follows the approved dates: generated checks on dates that are now closed go.
   invalidateCheckGeneration()

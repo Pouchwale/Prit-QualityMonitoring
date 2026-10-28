@@ -174,6 +174,11 @@ export async function syncLocalAlerts(_checks: CheckSummary[]): Promise<void> {}
 /** Nothing to rebuild on the web: its alerts come from the server, which stops them when a job ends. */
 export function resyncLocalAlerts() {}
 
+/** The web app opens on Today from a notification; leave decisions are seen on the Leave tab. */
+export function onLeaveNotificationTap(_handler: () => void) {
+  return () => undefined
+}
+
 /**
  * Calls back with the check id when the worker taps an alert: either the app was opened
  * from the notification (?check=<id> in the address) or it was already open.

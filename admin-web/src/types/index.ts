@@ -25,10 +25,13 @@ export type ModuleKey =
   | 'performance'
   | 'shift_signin'
   | 'wifi_rule'
+  | 'leave'
+  | 'leave_settings'
   // Worker app features (Worker role)
   | 'app_jobs'
   | 'app_performance'
   | 'app_history'
+  | 'app_leave'
 
 /** The older one-word summary per module: manage = any of create, edit, delete. */
 export type Access = 'none' | 'view' | 'manage'
@@ -327,6 +330,8 @@ export interface User {
   shiftId: string | null
   shiftName: string | null
   phone: string | null
+  /** For Leave Management emails. */
+  email?: string | null
   isActive: boolean
   /** May sign in to the worker mobile app. */
   appAccess: boolean
@@ -819,7 +824,7 @@ export interface RecipientDelivery {
 
 export interface ReportEmailLog {
   id: string
-  trigger: 'AUTO' | 'MANUAL' | 'DAILY'
+  trigger: 'AUTO' | 'MANUAL' | 'DAILY' | 'LEAVE'
   status: DeliveryStatus
   recipients: string[]
   subject: string
@@ -901,3 +906,120 @@ export interface SamplePreviewResult {
   }[]
 }
 
+
+// ---------------------------------------------------------------------------- Leave Management
+// (backend/src/services/leave.ts, routes/leave.ts)
+
+export type LeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+export type DayPart = 'FULL' | 'FIRST_HALF' | 'SECOND_HALF'
+
+export interface LeaveType {
+  id: string
+  name: string
+  code: string
+  /** Days per leave year; null: no limit. */
+  annualQuota: number | null
+  isPaid: boolean
+  allowHalfDay: boolean
+  requiresAttachment: boolean
+  maxConsecutiveDays: number | null
+  advanceNoticeDays: number
+  carryForwardMax: number
+  /** The employee types the leave's own name when applying (Custom Leave). */
+  isCustom: boolean
+  isActive: boolean
+  sortOrder: number
+}
+
+interface RequestBase {
+  id: string
+  workerId: string
+  startDate: string
+  endDate: string
+  reason: string
+  status: LeaveStatus
+  hasAttachment: boolean
+  attachmentName: string | null
+  decidedById: string | null
+  decidedByName: string | null
+  decidedAt: string | null
+  decisionComment: string | null
+  cancelledAt: string | null
+  createdAt: string
+  workerName: string
+  workerEmployeeId: string
+  workerDesignation: string | null
+  departmentName: string | null
+}
+
+export interface LeaveRequest extends RequestBase {
+  leaveTypeId: string
+  leaveTypeName: string
+  leaveTypeCode: string
+  isPaid: boolean
+  dayPart: DayPart
+  dayPartLabel: string
+  days: number
+}
+
+export interface ShiftChangeRequest extends RequestBase {
+  currentShiftId: string | null
+  currentShiftName: string | null
+  currentShiftTime: string | null
+  requestedShiftId: string
+  requestedShiftName: string
+  requestedShiftTime: string
+}
+
+export interface LeaveBalance {
+  leaveTypeId: string
+  name: string
+  code: string
+  isPaid: boolean
+  quota: number | null
+  carriedForward: number
+  allocated: number | null
+  used: number
+  pending: number
+  remaining: number | null
+}
+
+export interface LeaveYear {
+  start: string
+  end: string
+  label: string
+}
+
+export interface LeaveSettings {
+  leaveYearStartMonth: number
+  countWeeklyOffs: boolean
+  countHolidays: boolean
+  maxPastDays: number
+  maxShiftChangeDays: number
+  workerCanCancelApproved: boolean
+  notify: {
+    approvers: boolean
+    worker: boolean
+    approverEmails: string[]
+    superAdminEmail: string
+    copySuperAdmin: boolean
+    ccEmails: string[]
+  }
+}
+
+export interface LeaveCalendarData {
+  leave: LeaveRequest[]
+  shiftChanges: ShiftChangeRequest[]
+  closedDays: { date: string; label: string | null }[]
+}
+
+export interface LeaveReportData {
+  year: LeaveYear
+  rows: { workerId: string; name: string; employeeId: string; designation: string | null; department: string | null; balances: LeaveBalance[] }[]
+}
+
+export interface LeavePendingCount {
+  leave: number
+  shiftChanges: number
+  total: number
+}

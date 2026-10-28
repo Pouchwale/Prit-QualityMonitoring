@@ -251,6 +251,26 @@ const checkIdOf = (response: Notifications.NotificationResponse | null) => {
   return typeof checkId === 'string' ? checkId : null
 }
 
+/** Calls back when the worker taps a leave or shift change decision (data.type LEAVE_DECISION). */
+export function onLeaveNotificationTap(handler: () => void) {
+  const isLeave = (response: Notifications.NotificationResponse | null) => response?.notification.request.content.data?.type === 'LEAVE_DECISION'
+  Notifications.getLastNotificationResponseAsync()
+    .then((response) => {
+      if (!isLeave(response)) return
+      handler()
+      try {
+        Notifications.clearLastNotificationResponse()
+      } catch {
+        // Older native code: the response stays until the app is restarted.
+      }
+    })
+    .catch(() => undefined)
+  const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+    if (isLeave(response)) handler()
+  })
+  return () => sub.remove()
+}
+
 /**
  * Calls back with the check id when a worker taps an alert, including the tap that
  * started the app from the notification panel while it was closed.

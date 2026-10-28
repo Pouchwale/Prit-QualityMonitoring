@@ -66,7 +66,7 @@ export function calculateNextRunAt(
 
 export interface ReportEmailLogDto {
   id: string
-  trigger: 'AUTO' | 'MANUAL' | 'DAILY'
+  trigger: 'AUTO' | 'MANUAL' | 'DAILY' | 'LEAVE'
   /** PENDING, SENT (accepted by the mail server for every recipient), RETRYING or FAILED: services/reportDelivery.ts. */
   status: DeliveryStatus
   recipients: string[]
@@ -237,7 +237,7 @@ export async function getReportEmailLogs(limit = 50, offset = 0): Promise<Report
 
   return rows.map((r) => ({
     id: r.id,
-    trigger: r.trigger as 'AUTO' | 'MANUAL' | 'DAILY',
+    trigger: r.trigger as 'AUTO' | 'MANUAL' | 'DAILY' | 'LEAVE',
     // SUCCESS: a row written by an older build while this one ran.
     status: (r.status === 'SUCCESS' ? 'SENT' : r.status) as DeliveryStatus,
     recipients: r.recipients,
