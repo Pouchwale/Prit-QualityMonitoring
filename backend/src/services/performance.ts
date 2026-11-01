@@ -1,7 +1,7 @@
-import { and, eq, gte, lt, sql, type SQL } from 'drizzle-orm'
+import { and, eq, gte, inArray, lt, sql, type SQL } from 'drizzle-orm'
 import { db } from '../db/client'
 import { departments, jobs, machines, qualityChecks, shifts, users } from '../db/schema'
-import { UNRESTRICTED, type DepartmentScope } from './departmentScope'
+import { checkScopeWhere, departmentScope, scopedWorkerIds, workerScopeWhere, type DepartmentScope } from './departmentScope'
 import { addDays, dateKey, startOfDay, weekdayOf } from '../lib/time'
 
 /**
@@ -21,12 +21,17 @@ import { addDays, dateKey, startOfDay, weekdayOf } from '../lib/time'
  * Label for their Label checks and under Pouch for their Pouch checks.
  */
 
-/** The `scope` field of the responses: always unrestricted, kept for older app builds that read it. */
+/** What this user may see (services/departmentScope.ts): a Manager only the workers of their area. */
 export type PerformanceScope = DepartmentScope
 
-/** What this user may see: every worker, whatever the role. */
-export async function performanceScope(_user: { id: string; role: string }): Promise<PerformanceScope> {
-  return UNRESTRICTED
+export async function performanceScope(user: { id: string; role: string }): Promise<PerformanceScope> {
+  return departmentScope(user as { id: string; role: 'MANAGER' })
+}
+
+/** A scope as filters for workerPerformance: the checks and workers it may see (nothing: everything). */
+export async function scopeFilters(scope: PerformanceScope | undefined): Promise<Pick<PerformanceFilters, 'where' | 'workerIds'>> {
+  if (!scope?.restricted) return {}
+  return { where: checkScopeWhere(scope), workerIds: await scopedWorkerIds(scope) }
 }
 
 export interface PerformanceFilters {
@@ -41,6 +46,10 @@ export interface PerformanceFilters {
   jobNo?: string
   /** Only checks of this department: the department of the work recorded on the check, not the worker's own. */
   departmentId?: string
+  /** A Manager's scope: only these checks (services/departmentScope.ts). */
+  where?: SQL
+  /** A Manager's scope: only these workers (null: everyone). */
+  workerIds?: string[] | null
 }
 
 export interface WorkerPerformance {
@@ -75,6 +84,9 @@ function conditions(f: PerformanceFilters): SQL {
   if (f.shiftId) where.push(eq(qualityChecks.shiftId, f.shiftId))
   if (f.activityId) where.push(eq(qualityChecks.activityId, f.activityId))
   if (f.jobId) where.push(eq(qualityChecks.jobId, f.jobId))
+  // A Manager's scope: their checks, of their workers.
+  if (f.where) where.push(f.where)
+  if (f.workerIds) where.push(inArray(qualityChecks.workerId, f.workerIds.length ? f.workerIds : ['00000000-0000-0000-0000-000000000000']))
   if (f.jobNo) {
     const wanted = f.jobNo.trim().toLowerCase()
     where.push(
@@ -176,11 +188,15 @@ export async function performanceFilterValues(scope: PerformanceScope) {
   const [machineRows, shiftRows, departmentRows, workerRows] = await Promise.all([
     db.select({ id: machines.id, name: machines.name }).from(machines).where(eq(machines.isActive, true)).orderBy(machines.name),
     db.select({ id: shifts.id, name: shifts.name }).from(shifts).where(eq(shifts.isActive, true)).orderBy(shifts.name),
-    db.select({ id: departments.id, name: departments.name }).from(departments).orderBy(departments.name),
+    db
+      .select({ id: departments.id, name: departments.name })
+      .from(departments)
+      .where(scope.restricted ? inArray(departments.id, scope.departmentIds.length ? scope.departmentIds : ['00000000-0000-0000-0000-000000000000']) : undefined)
+      .orderBy(departments.name),
     db
       .select({ id: users.id, name: users.name, employeeId: users.employeeId, departmentId: users.departmentId })
       .from(users)
-      .where(eq(users.role, 'WORKER'))
+      .where(and(eq(users.role, 'WORKER'), workerScopeWhere(scope)))
       .orderBy(users.name)
   ])
   return { machines: machineRows, shifts: shiftRows, departments: departmentRows, workers: workerRows, scope }
@@ -221,18 +237,19 @@ const dayScore = (w: WorkerPerformance | undefined): DayScore => {
  * checks (not an average of the days), so a busy day weighs more than a quiet one.
  */
 /** `onlyWorkerId`: one worker's own week (the worker app); without it every worker (Admins). */
-export async function weeklyScores(anyDay: Date, onlyWorkerId?: string) {
+export async function weeklyScores(anyDay: Date, onlyWorkerId?: string, scope?: PerformanceScope) {
   const day = startOfDay(anyDay)
+  const limit = await scopeFilters(scope)
   const sunday = addDays(day, -weekdayOf(day))
   const days = Array.from({ length: 7 }, (_, i) => addDays(sunday, i))
   const [daily, week, people] = await Promise.all([
-    Promise.all(days.map((d) => workerPerformance({ from: d, to: addDays(d, 1), workerId: onlyWorkerId }))),
-    workerPerformance({ from: sunday, to: addDays(sunday, 7), workerId: onlyWorkerId }),
+    Promise.all(days.map((d) => workerPerformance({ from: d, to: addDays(d, 1), workerId: onlyWorkerId, ...limit }))),
+    workerPerformance({ from: sunday, to: addDays(sunday, 7), workerId: onlyWorkerId, ...limit }),
     db
       .select({ id: users.id, name: users.name, employeeId: users.employeeId, isActive: users.isActive, department: departments.name })
       .from(users)
       .leftJoin(departments, eq(departments.id, users.departmentId))
-      .where(onlyWorkerId ? eq(users.id, onlyWorkerId) : eq(users.role, 'WORKER'))
+      .where(onlyWorkerId ? eq(users.id, onlyWorkerId) : and(eq(users.role, 'WORKER'), scope ? workerScopeWhere(scope) : undefined))
   ])
   const byDay = daily.map((r) => new Map(r.workers.map((w) => [w.workerId, w])))
   const byWeek = new Map(week.workers.map((w) => [w.workerId, w]))
@@ -261,20 +278,21 @@ export async function weeklyScores(anyDay: Date, onlyWorkerId?: string) {
  * the plant date of the worker's first check (null when they have none yet).
  */
 /** `onlyWorkerId`: one worker's own score (the worker app); without it every worker (Admins). */
-export async function overallScores(onlyWorkerId?: string, now = new Date()) {
+export async function overallScores(onlyWorkerId?: string, now = new Date(), scope?: PerformanceScope) {
   const to = addDays(startOfDay(now), 1)
+  const limit = await scopeFilters(scope)
   const [all, firsts, people] = await Promise.all([
-    workerPerformance({ from: new Date(0), to, workerId: onlyWorkerId }),
+    workerPerformance({ from: new Date(0), to, workerId: onlyWorkerId, ...limit }),
     db
       .select({ workerId: qualityChecks.workerId, first: sql<Date>`min(${qualityChecks.scheduledAt})` })
       .from(qualityChecks)
-      .where(onlyWorkerId ? eq(qualityChecks.workerId, onlyWorkerId) : sql`${qualityChecks.workerId} is not null`)
+      .where(and(onlyWorkerId ? eq(qualityChecks.workerId, onlyWorkerId) : sql`${qualityChecks.workerId} is not null`, limit.where))
       .groupBy(qualityChecks.workerId),
     db
       .select({ id: users.id, name: users.name, employeeId: users.employeeId, isActive: users.isActive, department: departments.name })
       .from(users)
       .leftJoin(departments, eq(departments.id, users.departmentId))
-      .where(onlyWorkerId ? eq(users.id, onlyWorkerId) : eq(users.role, 'WORKER'))
+      .where(onlyWorkerId ? eq(users.id, onlyWorkerId) : and(eq(users.role, 'WORKER'), scope ? workerScopeWhere(scope) : undefined))
   ])
   const byWorker = new Map(all.workers.map((w) => [w.workerId, w]))
   const since = new Map(firsts.map((f) => [f.workerId, f.first ? dateKey(new Date(f.first)) : null]))

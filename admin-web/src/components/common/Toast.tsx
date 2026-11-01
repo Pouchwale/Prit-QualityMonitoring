@@ -76,7 +76,7 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
   }
 
   return (
-    <div className={`pointer-events-auto flex items-start gap-2.5 p-3 rounded-lg border shadow-[var(--shadow-pop)] text-[12.5px] ${borderStyles[toast.type]}`}>
+    <div className={`animate-toast-in pointer-events-auto flex items-start gap-2.5 p-3 rounded-lg border shadow-[var(--shadow-pop)] text-[12.5px] ${borderStyles[toast.type]}`}>
       {icons[toast.type]}
       <div className="flex-1 min-w-0 [overflow-wrap:anywhere]">
         <div className="font-semibold">{toast.title}</div>

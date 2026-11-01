@@ -144,7 +144,33 @@ export interface CrystalReportBatchData {
   checks: CrystalReportCheck[]
   /** Day-wise scores of every worker for the report's week (services/performance.ts weeklyScores). */
   weekly?: WeeklyReport | null
+  /** The report's name in the title (default: Quality Inspection Report). */
+  title?: string
+  /**
+   * The Reports & Analytics report: every check of a period (Missed and Open too), who prepared it,
+   * its filters, and the department / machine / worker / shift / date summaries on their own page.
+   */
+  analytics?: ReportAnalytics
 }
+
+export interface AnalyticsGroupRow {
+  label: string
+  sublabel: string
+  counts: { scheduled: number; completed: number; exception: number; missed: number; open: number }
+  completionRate: number | null
+  remark: string
+}
+
+export interface ReportAnalytics {
+  preparedBy: string
+  department: string
+  filters: string[]
+  counts: { scheduled: number; completed: number; exception: number; missed: number; open: number }
+  completionRate: number | null
+  groups: { title: string; note?: string; nameHeader: string; rows: AnalyticsGroupRow[] }[]
+}
+
+const reportTitle = (data: CrystalReportBatchData) => data.title ?? 'Quality Inspection Report'
 
 type WeeklyReport = Awaited<ReturnType<typeof weeklyScores>>
 
@@ -428,7 +454,7 @@ function titleBlock(data: CrystalReportBatchData, subtitle: string, right: Conte
             width: '*',
             stack: [
               { text: data.companyName.toUpperCase(), fontSize: 7.5, bold: true, color: C.muted, characterSpacing: 0.8 },
-              { text: 'Quality Inspection Report', fontSize: 18, bold: true, color: C.ink, margin: [0, 1, 0, 0] },
+              { text: reportTitle(data), fontSize: 18, bold: true, color: C.ink, margin: [0, 1, 0, 0] },
               { text: subtitle, fontSize: 9, color: C.muted, margin: [0, 2, 0, 0] }
             ]
           },
@@ -623,7 +649,8 @@ function buildCheckSheet(check: CrystalReportCheck, data: CrystalReportBatchData
     titleBlock(data, `${check.module} inspection  ·  ${check.activityName}`, {
       stack: [
         statusPill(status.label, status.color, status.bg),
-        { text: check.code, fontSize: 9.5, bold: true, color: C.ink, alignment: 'right', margin: [0, 5, 0, 0] },
+        // The check code on one line, never broken before its last character.
+        { text: check.code, fontSize: 9.5, bold: true, color: C.ink, alignment: 'right', noWrap: true, margin: [0, 5, 0, 0] },
         { text: formatDateTime(check.submittedAt ?? check.scheduledAt), fontSize: 8, color: C.muted, alignment: 'right', margin: [0, 1, 0, 0] }
       ]
     })
@@ -809,6 +836,12 @@ function buildBatchSummary(data: CrystalReportBatchData): Content[] {
     ...(periodFrom && periodTo ? ([['Period', `${formatDate(periodFrom)} – ${formatDate(periodTo)}`]] as [string, string][]) : []),
     ...(samplePercentage !== undefined
       ? ([['Sample', `${samplePercentage}% of ${totalEligible ?? checks.length} checks`]] as [string, string][])
+      : []),
+    ...(data.analytics
+      ? ([
+          ['Prepared by', data.analytics.preparedBy],
+          ['Department', data.analytics.department]
+        ] as [string, string][])
       : [])
   ]
   const content: Content[] = [
@@ -824,8 +857,26 @@ function buildBatchSummary(data: CrystalReportBatchData): Content[] {
     }, 200)
   ]
 
+  const a = data.analytics
+  if (a?.filters.length) {
+    content.push({ text: [{ text: 'Filters: ', bold: true, color: C.muted }, a.filters.join('  ·  ')], fontSize: 8, color: C.text, margin: [0, 6, 0, 0] })
+  }
+  if (a) {
+    // Every check of the period: what was done, missed and still open, and the completion rate.
+    content.push({
+      margin: [0, 12, 0, 0],
+      ...(figureStrip([
+        { label: 'Scheduled', value: String(a.counts.scheduled) },
+        { label: 'Completed', value: String(a.counts.completed), color: a.counts.completed ? C.pass : C.ink },
+        { label: 'Missed', value: String(a.counts.missed), color: a.counts.missed ? C.fail : C.ink },
+        { label: 'Exceptions', value: String(a.counts.exception), color: a.counts.exception ? C.warn : C.ink },
+        { label: 'Open', value: String(a.counts.open) },
+        { label: 'Completion', value: a.completionRate === null ? '—' : `${a.completionRate}%` }
+      ]) as object)
+    } as Content)
+  }
   content.push({
-    margin: [0, 12, 0, 0],
+    margin: [0, a ? 6 : 12, 0, 0],
     ...(figureStrip([
       { label: 'Checks', value: String(checks.length) },
       { label: 'Completed', value: String(totalCompleted) },
@@ -881,6 +932,51 @@ function buildBatchSummary(data: CrystalReportBatchData): Content[] {
       paddingBottom: () => 4
     }
   })
+  return content
+}
+
+// ------------------------------------------------------------------------------- analytics summaries
+
+/** Department, machine, worker, shift and date summaries, in the report's table style. */
+function buildAnalyticsSheet(data: CrystalReportBatchData, a: ReportAnalytics): Content[] {
+  const content: Content[] = [titleBlock(data, 'Summary by department, machine, worker, shift and date', { text: '' })]
+  const num = (n: number, color?: string) => ({ text: String(n), fontSize: 7.5, alignment: 'right' as const, color: n && color ? color : n ? C.ink : C.faint })
+  for (const g of a.groups) {
+    if (!g.rows.length) continue
+    content.push(sectionTitle(g.title))
+    if (g.note) content.push({ text: g.note, fontSize: 7, color: C.muted, margin: [0, -3, 0, 4] })
+    const header: TableCell[] = [g.nameHeader, 'Sched.', 'Completed', 'Missed', 'Exception', 'Open', 'Compl. %', 'Remarks'].map((t, i) => ({
+      text: t.toUpperCase(),
+      fontSize: 6.5,
+      bold: true,
+      color: C.muted,
+      characterSpacing: 0.3,
+      alignment: i === 0 || i === 7 ? 'left' : 'right'
+    }))
+    const rows: TableCell[][] = g.rows.map((r) => [
+      { stack: [{ text: r.label, bold: true }, ...(r.sublabel ? [{ text: r.sublabel, fontSize: 6.5, color: C.muted }] : [])], fontSize: 7.5 },
+      num(r.counts.scheduled),
+      num(r.counts.completed, C.pass),
+      num(r.counts.missed, C.fail),
+      num(r.counts.exception, C.warn),
+      num(r.counts.open),
+      { text: r.completionRate === null ? '—' : `${r.completionRate}%`, fontSize: 7.5, alignment: 'right', bold: true },
+      { text: r.remark || '—', fontSize: 7, color: C.muted }
+    ])
+    content.push({
+      table: { headerRows: 1, dontBreakRows: true, widths: ['*', 34, 44, 34, 42, 28, 40, 110], body: [header, ...rows] },
+      layout: {
+        hLineWidth: (i: number, node: ContentTable) => (i === 0 || i === 1 || i === node.table.body.length ? 0.8 : 0.5),
+        vLineWidth: () => 0,
+        hLineColor: (i: number, node: ContentTable) => (i === 0 || i === 1 || i === node.table.body.length ? C.line : C.hair),
+        fillColor: (i: number) => (i === 0 ? C.headBg : null),
+        paddingLeft: () => 4,
+        paddingRight: () => 4,
+        paddingTop: () => 3,
+        paddingBottom: () => 3
+      }
+    })
+  }
   return content
 }
 
@@ -1005,8 +1101,10 @@ function buildWeeklySheet(data: CrystalReportBatchData, weekly: WeeklyReport): C
 /** The complete report document. `photos` comes from prepareReportPhotos (no photos without it). */
 export function buildCrystalReportDocument(data: CrystalReportBatchData, photos: ReportPhotos = new Map()): TDocumentDefinitions {
   const content: Content[] = []
-  const batch = data.checks.length > 1
+  const batch = data.checks.length > 1 || !!data.analytics
   if (batch) content.push(...buildBatchSummary(data))
+  // Reports & Analytics: the summaries by department, machine, worker, shift and date, on their own page.
+  if (data.analytics) content.push({ stack: buildAnalyticsSheet(data, data.analytics), pageBreak: 'before' })
   // The weekly worker report follows the summary, on its own page.
   if (data.weekly) {
     const sheet = buildWeeklySheet(data, data.weekly)
@@ -1024,7 +1122,7 @@ export function buildCrystalReportDocument(data: CrystalReportBatchData, photos:
     pageSize: 'A4',
     pageOrientation: 'portrait',
     pageMargins: [PAGE_MARGIN_X, 40, PAGE_MARGIN_X, 44],
-    info: { title: `Quality Inspection Report ${data.reportId}`, author: data.companyName, creator: 'Quality Monitoring System' },
+    info: { title: `${reportTitle(data)} ${data.reportId}`, author: data.companyName, creator: 'Quality Monitoring System' },
     defaultStyle: { font: 'Helvetica', fontSize: 8.5, color: C.text, lineHeight: 1.2 },
     // A section title never sits alone at the bottom of a page.
     pageBreakBefore: (node, queries) => node.headlineLevel === 1 && queries.getFollowingNodesOnPage().length === 0,
@@ -1034,7 +1132,7 @@ export function buildCrystalReportDocument(data: CrystalReportBatchData, photos:
         : {
             margin: [PAGE_MARGIN_X, 18, PAGE_MARGIN_X, 0],
             columns: [
-              { text: `${data.companyName}  ·  Quality Inspection Report`, fontSize: 7, color: C.faint },
+              { text: `${data.companyName}  ·  ${reportTitle(data)}`, fontSize: 7, color: C.faint },
               { text: data.reportId, fontSize: 7, color: C.faint, alignment: 'right' }
             ]
           },

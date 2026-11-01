@@ -123,9 +123,18 @@ const plainLayout = {
 }
 
 /** A numbered section title in the brand colour, as in the inspection report; never left alone at a page bottom. */
+/**
+ * The printed section number. The code numbers the sections from 2 (1 is the report header); the
+ * printed report starts at 1, so every number shows one lower ("8.1" prints as "7.1").
+ */
+const printedNumber = (number: number | string) => {
+  const [major, ...rest] = String(number).split('.')
+  return [String(Number(major) - 1), ...rest].join('.')
+}
+
 const section = (number: number | string, title: string, note?: string): Content => ({
   stack: [
-    { text: `${number}.  ${title.toUpperCase()}`, style: 'sectionTitle' },
+    { text: `${printedNumber(number)}.  ${title.toUpperCase()}`, style: 'sectionTitle' },
     ...(note ? [{ text: note, style: 'note', margin: [0, 2, 0, 0] as [number, number, number, number] }] : [])
   ],
   margin: [0, 16, 0, 6],
@@ -581,9 +590,9 @@ export function buildReportDocument(report: QualityReport): TDocumentDefinitions
   // 8.1–8.4 Traceability, for an Item Code, PO No. or worker report
   if (report.trace) content.push(...traceSections(report.trace))
 
-  // 9. Detailed log — every scheduled check, one row each
+  // 9. Detailed log — every scheduled check, one row each. It follows straight on (its header row
+  // repeats on every page), so a short summary page is not left mostly blank.
   content.push(
-    { text: '', pageBreak: 'before' },
     section(9, 'Detailed Quality Check Log', `Every scheduled check in the period (${report.log.length} records).`)
   )
   content.push(

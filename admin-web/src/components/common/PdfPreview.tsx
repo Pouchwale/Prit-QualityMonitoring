@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
-import { AlertCircle, Download, ExternalLink, Loader2, X } from 'lucide-react'
+import { AlertCircle, Download, ExternalLink, Loader2, Printer, X } from 'lucide-react'
 import { errorText, fetchBlob } from '../../lib/api'
 import { useDialogFocus } from '../../lib/useDialogFocus'
 import { Button } from './Button'
@@ -17,14 +17,26 @@ export const PdfPreview: React.FC<{
   /** Shown while the PDF is being prepared, e.g. "37 checks". */
   detail?: string
   fileName?: string
+  /** Shows a Print button that prints the PDF itself (not the page around it). */
+  printable?: boolean
   onClose: () => void
-}> = ({ path, title, detail, fileName = 'preview.pdf', onClose }) => {
+}> = ({ path, title, detail, fileName = 'preview.pdf', printable = false, onClose }) => {
   const [url, setUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [seconds, setSeconds] = useState(0)
   const ref = useDialogFocus<HTMLDivElement>(path !== null, onClose)
   const titleId = useId()
   const run = useRef(0)
+  const frame = useRef<HTMLIFrameElement>(null)
+  /** Prints the PDF in the viewer; a browser that cannot print a framed PDF opens it in a tab to print there. */
+  const printPdf = () => {
+    try {
+      frame.current?.contentWindow?.focus()
+      frame.current?.contentWindow?.print()
+    } catch {
+      if (url) window.open(url, '_blank')
+    }
+  }
 
   useEffect(() => {
     if (!path) return
@@ -52,14 +64,14 @@ export const PdfPreview: React.FC<{
 
   if (!path) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/45 backdrop-blur-[2px]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/45 backdrop-blur-[2px] animate-fade-in">
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="w-full max-w-6xl h-[94vh] sm:h-[90vh] bg-white rounded-lg shadow-[var(--shadow-pop)] border border-line flex flex-col overflow-hidden outline-none"
+        className="animate-scale-in w-full max-w-6xl h-[94vh] sm:h-[90vh] bg-white rounded-lg shadow-[var(--shadow-pop)] border border-line flex flex-col overflow-hidden outline-none"
       >
         <div className="flex items-center justify-between gap-2 px-3 sm:px-4 h-14 border-b border-line shrink-0">
           <div className="min-w-0">
@@ -71,6 +83,11 @@ export const PdfPreview: React.FC<{
           <div className="flex items-center gap-1.5 shrink-0">
             {url && (
               <>
+                {printable && (
+                  <Button size="sm" variant="primary" icon={<Printer className="w-3.5 h-3.5" />} onClick={printPdf}>
+                    Print
+                  </Button>
+                )}
                 <Button size="sm" variant="outline" icon={<ExternalLink className="w-3.5 h-3.5" />} onClick={() => window.open(url, '_blank')} className="hidden sm:inline-flex">
                   Open in new tab
                 </Button>
@@ -97,7 +114,7 @@ export const PdfPreview: React.FC<{
         </div>
         <div className="flex-1 min-h-0 bg-subtle">
           {url ? (
-            <iframe src={url} title={title} className="w-full h-full border-0 bg-white" />
+            <iframe ref={frame} src={url} title={title} className="w-full h-full border-0 bg-white" />
           ) : error ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 px-6 text-center" role="alert">
               <AlertCircle className="w-6 h-6 text-failed" aria-hidden />

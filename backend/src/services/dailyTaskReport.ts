@@ -5,6 +5,7 @@ import { addDays, atTime, dateKey, formatDateKey, startOfDay } from '../lib/time
 import { getCompanyPlantName, getReportSharingSettings, sampleEligibleChecks } from './automatedReports'
 import { renderCrystalReportPdf } from './crystalReportPdf'
 import { scoreSummary, scoreSummaryHtml } from './reportEmailer'
+import { missedTasksHtml, missedTasksReport, type MissedTasksByMember } from './missedTasksReport'
 import { sendLoggedEmail, smtpOf } from './reportDelivery'
 import { deliveryError } from './automatedReports'
 
@@ -65,6 +66,11 @@ async function sendDailyTaskReport(settings: Settings, now: Date, by?: { id?: st
   const rows = (await scoreSummary(day, today)) ?? []
   const missed = rows.filter((r) => r.missed > 0)
   const assigned = rows.reduce((n, r) => n + r.assigned, 0)
+  // The Missed Tasks Report must never stop the email: without it the rest is sent as before.
+  const missedTasks = await missedTasksReport(day, today).catch((err) => {
+    console.error('[Daily task report] Missed Tasks Report failed:', err)
+    return null
+  })
   const subject = `Daily Task Report - ${formatDateKey(dayKey)}${missed.length ? ` - ${missed.length} worker${missed.length === 1 ? '' : 's'} with missed checks` : ''}`
 
   // The previous day's Quality Inspection Report (PDF), as the automated report emails attach it.
@@ -96,38 +102,7 @@ async function sendDailyTaskReport(settings: Settings, now: Date, by?: { id?: st
     attachmentNote = 'The Quality Inspection Report could not be attached this time; it can be sent from Report Sharing → Manual send.'
   }
 
-  const html = `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>Daily Task Report</title></head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 24px; background-color: #f1f5f9; color: #1e293b;">
-  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 780px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #cbd5e1;">
-    <tr>
-      <td style="background-color: #1e3a8a; padding: 24px 32px; color: #ffffff;">
-        <h1 style="margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.5px;">DAILY TASK REPORT</h1>
-        <p style="margin: 4px 0 0 0; font-size: 13px; color: #93c5fd;">Previous day: ${formatDateKey(dayKey)} &middot; every worker's checks</p>
-      </td>
-    </tr>
-    <tr>
-      <td style="padding: 20px 32px 0 32px; font-size: 14px; line-height: 1.5; color: #334155;">
-        Dear Coordinator,<br><br>
-        Below is each worker's task performance for <strong>${formatDateKey(dayKey)}</strong>: ${assigned} check${assigned === 1 ? '' : 's'} assigned in total.
-        <div style="margin-top: 10px; font-size: 13px; color: #475569;">${attachmentNote}</div>
-        ${
-          missed.length
-            ? `<div style="margin-top: 12px; padding: 10px 14px; background-color: #fef2f2; border-left: 4px solid #dc2626; border-radius: 4px; color: #991b1b;">
-                 <strong>Missed checks:</strong> ${missed.map((r) => `${r.name} (${r.missed})`).join(', ')}. Please ask them for an explanation.
-               </div>`
-            : `<div style="margin-top: 12px; padding: 10px 14px; background-color: #f0fdf4; border-left: 4px solid #16a34a; border-radius: 4px; color: #166534;">No checks were missed.</div>`
-        }
-      </td>
-    </tr>
-    ${scoreSummaryHtml(rows, `TASK PERFORMANCE: ${formatDateKey(dayKey)}`)}
-    <tr>
-      <td style="padding: 20px 32px 24px 32px; font-size: 11px; color: #94a3b8;">Sent automatically every day by the Quality Monitoring System.</td>
-    </tr>
-  </table>
-</body>
-</html>`
+  const html = dailyTaskReportHtml({ dayKey, rows, assigned, attachmentNote, missedTasks })
 
   // Logged and sent by services/reportDelivery.ts: a temporary failure is retried there (the same
   // email, to the recipients it failed for), and the automatic one alerts the Super Admin.
@@ -154,4 +129,51 @@ async function sendDailyTaskReport(settings: Settings, now: Date, by?: { id?: st
   })
   console.log(`[Daily task report] The ${dayKey} report: ${delivery.status} (${delivery.sent.length} of ${settings.recipients.length} recipient(s)).`)
   return { success: delivery.status === 'SENT', status: delivery.status, error: deliveryError(delivery) ?? null, subject, attached: attachment ? attachment.checks : 0 }
+}
+
+type ScoreRows = NonNullable<Awaited<ReturnType<typeof scoreSummary>>>
+
+/** The daily task report's email body: the task performance table, then the Missed Tasks Report. */
+export function dailyTaskReportHtml(o: {
+  dayKey: string
+  rows: ScoreRows
+  assigned: number
+  attachmentNote: string
+  missedTasks: MissedTasksByMember[] | null
+}): string {
+  const { dayKey, rows, assigned, attachmentNote, missedTasks } = o
+  const missed = rows.filter((r) => r.missed > 0)
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Daily Task Report</title></head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 24px; background-color: #f1f5f9; color: #1e293b;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 780px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; border: 1px solid #cbd5e1;">
+    <tr>
+      <td style="background-color: #1e3a8a; padding: 24px 32px; color: #ffffff;">
+        <h1 style="margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.5px;">DAILY TASK REPORT</h1>
+        <p style="margin: 4px 0 0 0; font-size: 13px; color: #93c5fd;">Previous day: ${formatDateKey(dayKey)} &middot; every worker's checks</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 20px 32px 0 32px; font-size: 14px; line-height: 1.5; color: #334155;">
+        Dear Coordinator,<br><br>
+        Below is each worker's task performance for <strong>${formatDateKey(dayKey)}</strong>: ${assigned} check${assigned === 1 ? '' : 's'} assigned in total.
+        <div style="margin-top: 10px; font-size: 13px; color: #475569;">${attachmentNote}</div>
+        ${
+          missed.length
+            ? `<div style="margin-top: 12px; padding: 10px 14px; background-color: #fef2f2; border-left: 4px solid #dc2626; border-radius: 4px; color: #991b1b;">
+                 <strong>Missed checks:</strong> ${missed.map((r) => `${r.name} (${r.missed})`).join(', ')}. Please ask them for an explanation.
+               </div>`
+            : `<div style="margin-top: 12px; padding: 10px 14px; background-color: #f0fdf4; border-left: 4px solid #16a34a; border-radius: 4px; color: #166534;">No checks were missed.</div>`
+        }
+      </td>
+    </tr>
+    ${scoreSummaryHtml(rows, `TASK PERFORMANCE: ${formatDateKey(dayKey)}`)}
+    ${missedTasksHtml(missedTasks, formatDateKey(dayKey))}
+    <tr>
+      <td style="padding: 20px 32px 24px 32px; font-size: 11px; color: #94a3b8;">Sent automatically every day by the Quality Monitoring System.</td>
+    </tr>
+  </table>
+</body>
+</html>`
 }

@@ -1,5 +1,6 @@
 import React from 'react'
 import { Sparkline } from './charts'
+import { useCountUp } from '../../lib/useCountUp'
 
 const TONE = {
   neutral: { icon: 'bg-subtle text-ink-secondary', value: 'text-ink', spark: 'var(--color-chart-primary)' },
@@ -36,6 +37,8 @@ interface StatCardProps {
  */
 export const StatCard: React.FC<StatCardProps> = ({ label, value, icon, tone = 'neutral', meta, trend, footer, alert, onClick, title }) => {
   const t = TONE[tone]
+  // The figure counts up to its value when the card appears.
+  const shown = useCountUp(value)
   const body = (
     <>
       <div className="flex items-start justify-between gap-2">
@@ -48,7 +51,7 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, icon, tone = '
         {alert && <span className="mt-1 w-2 h-2 rounded-full bg-[var(--color-chart-missed)] ring-4 ring-missed-bg shrink-0" aria-hidden />}
       </div>
       <div className="mt-2.5 flex items-end justify-between gap-2">
-        <div className={`text-[26px] leading-none font-semibold tracking-tight tabular-nums ${t.value}`}>{value}</div>
+        <div className={`text-[26px] leading-none font-semibold tracking-tight tabular-nums ${t.value}`}>{shown}</div>
         {trend && trend.length > 1 && (
           <div className="shrink-0">
             <Sparkline values={trend} color={t.spark} width={64} height={24} />
@@ -61,7 +64,7 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, icon, tone = '
   )
   const cls = `card p-3.5 text-left min-w-0 ${alert ? 'border-missed-line' : ''}`
   return onClick ? (
-    <button type="button" onClick={onClick} title={title} className={`${cls} hover:border-line-strong hover:shadow-[var(--shadow-pop)] transition-[box-shadow,border-color] duration-150`}>
+    <button type="button" onClick={onClick} title={title} className={`${cls} card-lift hover:border-line-strong hover:shadow-[var(--shadow-pop)]`}>
       {body}
     </button>
   ) : (

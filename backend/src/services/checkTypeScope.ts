@@ -19,6 +19,16 @@ import { activities, activityParameters, departments, machineActivities, paramet
 export const checkTypeInDepartment = (activityDepartmentId: string | null, workDepartmentId: string | null) =>
   activityDepartmentId === null || activityDepartmentId === workDepartmentId
 
+/** A worker's departments for checks started by hand: their own and those it covers (e.g. IPQC (Print)). */
+export interface DepartmentScope {
+  id: string | null
+  covers: string[]
+}
+
+/** Whether a check type is in a worker's departments (their own, or one their department covers). */
+export const checkTypeInScope = (activityDepartmentId: string | null, scope: DepartmentScope) =>
+  activityDepartmentId === null || activityDepartmentId === scope.id || scope.covers.includes(activityDepartmentId)
+
 export interface JobDepartment {
   id: string
   name: string
@@ -69,4 +79,14 @@ export async function jobDepartmentOptions(machineIds: string[]): Promise<Map<st
 export async function userDepartmentId(userId: string): Promise<string | null> {
   const [row] = await db.select({ departmentId: users.departmentId }).from(users).where(eq(users.id, userId))
   return row?.departmentId ?? null
+}
+
+/** The user's department and the departments it covers. */
+export async function userDepartmentScope(userId: string): Promise<DepartmentScope> {
+  const [row] = await db
+    .select({ id: users.departmentId, covers: departments.coversDepartmentIds })
+    .from(users)
+    .leftJoin(departments, eq(departments.id, users.departmentId))
+    .where(eq(users.id, userId))
+  return { id: row?.id ?? null, covers: row?.covers ?? [] }
 }

@@ -108,7 +108,7 @@ export const StackedBarChart: React.FC<{
                   aria-label={`${d.fullLabel ?? d.label}: ${series.map((s) => `${s.label} ${fmt(d.values[s.key] ?? 0)}`).join(', ')}`}
                 >
                   <span
-                    className={`flex flex-col-reverse w-full max-w-[44px] mx-auto overflow-hidden rounded-t-[4px] transition-opacity ${active !== null && !isActive ? 'opacity-55' : ''}`}
+                    className={`animate-grow-y origin-bottom flex flex-col-reverse w-full max-w-[44px] mx-auto overflow-hidden rounded-t-[4px] transition-opacity ${active !== null && !isActive ? 'opacity-55' : ''}`}
                     style={{ height: `${(total / top) * 100}%` }}
                     aria-hidden
                   >
@@ -186,7 +186,7 @@ export const SegmentBar: React.FC<{ values: Record<string, number>; series: Seri
 }) => {
   const total = series.reduce((n, s) => n + (values[s.key] ?? 0), 0)
   return (
-    <div className={`flex w-full overflow-hidden rounded-full bg-subtle ${className}`} style={{ height }} aria-hidden>
+    <div className={`animate-grow-x origin-left flex w-full overflow-hidden rounded-full bg-subtle ${className}`} style={{ height }} aria-hidden>
       {total > 0 &&
         series.map((s) => {
           const v = values[s.key] ?? 0
@@ -268,7 +268,7 @@ export const DonutChart: React.FC<{
   const c = 2 * Math.PI * r
   let offset = 0
   return (
-    <div className="relative shrink-0" style={{ width: size, height: size }} role="img" aria-label={summary}>
+    <div className="animate-pop-in relative shrink-0" style={{ width: size, height: size }} role="img" aria-label={summary}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90" aria-hidden>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--color-subtle)" strokeWidth={stroke} />
         {total > 0 &&
@@ -360,7 +360,7 @@ export const ProgressBar: React.FC<{ value: number; label: string; tone?: keyof 
       aria-valuemax={100}
       aria-valuenow={Math.round(pct)}
     >
-      <div className={`h-full rounded-full ${PROGRESS_TONE[tone]} transition-[width] duration-500`} style={{ width: `${pct}%` }} />
+      <div className={`animate-grow-x origin-left h-full rounded-full ${PROGRESS_TONE[tone]} transition-[width] duration-500`} style={{ width: `${pct}%` }} />
     </div>
   )
 }

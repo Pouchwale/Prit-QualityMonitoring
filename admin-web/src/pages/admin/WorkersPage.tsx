@@ -104,6 +104,34 @@ const emptyForm: FormState = {
   appAccess: true,
 }
 
+/**
+ * A worker's department as one choice that sets both the department and the quality role. Each
+ * points at an existing department (matched by name or code), so no department is added or renamed.
+ */
+const WORK_AREAS: { key: string; label: string; role: WorkerQualityRole; department: string }[] = [
+  // One IPQC department for printing on every product (it covers Pouch, Label and Sleeve).
+  { key: 'IPQC_PRINT', label: 'IPQC (Print)', role: 'IPQC', department: 'ipqc-print' },
+  { key: 'QC_POUCH', label: 'QC (Pouch)', role: 'QC', department: 'pouch' },
+  { key: 'QC_LABEL', label: 'QC (Label)', role: 'QC', department: 'label' },
+  { key: 'QC_SLEEVE', label: 'QC (Sleeve)', role: 'QC', department: 'sleeve' }
+]
+const QUALITY_ROLE_TEXT: Record<WorkerQualityRole, string> = { IPQC: 'IPQC', QC: 'QC', BOTH: 'IPQC + QC' }
+
+/**
+ * The department as the list shows it: for workers and managers the choice it stands for (e.g.
+ * "IPQC (Printing)" for an IPQC account in Pouch), otherwise the department's own name.
+ */
+function departmentLabel(u: User, departments: Department[]): string | null {
+  if (!u.departmentName) return null
+  if (u.role === 'WORKER' || u.role === 'MANAGER') {
+    const dept = departments.find((d) => d.id === u.departmentId)
+    const key = dept ? [dept.name.trim().toLowerCase(), dept.code.trim().toLowerCase()] : []
+    const area = WORK_AREAS.find((a) => a.role === (u.workerQualityRole ?? 'IPQC') && key.includes(a.department))
+    if (area) return area.label
+  }
+  return u.departmentName
+}
+
 export const WorkersPage: React.FC = () => {
   const canActivate = useCanActivate()
   const { user: me, can } = useAuth()
@@ -172,9 +200,9 @@ export const WorkersPage: React.FC = () => {
     return users.filter((u) => {
       if (tab !== 'ALL' && u.role !== tab) return false
       if (!q) return true
-      return [u.name, u.employeeId, u.designation, u.departmentName, u.shiftName, u.phone, u.email].some((v) => v?.toLowerCase().includes(q))
+      return [u.name, u.employeeId, u.designation, u.departmentName, departmentLabel(u, departments), u.shiftName, u.phone, u.email].some((v) => v?.toLowerCase().includes(q))
     })
-  }, [users, tab, search])
+  }, [users, tab, search, departments])
 
   const paging = usePagination(filtered, 25, `${tab}|${search}`)
   // Only the rows on this page can be selected, so nothing out of sight is ever deleted.
@@ -216,6 +244,7 @@ export const WorkersPage: React.FC = () => {
     e.preventDefault()
     const creating = editing === 'new'
     if (!form.employeeId.trim() || !form.name.trim()) return setFormError('Employee ID and name are required')
+    if (creating && usesWorkArea && !currentArea) return setFormError('Choose the department (IPQC (Print), QC (Pouch), QC (Label) or QC (Sleeve))')
     if (creating && form.password.length < 6) return setFormError('Password must be at least 6 characters')
     if (!creating && form.password && form.password.length < 6) return setFormError('New password must be at least 6 characters')
 
@@ -278,6 +307,17 @@ export const WorkersPage: React.FC = () => {
   }
 
   const departmentOptions = departments.filter((d) => d.isActive || d.id === form.departmentId)
+  // Workers: the four department choices, each with its department's id (none when it is missing).
+  const departmentOf = (name: string) => departments.find((d) => d.name.trim().toLowerCase() === name || d.code.trim().toLowerCase() === name)
+  const workAreas = WORK_AREAS.map((a) => ({ ...a, departmentId: departmentOf(a.department)?.id ?? null }))
+  const currentArea = workAreas.find((a) => a.departmentId && a.departmentId === form.departmentId && a.role === form.workerQualityRole)
+  const currentText = `Current: ${QUALITY_ROLE_TEXT[form.workerQualityRole]} · ${departments.find((d) => d.id === form.departmentId)?.name ?? 'No department'}`
+  // Workers and Managers (e.g. the IPQC Manager) choose one of the four; Admins keep the plain list.
+  const usesWorkArea = form.role === 'WORKER' || form.role === 'MANAGER'
+  const chooseArea = (key: string) => {
+    const area = workAreas.find((a) => a.key === key)
+    if (area?.departmentId) setForm((f) => ({ ...f, workerQualityRole: area.role, departmentId: area.departmentId! }))
+  }
   const shiftOptions = shifts.filter((s) => s.isActive || s.id === form.shiftId)
   const pickerError = departmentsApi.error || shiftsApi.error
 
@@ -429,7 +469,7 @@ export const WorkersPage: React.FC = () => {
                               {/* Tablets and small laptops: the Department column is folded in here. */}
                               {(u.departmentName || u.shiftName) && (
                                 <div className="hidden md:block xl:hidden text-[11.5px] text-ink-muted truncate">
-                                  {[u.departmentName, u.shiftName].filter(Boolean).join(' · ')}
+                                  {[departmentLabel(u, departments), u.shiftName].filter(Boolean).join(' · ')}
                                 </div>
                               )}
                             </div>
@@ -443,7 +483,7 @@ export const WorkersPage: React.FC = () => {
                           </div>
                         </td>
                         <td className="hidden xl:table-cell whitespace-nowrap" data-empty={!u.departmentName && !u.shiftName ? '' : undefined}>
-                          <div className={u.departmentName ? 'text-ink' : 'text-ink-faint'}>{u.departmentName ?? '—'}</div>
+                          <div className={u.departmentName ? 'text-ink' : 'text-ink-faint'}>{departmentLabel(u, departments) ?? '—'}</div>
                           {u.shiftName && (
                             <div className="flex items-center gap-1 text-[11.5px] text-ink-muted">
                               <Clock3 className="w-3 h-3 shrink-0" aria-hidden />
@@ -560,29 +600,45 @@ export const WorkersPage: React.FC = () => {
                 ))}
               </Select>
             </Field>
-            {form.role === 'WORKER' && (
-              <Field label="Quality Role" required hint="Determines IPQC, QC, or both IPQC + QC check schedules, parameters, and notifications">
-                <Select value={form.workerQualityRole} onChange={(e) => set('workerQualityRole', e.target.value as WorkerQualityRole)}>
-                  <option value="IPQC">IPQC</option>
-                  <option value="QC">QC</option>
-                  <option value="BOTH">IPQC + QC (Both)</option>
-                </Select>
-              </Field>
-            )}
             <Field label="Designation" hint="Shown as “Role” on the worker's mobile profile">
               <TextInput value={form.designation} onChange={(e) => set('designation', e.target.value)} placeholder="e.g. Quality Inspector" maxLength={100} />
             </Field>
-            <Field label="Department">
-              <Select value={form.departmentId} onChange={(e) => set('departmentId', e.target.value)}>
-                <option value="">No department</option>
-                {departmentOptions.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.isActive ? d.name : `${d.name} (inactive)`}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Shift">
+            {usesWorkArea ? (
+              <Field
+                label="Department"
+                required
+                hint={form.role === 'WORKER' ? "Also sets the worker's quality role (IPQC or QC): their checks, parameters and notifications" : 'The area this manager leads (IPQC or QC). Their access is set in Roles & Permissions.'}
+              >
+                <Select value={currentArea?.key ?? ''} onChange={(e) => chooseArea(e.target.value)}>
+                  {/* An account set up before these choices keeps its setting until one is chosen. */}
+                  {!currentArea && <option value="">{editing === 'new' ? 'Choose a department' : currentText}</option>}
+                  {workAreas.map((a) => (
+                    <option key={a.key} value={a.key} disabled={!a.departmentId}>
+                      {a.departmentId ? a.label : `${a.label} (department missing)`}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : (
+              <Field label="Department">
+                <Select value={form.departmentId} onChange={(e) => set('departmentId', e.target.value)}>
+                  <option value="">No department</option>
+                  {departmentOptions.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.isActive ? d.name : `${d.name} (inactive)`}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+            <Field
+              label="Shift"
+              hint={(() => {
+                const s = shifts.find((x) => x.id === form.shiftId)
+                if (!s) return undefined
+                return s.breakStartTime && s.breakEndTime ? `Break ${formatClockRange(s.breakStartTime, s.breakEndTime)}, from the shift` : 'This shift has no break'
+              })()}
+            >
               <Select value={form.shiftId} onChange={(e) => set('shiftId', e.target.value)}>
                 <option value="">No shift</option>
                 {shiftOptions.map((s) => (

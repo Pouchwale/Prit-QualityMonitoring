@@ -15,6 +15,9 @@ import {
   executeManualReportRun
 } from '../services/automatedReports'
 import { verifySmtpConnection } from '../services/reportEmailer'
+import { checkScopeWhere, departmentScope } from '../services/departmentScope'
+import { and, inArray } from 'drizzle-orm'
+import { qualityChecks } from '../db/schema'
 import { resendDailyTaskReport } from '../services/dailyTaskReport'
 import {
   getChecksForCrystalReport,
@@ -209,7 +212,8 @@ reportSharingRouter.post('/sample-preview', requireModule('reports', 'view'), as
   const sampling = await sampleEligibleChecks({
     periodFrom,
     periodTo,
-    percentage: parsed.data.percentage
+    percentage: parsed.data.percentage,
+    where: checkScopeWhere(await departmentScope(req.user!))
   })
 
   res.json({
@@ -252,6 +256,7 @@ reportSharingRouter.post('/send-now', requireModule('reports', 'manage'), async 
 
   try {
     const result = await executeManualReportRun({
+      where: checkScopeWhere(await departmentScope(req.user!)),
       recipients: parsed.data.recipients,
       periodFrom,
       periodTo,
@@ -310,7 +315,12 @@ reportSharingRouter.get('/preview-pdf', requireModule('reports', 'export'), asyn
     throw badRequest('Please provide at least one check ID to generate the report.')
   }
 
-  const checks = await getChecksForCrystalReport(checkIds)
+  // A Manager previews only their department's checks.
+  const scopeWhere = checkScopeWhere(await departmentScope(req.user!))
+  const allowed = scopeWhere
+    ? (await db.select({ id: qualityChecks.id }).from(qualityChecks).where(and(inArray(qualityChecks.id, checkIds), scopeWhere))).map((r) => r.id)
+    : checkIds
+  const checks = await getChecksForCrystalReport(allowed)
   if (!checks.length) {
     throw badRequest('No matching checks found for the requested IDs.')
   }

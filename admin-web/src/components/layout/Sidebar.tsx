@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { AlertOctagon, Building2, CalendarCheck, CalendarClock, Clock3, Cpu, Factory, FileSpreadsheet, Gauge, History, LayoutDashboard, ShieldCheck, SlidersHorizontal, Tags, UserRound, Users, Workflow, X } from 'lucide-react'
+import { AlertOctagon, Building2, CalendarCheck, CalendarClock, Clock3, Cpu, DatabaseBackup, Factory, FileSpreadsheet, Gauge, History, LayoutDashboard, ShieldCheck, SlidersHorizontal, Tags, UserRound, Users, Workflow, X } from 'lucide-react'
 import type { ModuleKey } from '../../types'
 import { portalLabel, useAuth } from '../../lib/auth'
 import { Link } from 'react-router-dom'
@@ -28,6 +28,7 @@ export type NavTab =
   | 'leave-settings'
   | 'audit-logs'
   | 'access'
+  | 'backup'
   | 'account'
 
 /** Page names, also shown as the title in the compact mobile header. */
@@ -53,6 +54,7 @@ export const NAV_LABEL: Record<NavTab, string> = {
   'leave-settings': 'Leave Settings',
   'audit-logs': 'Audit Logs',
   access: 'Roles & Permissions',
+  backup: 'Backup & Restore',
   account: 'My Account'
 }
 
@@ -86,7 +88,7 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
 /** Pages in menu order, used to find where to land when the current page is not allowed. */
 export const NAV_ORDER: NavTab[] = [
   'dashboard', 'checks', 'jobs', 'exceptions', 'reports', 'performance', 'leave-approval', 'leave-requests', 'leave-reports', 'leave-settings', 'parameters', 'activities', 'machines', 'schedules', 'calendar',
-  'workers', 'departments', 'department-config', 'shifts', 'audit-logs', 'access', 'account'
+  'workers', 'departments', 'department-config', 'shifts', 'audit-logs', 'access', 'backup', 'account'
 ]
 
 /** Whether the signed-in user may open a page. */
@@ -96,6 +98,8 @@ export function useCanOpen() {
     if (tab === 'account') return true
     // Only the Super Admin sets roles' and users' permissions (the backend refuses everyone else).
     if (tab === 'access') return isSuperAdmin
+    // Backup & Restore is the Super Admin's alone (the backend refuses everyone else too).
+    if (tab === 'backup') return isSuperAdmin
     const module = NAV_MODULE[tab]
     return module ? can(module) : false
   }
@@ -222,6 +226,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { id: 'access', icon: <ShieldCheck className="w-4 h-4" /> },
         { id: 'audit-logs', icon: <History className="w-4 h-4" /> },
+        { id: 'backup', icon: <DatabaseBackup className="w-4 h-4" /> },
         { id: 'account', icon: <UserRound className="w-4 h-4" /> }
       ]
     }

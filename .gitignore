@@ -1,27 +1,66 @@
-# Dependencies
-node_modules/
+# Quality Monitoring: files Git must never track. Source code, migrations (backend/drizzle/*.sql),
+# app icons and the launcher's source stay tracked; everything generated, local or secret is below.
+# Git keeps tracking a file it already tracks even when it matches a rule here.
 
-# Build output
+# ---------------------------------------------------------------- dependencies
+node_modules/
+.pnp
+.pnp.js
+.yarn/
+.npm/
+bower_components/
+
+# ---------------------------------------------------------------- build output
 dist/
 dist-update/
 dist-ssr/
 web-build/
+out/
 *.tsbuildinfo
+# Expo prebuild output of the worker app (made by expo prebuild / EAS). Only the app's own root
+# folders: the voice-alerts native module's android/ folder is source code and stays tracked.
+/worker-mobile/android/
+/worker-mobile/ios/
+# Gradle and Android Studio output, wherever it appears (also inside the native module)
+.gradle/
+**/android/build/
+**/android/.cxx/
+local.properties
+*.hprof
+# App packages
+*.apk
+*.aab
+*.ipa
+# Launcher build (launcher/build.bat makes Quality Server.exe)
+*.exe
+*.pdb
+launcher/bin/
+launcher/obj/
 
-# Environment and secrets — never commit these
+# ---------------------------------------------------------------- environment and secrets
 .env
 .env.*
+*.env
 !.env.example
 backend/secrets/
+secrets/
+certs/
 *.key
 *.pem
 *.p12
 *.p8
+*.pfx
 *.jks
 *.keystore
 *.mobileprovision
-certs/
+*.ppk
+id_rsa*
+id_ed25519*
+.npmrc
+.netrc
+# Local-only files and configs (e.g. vite.config.local.ts, tests/*.local.mts)
 *.local
+*.local.*
 
 # Firebase / Google config and service-account keys. The Android build reads google-services.json
 # from the worker-mobile folder (EAS_NO_VCS=1 and .easignore), not from git, so builds keep working.
@@ -32,73 +71,114 @@ fcm-key.json
 # EAS local build credentials
 credentials.json
 
-# Worker photos and videos uploaded to the backend
+# ---------------------------------------------------------------- database backups and exports
+# Backup & Restore: backup files, temporary work and history
+Database Backup/
+backend/.backup-work/
+backend/backup-state.json
+*.zip
+*.zip.partial
+# Local backups (database dumps and evidence uploads) and builds
+backups/
+builds/
+*.dump
+*.backup
+*.sql.gz
+*.sql.zip
+*.sqlite
+*.sqlite3
+*.db
+# Exported data and generated reports (Excel / CSV / PDF exports hold plant data)
+*.csv
+*.xls
+*.xlsx
+*.pdf
+
+# ---------------------------------------------------------------- uploaded and generated files
+# Worker photos and videos
 backend/uploads/
+# Company calendar documents uploaded for review (stay on the server)
+backend/calendar-documents/
+# Report emails written to disk instead of sent (REPORT_OUTBOX_DIR)
+backend/report-outbox/
+# Offline OCR language data, copied from node_modules at runtime
+backend/.ocr-data/
 
-# Expo / React Native
-.expo/
-.expo-shared/
-expo-env.d.ts
-android/
-ios/
-*.apk
-*.aab
-*.ipa
-
-# Temporary helper scripts
-backend/tmp-*.ts
-
-# Logs
+# ---------------------------------------------------------------- logs and temporary files
 logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
+*.pid
+*.seed
+tmp/
+temp/
+*.tmp
+*.temp
+# Temporary helper scripts
+backend/tmp-*.ts
+# Scratch and backup copies of files
+*.orig
+*.bak
+*.old
+*.pre-*
+*~
 
+# ---------------------------------------------------------------- test output
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+screenshots/
+
+# ---------------------------------------------------------------- caches
+.cache/
+.eslintcache
+.stylelintcache
+.parcel-cache/
+.vite/
+.turbo/
+.metro-health-check*
+.expo/
+.expo-shared/
+expo-env.d.ts
 # Python virtual environment and caches
 .venv/
+venv/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Tool caches
-.eslintcache
-.cache/
-
-# Editors and OS files
+# ---------------------------------------------------------------- editors and IDEs
 .vscode/*
 !.vscode/extensions.json
 .idea/
+.vs/
+.fleet/
+.history/
+*.iml
 *.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.user
 *.sw?
+
+# ---------------------------------------------------------------- operating system files
 .DS_Store
+._*
 Thumbs.db
+ehthumbs.db
 desktop.ini
+$RECYCLE.BIN/
 
-# Company calendar documents uploaded for review (stay on the server)
-backend/calendar-documents/
-
-# Offline OCR language data, copied from node_modules at runtime
-backend/.ocr-data/
-
+# ---------------------------------------------------------------- tools
 # Claude Code: installed skills and personal settings stay on each developer's machine
 .claude/
-
 # Codebase knowledge graph (graphify), regenerated on demand
 graphify-out/
-
-# Scratch and backup files, test output
-*.orig
-*.bak
-*.pre-*
-screenshots/
-playwright-report/
-test-results/
-coverage/
-
-# Local backups (they hold database dumps and evidence uploads), builds and the launcher binary
-backups/
-builds/
-*.exe
-*.dump
-*.sql.gz

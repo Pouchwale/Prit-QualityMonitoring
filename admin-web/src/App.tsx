@@ -32,6 +32,7 @@ import { WorkersPage } from './pages/admin/WorkersPage'
 import { ShiftsPage } from './pages/admin/ShiftsPage'
 import { PlantCalendarPage } from './pages/admin/PlantCalendarPage'
 import { AuditLogsPage } from './pages/admin/AuditLogsPage'
+import { BackupRestorePage } from './pages/admin/BackupRestorePage'
 import { RolesPermissionsPage } from './pages/admin/RolesPermissionsPage'
 import { AccountPage } from './pages/admin/AccountPage'
 import { LeaveRequestsPage } from './pages/admin/leave/LeaveRequestsPage'
@@ -217,9 +218,10 @@ const Shell: React.FC = () => {
           }}
         />
         {/* overflow-x-hidden: a wide table scrolls inside its own container, never the whole page */}
-        <main id="main-content" tabIndex={-1} className="app-shell flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6 outline-none">
+        <main id="main-content" tabIndex={-1} className="app-shell relative flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-5 lg:p-6 outline-none">
           {/* Content width is capped on very wide screens so tables and cards stay readable. */}
-          <div className="mx-auto w-full max-w-[1680px]">
+          {/* Keyed by the address: each page's sections rise in when it opens (index.css .page-enter). */}
+          <div key={location.pathname} className="page-enter mx-auto w-full max-w-[1680px]">
           <Routes>
             <Route index element={<FirstAllowed />} />
             {/* Quality Monitoring: one module, three views, each keeping its own address. */}
@@ -249,6 +251,7 @@ const Shell: React.FC = () => {
             <Route path={NAV_PATH['leave-settings']} element={leaveView('leave-settings', <LeaveSettingsPage />)} />
             <Route path={NAV_PATH['audit-logs']} element={<Guard tab="audit-logs"><AuditLogsPage /></Guard>} />
             <Route path={NAV_PATH.access} element={<Guard tab="access"><RolesPermissionsPage /></Guard>} />
+            <Route path={NAV_PATH.backup} element={<Guard tab="backup"><BackupRestorePage /></Guard>} />
             <Route path={NAV_PATH.account} element={<AccountPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>

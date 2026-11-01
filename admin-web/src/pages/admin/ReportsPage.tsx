@@ -36,6 +36,7 @@ import { ChartLegend, DonutChart, ProgressBar, STATUS_SERIES, StackedBarChart, t
 import { IconButton, Segmented } from '../../components/ui/Toolbar'
 import { DetailedRecords, TraceChanges, TraceGroupTable, TraceSummary, TraceWorkers } from './reports/TraceSections'
 import { ReportSharingSection } from './reports/ReportSharingSection'
+import { PdfPreview } from '../../components/common/PdfPreview'
 import { itemCodeOf, jobNoOf } from './reports/checkFields'
 
 /** Above this many checks the detailed records are left to the CSV / PDF unless a report is traced. */
@@ -228,6 +229,20 @@ export const ReportsPage: React.FC = () => {
     } finally {
       setDownloading(false)
     }
+  }
+
+  /*
+   * Print: the full Quality Monitoring Report (the same PDF as Download PDF, built on the server
+   * from these filters) in a viewer with its own Print button, so the printout is the formatted
+   * report and not a copy of the screen.
+   */
+  const [printPath, setPrintPath] = useState<string | null>(null)
+  const openPrint = () => {
+    const q = new URLSearchParams()
+    for (const [k, v] of Object.entries({ from: filters.from, to: filters.to, shiftId: filters.shiftId, machineId: filters.machineId, workerId: filters.workerId, activityId: filters.activityId, departmentId: filters.departmentId, itemCode: filters.itemCode, jobNo: filters.jobNo, result: filters.status })) {
+      if (v) q.set(k, String(v))
+    }
+    setPrintPath(`/api/reports/quality-monitoring.pdf?${q.toString()}`)
   }
 
   const reportQuery = {
@@ -435,10 +450,10 @@ export const ReportsPage: React.FC = () => {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => window.print()}
+                    onClick={openPrint}
                     disabled={checks.length === 0}
                     icon={<Printer className="w-3.5 h-3.5" />}
-                    title="Print / Save as PDF"
+                    title="Print the formatted Quality Monitoring Report"
                   >
                     Print
                   </Button>
@@ -683,6 +698,14 @@ export const ReportsPage: React.FC = () => {
           </DataState>
         </>
       )}
+      <PdfPreview
+        path={printPath}
+        title="Quality Monitoring Report"
+        detail={`${formatDateKey(filters.from)}${filters.to !== filters.from ? ` – ${formatDateKey(filters.to)}` : ''} · print preview`}
+        fileName={`QMR-${filters.from.replace(/-/g, '')}-${filters.to.replace(/-/g, '')}.pdf`}
+        printable
+        onClose={() => setPrintPath(null)}
+      />
     </div>
   )
 }

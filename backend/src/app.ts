@@ -30,6 +30,8 @@ import { accessRouter } from './routes/access'
 import { deletionsRouter } from './routes/deletions'
 import { deviceRouter } from './routes/deviceVoice'
 import { reportSharingRouter } from './routes/reportSharing'
+import { backupDownload, backupJobStatus, backupRouter } from './routes/backup'
+import { isMaintenance } from './services/backup'
 import { HttpError } from './lib/http'
 import { serveSignedMedia } from './lib/mediaLinks'
 
@@ -60,6 +62,16 @@ export function createApp() {
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true })
+  })
+
+  // Backup & Restore: a job's progress and one-time download links, outside the sign-in check so
+  // they keep working while a restore pauses everything else (routes/backup.ts).
+  app.get('/api/backup-jobs/:id', backupJobStatus)
+  app.get('/api/backup-download/:ticket', backupDownload)
+  // While a restore changes the live data, everything else waits (services/backup.ts).
+  app.use((_req, res, next) => {
+    if (!isMaintenance()) return next()
+    res.status(503).json({ error: 'The system is being restored from a backup. Please try again in a few minutes.', code: 'MAINTENANCE' })
   })
 
   // Evidence files: only through signed, short-lived links handed out by permission-checked APIs.
@@ -105,6 +117,8 @@ export function createApp() {
   admin.use('/performance', performanceRouter)
   admin.use('/leave', leaveRouter)
   admin.use('/reports/sharing', reportSharingRouter)
+  // Backup & Restore: Super Admin only (checked inside).
+  admin.use('/system/backup', backupRouter)
   admin.use('/', monitoringRouter)
   app.use('/api', admin)
 

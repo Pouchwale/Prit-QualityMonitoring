@@ -73,7 +73,7 @@ export const Button: React.FC<Props> = ({
     accessibilityRole="button"
     accessibilityLabel={accessibilityLabel ?? label}
     accessibilityState={{ disabled: disabled || loading, busy: loading }}
-    className={`${size === 'compact' ? 'h-12' : 'h-[52px]'} flex-row items-center justify-center rounded-[14px] px-5 ${CONTAINER[variant]} ${disabled ? 'opacity-40' : ''} ${className}`}
+    className={`${size === 'compact' ? 'h-12' : 'h-[52px]'} flex-row items-center justify-center rounded-[14px] px-5 active:scale-[0.98] ${CONTAINER[variant]} ${disabled ? 'opacity-40' : ''} ${className}`}
   >
     {loading ? (
       <View className="mr-2">

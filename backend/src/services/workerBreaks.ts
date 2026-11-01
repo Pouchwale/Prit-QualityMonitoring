@@ -1,10 +1,11 @@
 import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 import { db } from '../db/client'
-import { qualityChecks, workerBreaks } from '../db/schema'
+import { qualityChecks, shifts, users } from '../db/schema'
 import { addDays, atTime, startOfDay } from '../lib/time'
 
 /**
- * Worker breaks (Shifts page → Break times): each worker's own daily break, plant time. One rule, in
+ * Worker breaks: every worker has the daily break of their shift (Shifts page; plant time), so a
+ * worker moved to another shift takes that shift's break at once, with nothing to set per worker. One rule, in
  * one place, keeps a worker's checks out of their break, and everything else follows the checks:
  *
  *   A check that would be due during the break, or whose deadline (end of its window) would fall
@@ -30,9 +31,14 @@ export interface BreakTime {
 
 export type BreaksByWorker = Map<string, BreakTime>
 
+/** Each worker's break: the break of the shift they are on (workers without one have none). */
 export async function loadBreaks(): Promise<BreaksByWorker> {
-  const rows = await db.select().from(workerBreaks)
-  return new Map(rows.map((r) => [r.workerId, { startTime: r.startTime, endTime: r.endTime }]))
+  const rows = await db
+    .select({ workerId: users.id, startTime: shifts.breakStartTime, endTime: shifts.breakEndTime })
+    .from(users)
+    .innerJoin(shifts, eq(shifts.id, users.shiftId))
+    .where(and(isNotNull(shifts.breakStartTime), isNotNull(shifts.breakEndTime)))
+  return new Map(rows.map((r) => [r.workerId, { startTime: r.startTime!, endTime: r.endTime! }]))
 }
 
 /** The break running at `at` (from its start, up to but not including its end), if any. */

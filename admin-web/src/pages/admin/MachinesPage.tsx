@@ -357,12 +357,6 @@ export const MachinesPage: React.FC = () => {
             <Field label="Code" required>
               <TextInput value={form.code} onChange={(e) => set('code', e.target.value)} placeholder="e.g. PRT-03" maxLength={40} className="font-mono" />
             </Field>
-            <Field label="Line">
-              <TextInput value={form.line} onChange={(e) => set('line', e.target.value)} placeholder="e.g. Line 2" maxLength={200} />
-            </Field>
-            <Field label="Model">
-              <TextInput value={form.model} onChange={(e) => set('model', e.target.value)} placeholder="e.g. Rotomec 8-Color" maxLength={200} />
-            </Field>
             <Field label="Status">
               <Select value={form.status} onChange={(e) => set('status', e.target.value as MachineStatus)}>
                 {STATUS_OPTIONS.map((o) => (

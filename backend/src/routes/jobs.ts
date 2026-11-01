@@ -15,6 +15,14 @@ import { forceClose, handover, jobHandoverList } from '../services/jobMonitoring
 import { jobById, jobDtoById } from '../services/jobs'
 import { listJobs } from '../services/monitoringConfig'
 import { sendToUser } from '../services/notifications'
+import { assertWorkerInScope, checkScopeWhere, departmentScope, jobScopeWhere, type DepartmentScope } from '../services/departmentScope'
+import { HttpError } from '../lib/http'
+
+/** A Manager handles only jobs of their own departments (services/departmentScope.ts). */
+function assertJobInScope(scope: DepartmentScope, departmentId: string | null | undefined) {
+  if (!scope.restricted) return
+  if (scope.missingDepartment || !departmentId || !scope.departmentIds.includes(departmentId)) throw new HttpError(403, 'This job belongs to another department')
+}
 
 /**
  * Jobs for Admins and Managers: plan and assign jobs, see every job with its start / end check
@@ -61,6 +69,7 @@ jobsRouter.get('/', requireModule('jobs', 'view'), async (req, res) => {
     .parse(req.query)
   res.json(
     await listJobs({
+      where: jobScopeWhere(await departmentScope(req.user!)),
       ...optionalRange(q),
       machineId: q.machineId,
       running: q.running,
@@ -80,7 +89,9 @@ async function jobRow(id: string) {
 jobsRouter.get('/:id', requireModule('jobs', 'view'), async (req, res) => {
   const id = idParam(req)
   const job = await jobRow(id)
-  const [checks, handovers] = await Promise.all([listChecks({ where: eq(qualityChecks.jobId, id) }, { order: 'asc' }), jobHandoverList(id)])
+  const scope = await departmentScope(req.user!)
+  assertJobInScope(scope, job.departmentId)
+  const [checks, handovers] = await Promise.all([listChecks({ where: and(eq(qualityChecks.jobId, id), checkScopeWhere(scope)) }, { order: 'asc' }), jobHandoverList(id)])
   res.json({ job, checks, handovers })
 })
 
@@ -114,6 +125,7 @@ jobsRouter.post('/', requireModule('jobs', 'manage'), async (req, res) => {
   if (!machine) throw notFound('Machine')
   // The Item Code decides the department; the worker's Start Job works it out again from it.
   const { itemCode, department } = await plannedDepartment(body.itemCode)
+  assertJobInScope(await departmentScope(req.user!), department.id)
   const [row] = await db
     .insert(jobs)
     .values({
@@ -140,11 +152,13 @@ jobsRouter.put('/:id', requireModule('jobs', 'manage'), async (req, res) => {
   const body = planInput.parse(req.body)
   const before = await jobDtoById(id)
   if (!before) throw notFound('Job')
+  assertJobInScope(await departmentScope(req.user!), before.departmentId)
   if (before.status !== 'PLANNED') throw conflict('Only a planned job can be edited. Use Handover to change the worker of a running job.')
   const [machine] = await db.select({ id: machines.id }).from(machines).where(eq(machines.id, body.machineId))
   if (!machine) throw notFound('Machine')
   // Worked out again: a new Item Code can change the department.
   const { itemCode, department } = await plannedDepartment(body.itemCode)
+  assertJobInScope(await departmentScope(req.user!), department.id)
   const [row] = await db
     .update(jobs)
     .set({
@@ -174,6 +188,9 @@ jobsRouter.post('/:id/handover', requireModule('jobs', 'edit'), async (req, res)
     .parse(req.body)
   const job = await jobById(id)
   if (!job) throw notFound('Job')
+  const scope = await departmentScope(req.user!)
+  assertJobInScope(scope, job.departmentId)
+  await assertWorkerInScope(scope, body.toUserId)
   const result = await handover({ jobId: id, toUserId: body.toUserId, shiftId: body.shiftId ?? null, note: body.note || null, byUserId: req.user!.id, asWorker: false })
   const [machine] = await db.select({ name: machines.name }).from(machines).where(eq(machines.id, job.machineId))
   await sendToUser(body.toUserId, 'Job handed over to you', `${machine?.name ?? 'Machine'} · Job ${job.jobNo}${job.itemCode ? ` · ${job.itemCode}` : ''} from ${req.user!.name}`, { jobId: id })
@@ -192,6 +209,7 @@ jobsRouter.post('/:id/end', requireModule('jobs', 'edit'), async (req, res) => {
   const id = idParam(req)
   const job = await jobById(id)
   if (!job) throw notFound('Job')
+  assertJobInScope(await departmentScope(req.user!), job.departmentId)
   const closed = await forceClose(id, req.user!.id)
   const legacy = closed.job.status === 'COMPLETED' ? await removePendingJobChecks(job.machineId) : 0
   invalidateCheckGeneration()

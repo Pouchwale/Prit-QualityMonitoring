@@ -35,9 +35,9 @@ export const Drawer: React.FC<DrawerProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/45 backdrop-blur-[2px] animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/45 backdrop-blur-[2px] animate-fade-in">
       <div
-        className={`outline-none bg-white h-full w-full ${widthClasses[width]} shadow-[var(--shadow-pop)] border-l border-line flex flex-col slide-in-from-right duration-200`}
+        className={`outline-none bg-white h-full w-full ${widthClasses[width]} shadow-[var(--shadow-pop)] border-l border-line flex flex-col animate-slide-in-right`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

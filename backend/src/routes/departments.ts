@@ -15,6 +15,8 @@ const input = z.object({
   name: z.string().trim().min(1, 'Name is required').max(100),
   code: z.string().trim().min(1, 'Code is required').max(30),
   isActive: z.boolean().default(true),
+  /** Departments whose checks this one's workers also do (e.g. IPQC (Print): Pouch, Label, Sleeve). Not sent: kept. */
+  coversDepartmentIds: z.array(z.uuid()).max(50).optional(),
   /** Sent by older apps. The prefixes are now set in Department Configuration (routes/departmentMappings.ts). */
   itemCodePrefixes: z.array(z.string()).max(20).optional()
 })
@@ -48,7 +50,7 @@ async function refusePrefixChange(sent: string[] | undefined, departmentId: stri
 
 departmentsRouter.get('/', async (_req, res) => {
   const rows = await db
-    .select({ id: departments.id, name: departments.name, code: departments.code, isActive: departments.isActive, itemCodePrefixes })
+    .select({ id: departments.id, name: departments.name, code: departments.code, isActive: departments.isActive, coversDepartmentIds: departments.coversDepartmentIds, itemCodePrefixes })
     .from(departments)
     .orderBy(asc(departments.name))
   res.json(rows)
@@ -68,6 +70,8 @@ departmentsRouter.put('/:id', async (req, res) => {
   const [before] = await db.select().from(departments).where(eq(departments.id, id))
   if (!before) throw notFound('Department')
   await refusePrefixChange(sent, id)
+  // A department never covers itself.
+  if (data.coversDepartmentIds) data.coversDepartmentIds = [...new Set(data.coversDepartmentIds)].filter((d) => d !== id)
   const [row] = await db.update(departments).set(data).where(eq(departments.id, id)).returning()
   await audit(req, 'UPDATE_DEPARTMENT', 'Department', id, { oldValue: snapshot(before), newValue: snapshot(row) })
   res.json(row)

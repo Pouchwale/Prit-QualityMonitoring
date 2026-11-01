@@ -69,6 +69,12 @@ export const departments = pgTable('departments', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull().unique(),
   code: text('code').notNull().unique(),
+  /**
+   * Other departments whose checks this department's workers also do, e.g. IPQC (Print) covers
+   * Pouch, Label and Sleeve. Only widens what a worker may start by hand (services/checkTypeScope.ts);
+   * a job's department and its checks still come from the Item Code.
+   */
+  coversDepartmentIds: uuid('covers_department_ids').array().notNull().default(sql`ARRAY[]::uuid[]`),
   isActive: boolean('is_active').notNull().default(true),
   ...timestamps
 })
@@ -105,6 +111,13 @@ export const shifts = pgTable('shifts', {
   endTime: text('end_time').notNull(),
   /** Minutes a check stays DUE after its scheduled time before it becomes MISSED. */
   graceMinutes: integer('grace_minutes').notNull().default(15),
+  /**
+   * The shift's daily break, HH:MM plant time, inside the shift's hours; both null: no break.
+   * Every worker on the shift has this break (services/workerBreaks.ts), so a worker moved to
+   * another shift takes that shift's break at once.
+   */
+  breakStartTime: text('break_start_time'),
+  breakEndTime: text('break_end_time'),
   isActive: boolean('is_active').notNull().default(true),
   ...timestamps
 })
@@ -787,6 +800,10 @@ export const shiftChangeRequests = pgTable(
   (t) => [index('shift_change_requests_worker_idx').on(t.workerId, t.status)]
 )
 
+/**
+ * Each worker's own break, from before breaks belonged to shifts (migration 0048 gave every shift
+ * its workers' break). No longer read or written; kept so no recorded data is lost.
+ */
 export const workerBreaks = pgTable('worker_breaks', {
   workerId: uuid('worker_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   startTime: text('start_time').notNull(),

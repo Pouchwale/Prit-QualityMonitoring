@@ -5,6 +5,7 @@ import type { MyWeek, WeekDayScore } from '../types'
 import { dateKey } from '../utils/dates'
 import { friendlyMessage } from '../utils/friendlyError'
 import { Icon } from './ui/Icon'
+import { Rise } from './ui/Rise'
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 /** The weekday of a YYYY-MM-DD date. */
@@ -52,48 +53,50 @@ export const MyWeekCard: React.FC = () => {
   const go = (days: number) => data && setWeek(shiftKey(data.dates[0], days))
 
   return (
-    <View className="rounded-2xl bg-surface p-4">
-      <View className="flex-row items-center justify-between">
-        <Text className="text-[17px] font-semibold text-ink">My week</Text>
-        <View className="flex-row items-center">
-          <Pressable onPress={() => go(-7)} accessibilityRole="button" accessibilityLabel="Previous week" className="min-h-[36px] min-w-[36px] items-center justify-center">
-            <Icon name="chevron-back" size={18} color="secondary" />
-          </Pressable>
-          <Text className="text-[13px] font-medium text-ink-secondary">
-            {data ? `${shortDate(data.dates[0])} – ${shortDate(data.dates[data.dates.length - 1])}` : '…'}
-          </Text>
-          <Pressable
-            onPress={() => go(7)}
-            disabled={isThisWeek}
-            accessibilityRole="button"
-            accessibilityLabel="Next week"
-            accessibilityState={{ disabled: isThisWeek }}
-            className={`min-h-[36px] min-w-[36px] items-center justify-center ${isThisWeek ? 'opacity-30' : ''}`}
-          >
-            <Icon name="chevron-forward" size={18} color="secondary" />
-          </Pressable>
-        </View>
-      </View>
-
-      {loading && !data ? (
-        <View className="items-center py-6">
-          <ActivityIndicator />
-        </View>
-      ) : error ? (
-        <View className="mt-3 flex-row items-start">
-          <Icon name="cloud-offline-outline" size={18} color="muted" />
-          <Text className="ml-2 flex-1 text-[14px] leading-[19px] text-ink-muted">{error}</Text>
-        </View>
-      ) : data ? (
-        <>
-          <View className="mt-3 overflow-hidden rounded-xl bg-subtle">
-            {data.dates.map((d, i) => (
-              <DayRow key={d} label={`${dayName(d)} ${shortDate(d)}`} today={d === today} score={data.days[i]} last={i === data.dates.length - 1} />
-            ))}
+    <Rise>
+      <View className="rounded-2xl bg-surface p-4">
+        <View className="flex-row items-center justify-between">
+          <Text className="text-[17px] font-semibold text-ink">My week</Text>
+          <View className="flex-row items-center">
+            <Pressable onPress={() => go(-7)} accessibilityRole="button" accessibilityLabel="Previous week" className="min-h-[36px] min-w-[36px] items-center justify-center">
+              <Icon name="chevron-back" size={18} color="secondary" />
+            </Pressable>
+            <Text className="text-[13px] font-medium text-ink-secondary">
+              {data ? `${shortDate(data.dates[0])} – ${shortDate(data.dates[data.dates.length - 1])}` : '…'}
+            </Text>
+            <Pressable
+              onPress={() => go(7)}
+              disabled={isThisWeek}
+              accessibilityRole="button"
+              accessibilityLabel="Next week"
+              accessibilityState={{ disabled: isThisWeek }}
+              className={`min-h-[36px] min-w-[36px] items-center justify-center ${isThisWeek ? 'opacity-30' : ''}`}
+            >
+              <Icon name="chevron-forward" size={18} color="secondary" />
+            </Pressable>
           </View>
-        </>
-      ) : null}
-    </View>
+        </View>
+
+        {loading && !data ? (
+          <View className="items-center py-6">
+            <ActivityIndicator />
+          </View>
+        ) : error ? (
+          <View className="mt-3 flex-row items-start">
+            <Icon name="cloud-offline-outline" size={18} color="muted" />
+            <Text className="ml-2 flex-1 text-[14px] leading-[19px] text-ink-muted">{error}</Text>
+          </View>
+        ) : data ? (
+          <>
+            <View className="mt-3 overflow-hidden rounded-xl bg-subtle">
+              {data.dates.map((d, i) => (
+                <DayRow key={d} label={`${dayName(d)} ${shortDate(d)}`} today={d === today} score={data.days[i]} last={i === data.dates.length - 1} />
+              ))}
+            </View>
+          </>
+        ) : null}
+      </View>
+    </Rise>
   )
 }
 

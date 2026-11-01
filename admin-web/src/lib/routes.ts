@@ -23,6 +23,7 @@ export const NAV_PATH: Record<NavTab, string> = {
   'leave-settings': '/leave/settings',
   'audit-logs': '/audit-logs',
   access: '/roles-permissions',
+  backup: '/backup-restore',
   account: '/account'
 }
 

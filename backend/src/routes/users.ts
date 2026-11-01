@@ -14,6 +14,7 @@ import { sendTestNotification } from '../services/notifications'
 import { recordShiftLogout, workerShiftStatuses } from '../services/workerShifts'
 import { syncWorkerSchedules } from '../services/workerScheduleSync'
 import { assertActivation, denyActivation, isSuperAdmin } from '../lib/activation'
+import { assertAccountInScope, assertWorkerInScope, departmentScope, scopedWorkerIds, workerScopeWhere } from '../services/departmentScope'
 
 export const usersRouter = Router()
 
@@ -160,12 +161,14 @@ usersRouter.get('/', requireAnyView('workers', 'schedules', 'checks', 'jobs', 'e
   const requested = z.enum(ROLES).optional().parse(req.query.role)
   const role = isAdminRole(req.user!.role) ? requested : 'WORKER'
   if (!isAdminRole(req.user!.role) && requested && requested !== 'WORKER') return res.json([])
+  // A Manager sees only the workers of their own department (services/departmentScope.ts).
+  const scope = await departmentScope(req.user!)
   const rows = await db
     .select({ ...publicColumns, departmentName: departments.name, shiftName: shifts.name })
     .from(users)
     .leftJoin(departments, eq(users.departmentId, departments.id))
     .leftJoin(shifts, eq(users.shiftId, shifts.id))
-    .where(role ? eq(users.role, role) : undefined)
+    .where(and(role ? eq(users.role, role) : undefined, workerScopeWhere(scope)))
     .orderBy(asc(users.name))
   res.json(rows)
 })
@@ -177,6 +180,8 @@ usersRouter.post('/', createAccounts, async (req, res) => {
     await audit(req, 'ROLE_CHANGE_DENIED', 'User', null, { newValue: { requestedRole: data.role, newAccount: data.employeeId } }).catch(() => {})
     throw new HttpError(403, 'Only the Super Admin can create Manager or Admin accounts')
   }
+  // A Manager adds workers of their own department only.
+  assertAccountInScope(await departmentScope(req.user!), data)
   // A new account is active; creating one disabled is deactivating it.
   await assertActivation(req, 'User', null, true, data.isActive)
   assertCanManageAccount(req.user!, data.role)
@@ -213,6 +218,12 @@ usersRouter.put('/:id', editAccounts, async (req, res) => {
   }
   const roleChange = data.role !== before.role
   if (roleChange && req.user!.role !== 'SUPER_ADMIN') await denyRoleChange(req, id, data.role)
+  // A Manager edits only workers of their own department, and keeps them there.
+  const scope = await departmentScope(req.user!)
+  if (scope.restricted) {
+    await assertWorkerInScope(scope, id)
+    assertAccountInScope(scope, data)
+  }
   // Disabling or enabling an account is the Super Admin's alone.
   await assertActivation(req, 'User', id, before.isActive, data.isActive)
   assertCanManageAccount(req.user!, before.role, data.role)
@@ -295,8 +306,10 @@ usersRouter.put('/:id/role', async (req, res) => {
  * Each worker's shift sign-in: on shift or not, signed in or not, when the session ends
  * automatically, and the login reminders sent this shift (services/workerShifts.ts).
  */
-usersRouter.get('/shift-status', requireModule('shift_signin', 'view'), async (_req, res) => {
-  res.json(await workerShiftStatuses())
+usersRouter.get('/shift-status', requireModule('shift_signin', 'view'), async (req, res) => {
+  const ids = await scopedWorkerIds(await departmentScope(req.user!))
+  const all = await workerShiftStatuses()
+  res.json(ids ? all.filter((w) => ids.includes(w.workerId)) : all)
 })
 
 /** Sends a test notification to the worker's phones so the admin can verify the setup. */
@@ -304,6 +317,7 @@ usersRouter.post('/:id/test-notification', requireModule('workers', 'edit'), asy
   const id = idParam(req)
   const [user] = await db.select().from(users).where(eq(users.id, id))
   if (!user) throw notFound('User')
+  await assertWorkerInScope(await departmentScope(req.user!), id)
 
   const result = await sendTestNotification(id)
   await audit(req, 'TEST_NOTIFICATION', 'User', id, { newValue: result })

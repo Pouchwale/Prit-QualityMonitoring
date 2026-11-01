@@ -1,0 +1,28 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.pouchwale.voicealerts'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.voicealerts"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // VoiceMessagingService extends expo-notifications' message service. The app already contains
+  // expo-notifications and Firebase Messaging, so they are only needed to compile.
+  def notifications = rootProject.findProject(':expo-notifications')
+  if (notifications != null) {
+    compileOnly notifications
+  } else {
+    compileOnly 'host.exp.exponent:expo.modules.notifications:57.0.21'
+  }
+  compileOnly 'com.google.firebase:firebase-messaging:25.0.1'
+  implementation 'androidx.core:core:1.17.0'
+}

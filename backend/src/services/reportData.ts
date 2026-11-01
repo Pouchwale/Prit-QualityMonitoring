@@ -378,10 +378,12 @@ export async function buildQualityReport(
      * worker filter); the reported checks themselves are used when it is left out.
      */
     trace?: { context?: CheckDto[] }
+    /** Most checks to read (default 5000). */
+    listLimit?: number
   }
 ): Promise<QualityReport> {
   const [checks, settingRows, allShifts, allParameters] = await Promise.all([
-    listChecks(filters, { order: 'asc' }),
+    listChecks(filters, { order: 'asc', ...(context.listLimit ? { limit: context.listLimit } : {}) }),
     db.select().from(settings),
     db.select().from(shifts),
     db
@@ -395,7 +397,9 @@ export async function buildQualityReport(
   }
   const company = (setting('company')?.name as string) ?? 'Gujarat Print Pack Publications Pvt. Ltd.'
   const plant = (setting('plant')?.name as string) ?? null
-  const department = (setting('company')?.department as string) ?? 'Quality / IPQC'
+  // The report's department: the one it is filtered to, else the company setting, else every department.
+  const filteredDepartment = filters.departmentId ? checks.find((c) => c.departmentId === filters.departmentId)?.departmentName : null
+  const department = filteredDepartment ?? (setting('company')?.department as string) ?? 'Quality – all departments'
 
   const limits = new Map(allParameters.map((p) => [p.id, { min: p.minValue, max: p.maxValue }]))
   const parameterNames = new Map(allParameters.map((p) => [p.id, p.name]))

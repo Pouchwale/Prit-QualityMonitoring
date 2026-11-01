@@ -57,7 +57,7 @@ import {
   startJob
 } from '../services/jobMonitoring'
 import { normalizeItemCode, requireItemCodeDepartment } from '../services/itemCodeDepartment'
-import { checkTypeInDepartment, jobDepartmentOptions, userDepartmentId } from '../services/checkTypeScope'
+import { checkTypeInDepartment, checkTypeInScope, jobDepartmentOptions, userDepartmentId, userDepartmentScope } from '../services/checkTypeScope'
 import { VOICE_LANGUAGES, sendToUser } from '../services/notifications'
 import { resetScheduleTimer, settleNextDue } from '../services/monitoringTimer'
 import { activeExceptionReasons } from '../services/monitoringConfig'
@@ -390,8 +390,8 @@ workerRouter.get('/machines', async (req, res) => {
   if (ids.length === 0) return res.json([])
   await prepareChecksForRead()
 
-  const [myDepartment, rows, links, scheduleRows, openChecks, lastDone, jobs, closures, planned, jobTypes, departmentOptions] = await Promise.all([
-    userDepartmentId(req.user!.id),
+  const [myScope, rows, links, scheduleRows, openChecks, lastDone, jobs, closures, planned, jobTypes, departmentOptions] = await Promise.all([
+    userDepartmentScope(req.user!.id),
     db
       .select({ id: machines.id, name: machines.name, code: machines.code, status: machines.status, isActive: machines.isActive })
       .from(machines)
@@ -503,7 +503,7 @@ workerRouter.get('/machines', async (req, res) => {
       // With no job, a job-based check type waits for Start Job (the Item Code decides the department
       // then), and a shift check type still follows the worker's own account.
       const inDepartment = (l: (typeof links)[number]) =>
-        job ? checkTypeInDepartment(l.departmentId, job.departmentId) : l.monitoring !== 'JOB' && checkTypeInDepartment(l.departmentId, myDepartment)
+        job ? checkTypeInDepartment(l.departmentId, job.departmentId) : l.monitoring !== 'JOB' && checkTypeInScope(l.departmentId, myScope)
       const checkTypes = machineLinks
         // A check open in their name is always shown, so a check is never left unreachable.
         .filter((l) => inDepartment(l) || openChecks.some((c) => c.machineId === machine.id && c.activityId === l.activityId))
@@ -881,7 +881,7 @@ workerRouter.post('/machines/:machineId/checks', async (req, res) => {
   if (!runningHere) await assertQualityRole(req.user!.id, activity.module, activity.name)
   if (runningHere) {
     if (!checkTypeInDepartment(activity.departmentId, runningHere.departmentId)) throw forbidden(`${activity.name} is not part of this job's department.`)
-  } else if (!checkTypeInDepartment(activity.departmentId, await userDepartmentId(req.user!.id))) {
+  } else if (!checkTypeInScope(activity.departmentId, await userDepartmentScope(req.user!.id))) {
     throw forbidden(`${activity.name} is done by another department.`)
   }
   if (!activity.allowManual) throw badRequest(`${activity.name} can only be done when it is due.`)

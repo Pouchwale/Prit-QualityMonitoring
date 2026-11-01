@@ -25,6 +25,7 @@ import { executeDailyTaskReport } from './services/dailyTaskReport'
 import { processReportEmailRetries } from './services/reportDelivery'
 import { purgeExpiredRevokedTokens } from './routes/auth'
 import { runShiftLoginTick } from './services/workerShifts'
+import { cleanLeftovers, isMaintenance } from './services/backup'
 
 // Bring the database up to date before serving requests. New code can reach a running backend
 // (e.g. `npm run dev` reloads on save) before anyone runs `npm run db:migrate`; without this the
@@ -48,7 +49,8 @@ const TICK_MS = 60_000
 let ticking = false
 
 async function tick() {
-  if (ticking) return
+  // A restore is changing the data: wait for the next minute.
+  if (ticking || isMaintenance()) return
   ticking = true
   try {
     await prepareChecks([new Date()])
@@ -112,6 +114,8 @@ http.createServer(app).listen(config.port, '0.0.0.0', () => {
   cleanOldTempFiles()
     .then(() => kickVideoOptimization())
     .catch((err) => console.error('Media clean-up failed', err))
+  // Work left by a backup or restore stopped by a restart (temporary database, unfinished files).
+  cleanLeftovers().catch((err) => console.error('Backup clean-up failed', err))
   removeLegacyPlantLabel().catch((err) => console.error('Settings cleanup failed', err))
   ensureSuperAdmin().catch((err) => console.error('Super Admin check failed', err))
   ensureNewParameters()

@@ -34,6 +34,8 @@ export interface CheckFilters {
   /** Item Code / PO No. of the check or of the job it ran in; case-insensitive, whole value. */
   itemCode?: string
   jobNo?: string
+  /** Part of a PO No. or Item Code (the check's own or its job's), case-insensitive: the Checks page search. */
+  search?: string
   ids?: string[]
   /** Extra condition, e.g. a worker's visibility scope. */
   where?: SQL
@@ -90,6 +92,23 @@ function matchesJobValue(column: 'item_code' | 'job_no', value: string): SQL {
   )!
 }
 
+/**
+ * PO No. or Item Code containing `value`, on the check or on the job it ran in. Spaces, dashes and
+ * other punctuation are ignored on both sides, since workers type the same code in different ways:
+ * "FGPO7446" finds "FGPO-7446", "FGPO- 7446" and "fgpo 7446".
+ */
+function searchJobValues(value: string): SQL {
+  const letters = value.toLowerCase().replace(/[^a-z0-9]/g, '')
+  // Only punctuation typed: match it as typed (% and _ are not wildcards here).
+  const literal = !letters
+  const pattern = `%${literal ? value.trim().toLowerCase().replace(/[\\%_]/g, (c) => '\\' + c) : letters}%`
+  const norm = (col: typeof qualityChecks.itemCode | typeof jobs.itemCode | typeof qualityChecks.jobNo | typeof jobs.jobNo) =>
+    literal ? sql`lower(coalesce(${col}, ''))` : sql`regexp_replace(lower(coalesce(${col}, '')), '[^a-z0-9]', '', 'g')`
+  const either = (item: typeof qualityChecks.itemCode | typeof jobs.itemCode, po: typeof qualityChecks.jobNo | typeof jobs.jobNo) =>
+    sql`(${norm(item)} like ${pattern} or ${norm(po)} like ${pattern})`
+  return or(either(qualityChecks.itemCode, qualityChecks.jobNo), sql`exists (select 1 from ${jobs} where ${jobs.id} = ${qualityChecks.jobId} and ${either(jobs.itemCode, jobs.jobNo)})`)!
+}
+
 function buildWhere(filters: CheckFilters) {
   const where: SQL[] = []
   if (filters.from) where.push(gte(qualityChecks.scheduledAt, filters.from))
@@ -108,6 +127,7 @@ function buildWhere(filters: CheckFilters) {
   if (filters.departmentId) where.push(eq(qualityChecks.departmentId, filters.departmentId))
   if (filters.itemCode?.trim()) where.push(matchesJobValue('item_code', filters.itemCode))
   if (filters.jobNo?.trim()) where.push(matchesJobValue('job_no', filters.jobNo))
+  if (filters.search?.trim()) where.push(searchJobValues(filters.search))
   if (filters.where) where.push(filters.where)
   if (filters.ids) where.push(inArray(qualityChecks.id, filters.ids.length ? filters.ids : ['00000000-0000-0000-0000-000000000000']))
 

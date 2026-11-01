@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm'
 import { db } from '../db/client'
 import { qualityChecks, reportEmailLogs, reportEmailSettings, settings } from '../db/schema'
 import {
@@ -271,6 +271,8 @@ export async function sampleEligibleChecks(options: {
   periodTo: Date
   percentage: number
   customCheckIds?: string[]
+  /** A Manager's scope: only their department's checks (services/departmentScope.ts). */
+  where?: SQL
 }): Promise<{
   eligibleTotal: number
   sampledCheckIds: string[]
@@ -279,6 +281,7 @@ export async function sampleEligibleChecks(options: {
   const { periodFrom, periodTo, percentage, customCheckIds } = options
 
   const inPeriod = and(
+    options.where,
     inArray(qualityChecks.status, ['COMPLETED', 'EXCEPTION']),
     sql`COALESCE(${qualityChecks.submittedAt}, ${qualityChecks.scheduledAt}) >= ${periodFrom}`,
     sql`COALESCE(${qualityChecks.submittedAt}, ${qualityChecks.scheduledAt}) <= ${periodTo}`
@@ -488,6 +491,8 @@ export async function executeAutomatedReportRun(): Promise<boolean> {
 
 /** Executes a manual report email dispatch initiated by Admin */
 export async function executeManualReportRun(options: {
+  /** A Manager's scope: only their department's checks. */
+  where?: SQL
   recipients: string[]
   periodFrom: Date
   periodTo: Date
@@ -516,7 +521,8 @@ export async function executeManualReportRun(options: {
     periodFrom,
     periodTo,
     percentage,
-    customCheckIds
+    customCheckIds,
+    where: options.where
   })
 
   if (!sampling.checks.length) {

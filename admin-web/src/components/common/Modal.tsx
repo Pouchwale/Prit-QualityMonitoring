@@ -37,9 +37,9 @@ export const Modal: React.FC<ModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/45 backdrop-blur-[2px] animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/45 backdrop-blur-[2px] animate-fade-in">
       <div
-        className={`outline-none bg-white rounded-xl border border-line shadow-[var(--shadow-pop)] w-full ${maxWidthClasses[maxWidth]} flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh] overflow-hidden`}
+        className={`animate-scale-in outline-none bg-white rounded-xl border border-line shadow-[var(--shadow-pop)] w-full ${maxWidthClasses[maxWidth]} flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh] overflow-hidden`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

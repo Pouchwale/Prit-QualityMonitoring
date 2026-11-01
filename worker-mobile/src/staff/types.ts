@@ -113,6 +113,9 @@ export interface Shift {
   startTime: string
   endTime: string
   graceMinutes: number
+  /** The shift's daily break (HH:MM, plant time); both null: no break. Every worker on the shift has it. */
+  breakStartTime?: string | null
+  breakEndTime?: string | null
   isActive: boolean
 }
 

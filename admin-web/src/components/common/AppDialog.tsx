@@ -117,7 +117,7 @@ const DialogCard: React.FC<{ entry: Entry }> = ({ entry }) => {
   const main = ordered[ordered.length - 1]
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-[2px] animate-in fade-in duration-150" onMouseDown={(e) => e.target === e.currentTarget && dismiss(entry)}>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-[2px] animate-fade-in" onMouseDown={(e) => e.target === e.currentTarget && dismiss(entry)}>
       <div
         role="alertdialog"
         aria-modal="true"
@@ -125,7 +125,7 @@ const DialogCard: React.FC<{ entry: Entry }> = ({ entry }) => {
         tabIndex={-1}
         aria-labelledby={`dialog-title-${entry.id}`}
         aria-describedby={`dialog-body-${entry.id}`}
-        className="outline-none w-full max-w-[420px] bg-white rounded-xl border border-line shadow-[var(--shadow-pop)] flex flex-col max-h-[calc(100dvh-2rem)] overflow-hidden"
+        className="animate-scale-in outline-none w-full max-w-[420px] bg-white rounded-xl border border-line shadow-[var(--shadow-pop)] flex flex-col max-h-[calc(100dvh-2rem)] overflow-hidden"
       >
         <div className="px-5 pt-5 pb-4 overflow-y-auto">
           <div className="flex items-start gap-3">

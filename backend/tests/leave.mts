@@ -159,7 +159,7 @@ const typeBody = (t: typeof leaveTypes.$inferSelect, change: Record<string, unkn
 
 // ---- 1. Migration and settings
 {
-  check('1a migrations: leave types CL, SL, EL with a quota of 0; Paid Leave (PL) removed', ['CL', 'SL', 'EL'].every((c) => types[c]?.annualQuota === 0) && !types.PL, Object.keys(types).join(','))
+  check('1a migrations: leave types CL, SL, EL (quota 0 as seeded, or no limit as set since); Paid Leave (PL) removed', ['CL', 'SL', 'EL'].every((c) => types[c] && (types[c].annualQuota === 0 || types[c].annualQuota === null)) && !types.PL, Object.keys(types).join(','))
   const perms = await db.select().from(rolePermissions).where(inArray(rolePermissions.module, ['leave', 'leave_settings', 'app_leave']))
   check('1b permissions seeded: Admin leave + settings, Manager view + approve, Worker apply', perms.length === 4 && perms.some((p) => p.role === 'MANAGER' && p.module === 'leave' && p.canApprove && !p.canEdit) && perms.some((p) => p.role === 'ADMIN' && p.module === 'leave_settings' && p.canCreate && p.canEdit && p.canDelete) && perms.some((p) => p.role === 'ADMIN' && p.module === 'leave' && p.canApprove))
 
@@ -225,9 +225,11 @@ let firstLeaveId = ''
   const dup = await form(W, '/worker/leave/requests', { leaveTypeId: types.CL.id, dayPart: 'FULL', startDate: plus(12), endDate: plus(12), reason: 'Again' })
   check('2f an overlapping (or duplicate) request is refused (409)', dup.status === 409, dup.json?.error ?? '')
 
-  const h1 = await form(W, '/worker/leave/requests', { leaveTypeId: types.CL.id, dayPart: 'FIRST_HALF', startDate: plus(20), endDate: plus(20), reason: 'Bank work' })
-  const h2 = await form(W, '/worker/leave/requests', { leaveTypeId: types.CL.id, dayPart: 'SECOND_HALF', startDate: plus(20), endDate: plus(20), reason: 'Doctor' })
-  const h3 = await form(W, '/worker/leave/requests', { leaveTypeId: types.CL.id, dayPart: 'FIRST_HALF', startDate: plus(20), endDate: plus(20), reason: 'Again' })
+  // An open working day (not a weekly off or holiday) about three weeks ahead, whatever today is.
+  const halfDay = (await dayStates(parseDateKey(plus(20)), parseDateKey(plus(27)))).find((d) => !d.closed)!.date
+  const h1 = await form(W, '/worker/leave/requests', { leaveTypeId: types.CL.id, dayPart: 'FIRST_HALF', startDate: halfDay, endDate: halfDay, reason: 'Bank work' })
+  const h2 = await form(W, '/worker/leave/requests', { leaveTypeId: types.CL.id, dayPart: 'SECOND_HALF', startDate: halfDay, endDate: halfDay, reason: 'Doctor' })
+  const h3 = await form(W, '/worker/leave/requests', { leaveTypeId: types.CL.id, dayPart: 'FIRST_HALF', startDate: halfDay, endDate: halfDay, reason: 'Again' })
   check('2g half days: 0.5 each; both halves of one date allowed, the same half twice refused', h1.status === 201 && h1.json.days === 0.5 && h2.status === 201 && h3.status === 409, `${h1.status},${h2.status},${h3.status} ${h1.json?.error ?? ''}`)
 
   const pdf = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF')

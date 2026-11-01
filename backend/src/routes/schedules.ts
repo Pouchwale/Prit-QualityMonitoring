@@ -7,6 +7,22 @@ import { hhmm, idParam, optionalUuid } from '../lib/validate'
 import { badRequest, conflict, notFound } from '../lib/http'
 import { audit, snapshot } from '../lib/audit'
 import { invalidateCheckGeneration, removeUpcomingChecks } from '../services/checkGenerator'
+import { departmentScope, scopedWorkerIds, type DepartmentScope } from '../services/departmentScope'
+import { HttpError } from '../lib/http'
+
+/**
+ * Whether a schedule is in a Manager's area (services/departmentScope.ts): its module (IPQC / QC),
+ * and its worker (a worker schedule) or its department (a machine schedule). Others: always.
+ */
+async function scheduleInScope(scope: DepartmentScope, row: { module: string | null; workerId: string | null; departmentId: string | null }, workerIds?: string[] | null) {
+  if (!scope.restricted) return true
+  if (scope.missingDepartment || !scope.modules.includes((row.module ?? 'IPQC') as 'IPQC' | 'QC')) return false
+  if (row.workerId) return (workerIds ?? (await scopedWorkerIds(scope)) ?? []).includes(row.workerId)
+  return !!row.departmentId && scope.departmentIds.includes(row.departmentId)
+}
+async function assertScheduleInScope(scope: DepartmentScope, row: { module: string | null; workerId: string | null; departmentId: string | null }) {
+  if (!(await scheduleInScope(scope, row))) throw new HttpError(403, 'This schedule belongs to another department')
+}
 
 export const schedulesRouter = Router()
 
@@ -93,7 +109,9 @@ schedulesRouter.get('/version', async (_req, res) => {
   res.json({ version: `${row.count}|${row.schedules ?? ''}|${row.shifts ?? ''}` })
 })
 
-schedulesRouter.get('/', async (_req, res) => {
+schedulesRouter.get('/', async (req, res) => {
+  const scope = await departmentScope(req.user!)
+  const workerIds = await scopedWorkerIds(scope)
   const rows = await db
     .select({
       schedule: schedules,
@@ -116,7 +134,10 @@ schedulesRouter.get('/', async (_req, res) => {
     .leftJoin(users, eq(schedules.workerId, users.id))
     .orderBy(asc(activities.name), asc(schedules.startTime))
 
-  res.json(rows.map(({ schedule, ...names }) => ({ ...schedule, ...names, checkWorkers: [] })))
+  // A Manager sees the schedules of their own area only.
+  const mine = []
+  for (const r of rows) if (await scheduleInScope(scope, r.schedule, workerIds)) mine.push(r)
+  res.json(mine.map(({ schedule, ...names }) => ({ ...schedule, ...names, checkWorkers: [] })))
 })
 
 schedulesRouter.post('/', async (req, res) => {
@@ -157,6 +178,7 @@ schedulesRouter.post('/', async (req, res) => {
     }
   }
   await assertScheduleWorker(data.workerId, module)
+  await assertScheduleInScope(await departmentScope(req.user!), { module, workerId: data.workerId, departmentId: departmentId ?? null })
   await assertNotDuplicate({ machineId: data.machineId, activityId: data.activityId, shiftId: shiftId ?? null, workerId: data.workerId, isActive: data.isActive })
   const { mode, ...rest } = data
   const [row] = await db
@@ -173,6 +195,8 @@ schedulesRouter.put('/:id', async (req, res) => {
   const data = input.parse(req.body)
   const [before] = await db.select().from(schedules).where(eq(schedules.id, id))
   if (!before) throw notFound('Schedule')
+  const scope = await departmentScope(req.user!)
+  await assertScheduleInScope(scope, before)
   await validateRefs(data)
   let departmentId = data.departmentId ?? before.departmentId
   let module = data.module ?? before.module
@@ -209,6 +233,7 @@ schedulesRouter.put('/:id', async (req, res) => {
     }
   }
   await assertScheduleWorker(data.workerId, module)
+  await assertScheduleInScope(scope, { module, workerId: data.workerId, departmentId: departmentId ?? null })
   await assertNotDuplicate({ machineId: data.machineId, activityId: data.activityId, shiftId: shiftId ?? null, workerId: data.workerId, isActive: data.isActive }, id)
   const { mode, ...rest } = data
   const [row] = await db
@@ -225,6 +250,7 @@ schedulesRouter.delete('/:id', async (req, res) => {
   const id = idParam(req)
   const [before] = await db.select().from(schedules).where(eq(schedules.id, id))
   if (!before) throw notFound('Schedule')
+  await assertScheduleInScope(await departmentScope(req.user!), before)
   await removeUpcomingChecks({ scheduleId: id })
   await db.delete(schedules).where(eq(schedules.id, id))
   await audit(req, 'DELETE_SCHEDULE', 'Schedule', id, { oldValue: snapshot(before) })

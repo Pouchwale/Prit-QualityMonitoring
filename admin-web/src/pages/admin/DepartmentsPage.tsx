@@ -8,7 +8,7 @@ import { useModuleActions, useCanActivate, ACTIVATION_HINT } from '../../lib/aut
 import { Button } from '../../components/common/Button'
 import { ConfirmModal } from '../../components/common/ConfirmModal'
 import { DataState } from '../../components/common/DataState'
-import { Field, FormError, TextInput, Toggle } from '../../components/common/Form'
+import { Field, FormError, MultiSelectList, TextInput, Toggle } from '../../components/common/Form'
 import { Modal } from '../../components/common/Modal'
 import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
@@ -22,9 +22,10 @@ interface FormState {
   name: string
   code: string
   isActive: boolean
+  coversDepartmentIds: string[]
 }
 
-const emptyForm: FormState = { name: '', code: '', isActive: true }
+const emptyForm: FormState = { name: '', code: '', isActive: true, coversDepartmentIds: [] }
 
 /**
  * Departments. The Item Code prefixes that decide which department a job belongs to are shown here
@@ -43,6 +44,9 @@ export const DepartmentsPage: React.FC = () => {
   const [deleting, setDeleting] = useState<Department | null>(null)
 
   const departments = useMemo(() => data ?? [], [data])
+  const allDepartments = departments
+  /** The names of the departments one covers, e.g. "Label, Pouch, sleeve". */
+  const coveredNames = (d: Department) => (d.coversDepartmentIds ?? []).map((id) => departments.find((x) => x.id === id)?.name).filter(Boolean).join(', ')
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusTab>('ALL')
   const activeCount = departments.filter((d) => d.isActive).length
@@ -60,7 +64,7 @@ export const DepartmentsPage: React.FC = () => {
   }
 
   const openEdit = (d: Department) => {
-    setForm({ name: d.name, code: d.code, isActive: d.isActive })
+    setForm({ name: d.name, code: d.code, isActive: d.isActive, coversDepartmentIds: d.coversDepartmentIds ?? [] })
     setFormError(null)
     setEditing(d)
   }
@@ -76,7 +80,7 @@ export const DepartmentsPage: React.FC = () => {
     setSaving(true)
     setFormError(null)
     try {
-      const body = { name: form.name.trim(), code: form.code.trim(), isActive: form.isActive }
+      const body = { name: form.name.trim(), code: form.code.trim(), isActive: form.isActive, coversDepartmentIds: form.coversDepartmentIds }
       if (editing === 'new') {
         await api.post('/api/departments', body)
         notify('success', 'Department created', body.name)
@@ -172,6 +176,7 @@ export const DepartmentsPage: React.FC = () => {
                     <th>Department</th>
                     <th>Code</th>
                     <th>Active Item Code prefixes</th>
+                    <th>Covers</th>
                     <th>Status</th>
                     {canWrite && (
                       <th className="text-right">
@@ -206,6 +211,9 @@ export const DepartmentsPage: React.FC = () => {
                         ) : (
                           <span className="text-ink-faint">—</span>
                         )}
+                      </td>
+                      <td className="text-ink-secondary" data-empty={d.coversDepartmentIds?.length ? undefined : ''}>
+                        {d.coversDepartmentIds?.length ? coveredNames(d) : <span className="text-ink-faint">—</span>}
                       </td>
                       <td className="whitespace-nowrap">
                         <StatusBadge status={d.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" />
@@ -254,6 +262,14 @@ export const DepartmentsPage: React.FC = () => {
           </Field>
           <Field label="Code" required>
             <TextInput value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="e.g. PRT" maxLength={30} className="font-mono" />
+          </Field>
+          <Field label="Also covers" hint="Its workers also do these departments' checks, e.g. IPQC (Print) covers Pouch, Label and Sleeve. A job's department still comes from its Item Code.">
+            <MultiSelectList
+              items={allDepartments.filter((d) => editing === 'new' || d.id !== editing?.id).map((d) => ({ id: d.id, label: d.name, detail: d.isActive ? null : 'inactive' }))}
+              selected={form.coversDepartmentIds}
+              onChange={(coversDepartmentIds) => setForm({ ...form, coversDepartmentIds })}
+              emptyText="No other departments"
+            />
           </Field>
           <Toggle
             checked={form.isActive}

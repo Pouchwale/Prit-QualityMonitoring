@@ -29,10 +29,14 @@ import { checkEditForm, checkEditInput, editCheck } from '../services/checkEdit'
 import { CHECK_RESULTS, RESULT_LABEL, RESULT_STATUSES, resultOf } from '../lib/result'
 import { addDays, dateKey, formatLocalDate, parseDateKey, startOfDay } from '../lib/time'
 import { countChecks, listChecks } from '../services/checks'
-import { blockAll, departmentScope, scopedDepartmentId, seesNothing } from '../services/departmentScope'
+import { assertCheckInScope, assertWorkInScope, assertWorkerInScope, checkScopeWhere, departmentScope, jobScopeWhere, scopedDepartmentId } from '../services/departmentScope'
 import { buildQualityReport } from '../services/reportData'
 import { buildTraceReport } from '../services/traceReport'
-import { renderQualityReport } from '../services/reportPdf'
+import { getChecksForCrystalReport, renderCrystalReportPdf } from '../services/crystalReportPdf'
+import { weeklyScores } from '../services/performance'
+
+/** No limit on the checks of a Reports & Analytics PDF (as chosen for that report). */
+const UNLIMITED = 1_000_000
 import { config } from '../config'
 import { shiftAt } from '../services/shiftTime'
 import { RUNNING_STATUSES } from '../services/jobMonitoring'
@@ -53,15 +57,15 @@ import {
 export const monitoringRouter = Router()
 
 /**
- * Department scope of this request. Everything the dashboards, lists and reports read goes
- * through this. No role is limited to a department any more (services/departmentScope.ts), so
- * everyone sees the whole plant: `departmentId` is just the department the request filters by,
- * and `where` adds nothing.
+ * Department scope of this request (services/departmentScope.ts). Everything the dashboards,
+ * lists and reports read goes through this: a Manager sees only the checks of their own area
+ * (IPQC (Print), or QC of their department); Admins and the Super Admin see the whole plant.
+ * `departmentId` is the department the request filters by (one of theirs), `where` the scope.
  */
 async function scopeFor(req: Request, requested?: string) {
   const scope = await departmentScope(req.user!)
   const departmentId = scopedDepartmentId(scope, requested)
-  return { scope, departmentId, where: seesNothing(scope) ? blockAll : undefined }
+  return { scope, departmentId, where: checkScopeWhere(scope) }
 }
 
 const formatDay = (d: Date) => formatLocalDate(d)
@@ -122,7 +126,9 @@ const checkFilters = z.object({
   module: z.enum(['IPQC', 'QC']).optional(),
   /** Whole Item Code / PO No., case-insensitive (the check's own, or its job's). */
   itemCode: z.string().trim().max(60).optional(),
-  jobNo: z.string().trim().max(60).optional()
+  jobNo: z.string().trim().max(60).optional(),
+  /** Part of a PO No. or Item Code (Checks page search box). */
+  search: z.string().trim().max(60).optional()
 })
 
 /**
@@ -210,7 +216,10 @@ monitoringRouter.post('/quality-checks', requireModule('checks', 'manage'), asyn
   // The department of the work: the job running on the machine (from its Item Code), else the
   // check type's. Never the worker's own account: workers work for any department.
   const departmentId: string | null = running?.departmentId ?? activity.departmentId
+  const myScope = await departmentScope(req.user!)
+  assertWorkInScope(myScope, activity.module, departmentId)
   if (body.workerId) {
+    await assertWorkerInScope(myScope, body.workerId)
     const [worker] = await db.select().from(users).where(eq(users.id, body.workerId))
     if (!worker || worker.role !== 'WORKER') throw badRequest('Choose a worker account')
     if (!worker.isActive || !worker.appAccess) throw badRequest('This worker cannot sign in to the app')
@@ -312,6 +321,7 @@ monitoringRouter.patch('/exceptions/:id', requireModule('exceptions', 'edit'), a
     .parse(req.body)
   const [before] = await db.select().from(checkExceptions).where(eq(checkExceptions.id, id))
   if (!before) throw notFound('Exception')
+  await assertCheckInScope(await departmentScope(req.user!), before.checkId)
   if ((body.status === 'RESOLVED') !== (before.status === 'RESOLVED') && !req.user!.actions.exceptions.approve) {
     throw forbidden('Resolving an exception needs the Exceptions approve permission')
   }
@@ -428,7 +438,7 @@ monitoringRouter.get('/reports/trace', requireModule('reports', 'view'), async (
  */
 monitoringRouter.get('/reports/filter-values', requireModule('reports', 'view'), async (req, res) => {
   const { from, to } = dateRange(req)
-  const { where } = await scopeFor(req)
+  const { scope, where } = await scopeFor(req)
   const [fromChecks, fromJobs] = await Promise.all([
     db
       .selectDistinct({ itemCode: qualityChecks.itemCode, jobNo: qualityChecks.jobNo })
@@ -437,7 +447,7 @@ monitoringRouter.get('/reports/filter-values', requireModule('reports', 'view'),
     db
       .selectDistinct({ itemCode: jobs.itemCode, jobNo: jobs.jobNo })
       .from(jobs)
-      .where(and(lt(jobs.startedAt, to), or(isNull(jobs.endedAt), gte(jobs.endedAt, from)), where))
+      .where(and(lt(jobs.startedAt, to), or(isNull(jobs.endedAt), gte(jobs.endedAt, from)), jobScopeWhere(scope)))
   ])
   const rows = [...fromChecks, ...fromJobs]
   // Distinct ignoring case and spaces; the first spelling seen is kept.
@@ -509,34 +519,60 @@ monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports',
           jobNo: f.jobNo
         })
       : undefined
-  // The PDF lists every check; above LIST_LIMIT it would be cut off, so the period must be narrowed.
-  const reportCount = await countChecks({ from, to, ...statusScope(f), machineId: f.machineId, workerId: f.workerId, shiftId: f.shiftId, activityId: f.activityId, departmentId: scopedDepartment, where: scopeWhere, itemCode: f.itemCode, jobNo: f.jobNo })
-  if (reportCount > LIST_LIMIT) {
-    throw badRequest(`This report would have ${reportCount} checks; one PDF holds at most ${LIST_LIMIT}. Choose a shorter period or more filters.`)
+  // Every check of the period goes in the report, however many (no limit).
+  const reportFilters = {
+    from,
+    to,
+    ...statusScope(f),
+    machineId: f.machineId,
+    workerId: f.workerId,
+    shiftId: f.shiftId,
+    activityId: f.activityId,
+    departmentId: scopedDepartment,
+    where: scopeWhere,
+    itemCode: f.itemCode,
+    jobNo: f.jobNo
   }
-  const report = await buildQualityReport(
-    {
-      from,
-      to,
-      ...statusScope(f),
-      machineId: f.machineId,
-      workerId: f.workerId,
-      shiftId: f.shiftId,
-      activityId: f.activityId,
-      departmentId: scopedDepartment,
-      where: scopeWhere,
-      itemCode: f.itemCode,
-      jobNo: f.jobNo
-    },
-    {
-      preparedBy: `${req.user!.name} (${req.user!.employeeId})`,
-      uploadDir: config.uploadDir,
-      filterLabels: labels,
-      trace: traced ? { context: traceContext } : undefined
+  const report = await buildQualityReport(reportFilters, {
+    preparedBy: `${req.user!.name} (${req.user!.employeeId})`,
+    uploadDir: config.uploadDir,
+    filterLabels: labels,
+    trace: traced ? { context: traceContext } : undefined,
+    listLimit: UNLIMITED
+  })
+  // Laid out like the Quality Inspection Report (Report Sharing & Email): the summary and the list of
+  // checks, the summaries by department, machine, worker, shift and date, then one sheet per check
+  // (Missed and Open checks too) with its readings and photos.
+  const ids = (await listChecks(reportFilters, { order: 'asc', limit: UNLIMITED })).map((c) => c.id)
+  const order = new Map(ids.map((id, i) => [id, i]))
+  const checks = (await getChecksForCrystalReport(ids)).sort((x, y) => (order.get(x.id) ?? 0) - (order.get(y.id) ?? 0))
+  const scope = await departmentScope(req.user!)
+  const pdf = await renderCrystalReportPdf({
+    title: 'Quality Monitoring Report',
+    reportId: report.meta.reportId,
+    generatedAt: report.meta.generatedAt,
+    companyName: report.meta.company,
+    plantName: report.meta.plant ?? '',
+    periodFrom: report.meta.periodFrom,
+    periodTo: report.meta.periodTo,
+    checks,
+    // The week of the period, for the workers this user may see.
+    weekly: await weeklyScores(report.meta.periodTo, undefined, scope).catch(() => null),
+    analytics: {
+      preparedBy: report.meta.preparedBy,
+      department: report.meta.department,
+      filters: labels,
+      counts: report.counts,
+      completionRate: report.completionRate,
+      groups: [
+        { title: 'Department-wise', note: 'Each check is counted for the department it was done for.', nameHeader: 'Department', rows: report.byDepartment },
+        { title: 'Machine-wise', nameHeader: 'Machine / code', rows: report.byMachine },
+        { title: 'Worker-wise', note: 'Each check is counted for the worker who submitted it, or the worker it was assigned to.', nameHeader: 'Worker / employee ID', rows: report.byWorker },
+        { title: 'Shift-wise', nameHeader: 'Shift', rows: report.byShift },
+        { title: 'Date-wise', nameHeader: 'Date', rows: report.byDate }
+      ]
     }
-  )
-
-  const pdf = await renderQualityReport(report)
+  })
   await audit(req, 'EXPORT_REPORT', 'Report', report.meta.reportId, {
     newValue: { from, to, checks: report.counts.scheduled, filters: labels }
   })

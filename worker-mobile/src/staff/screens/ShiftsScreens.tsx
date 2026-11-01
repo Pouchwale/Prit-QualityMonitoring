@@ -4,7 +4,7 @@ import type { Shift } from '../types'
 import { api } from '../../services/api'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
-import { Badge, DataState, FormError, FormSection, Input, List, PrimaryButton, Row, Screen, TimeField, ToggleField, confirm, useToast } from '../ui'
+import { Badge, DataState, FormError, FormSection, Input, List, PrimaryButton, Row, Screen, Segmented, TimeField, ToggleField, confirm, useToast } from '../ui'
 import { ActionGroup, ActionItem, facts } from './adminParts'
 import { formatClockRange } from '../../utils/datetime'
 
@@ -15,9 +15,13 @@ interface FormState {
   endTime: string
   graceMinutes: string
   isActive: boolean
+  /** The break question: '' until answered (a new shift must answer it). */
+  breakMode: 'set' | 'none' | ''
+  breakStart: string
+  breakEnd: string
 }
 
-const emptyForm: FormState = { name: '', code: '', startTime: '08:00', endTime: '16:00', graceMinutes: '15', isActive: true }
+const emptyForm: FormState = { name: '', code: '', startTime: '08:00', endTime: '16:00', graceMinutes: '15', isActive: true, breakMode: '', breakStart: '12:00', breakEnd: '12:30' }
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/
 
@@ -40,6 +44,26 @@ const durationLabel = (minutes: number) => {
 
 const isOvernight = (s: { startTime: string; endTime: string }) => toMinutes(s.endTime) <= toMinutes(s.startTime)
 
+const toHHMM = (minutes: number) => {
+  const m = ((minutes % 1440) + 1440) % 1440
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
+/** Minutes from one time to the next (round the clock). */
+const span = (from: string, to: string) => (toMinutes(to) - toMinutes(from) + 1440) % 1440 || 1440
+
+/** Why this break does not fit the shift, or null when it does (the server checks the same). */
+function breakProblem(f: FormState): string | null {
+  if (f.breakMode === '') return 'Set the break time of this shift, or choose "No break".'
+  if (f.breakMode === 'none') return null
+  if (!HHMM.test(f.breakStart) || !HHMM.test(f.breakEnd)) return 'Choose the break start and end.'
+  if (f.breakStart === f.breakEnd) return 'The break must end after it starts.'
+  const length = span(f.breakStart, f.breakEnd)
+  if (length > 240) return 'A break can be at most 4 hours.'
+  const offset = (toMinutes(f.breakStart) - toMinutes(f.startTime) + 1440) % 1440
+  if (offset + length > shiftLength(f.startTime, f.endTime)) return "The break must be inside the shift's hours. Change the break or the shift times."
+  return null
+}
+
 /** Shifts: working shifts define when scheduled quality checks are generated. */
 export const ShiftsScreen: React.FC<{ params: Record<string, unknown> }> = () => {
   const { can, push } = useStaff()
@@ -59,6 +83,7 @@ export const ShiftsScreen: React.FC<{ params: Record<string, unknown> }> = () =>
               subtitle={facts(
                 `${formatClockRange(s.startTime, s.endTime)}${isOvernight(s) ? ' (next day)' : ''}`,
                 durationLabel(shiftLength(s.startTime, s.endTime)),
+                s.breakStartTime && s.breakEndTime ? `Break ${formatClockRange(s.breakStartTime, s.breakEndTime)}` : 'No break',
                 `Code ${s.code}`,
                 `Grace ${s.graceMinutes} min`
               )}
@@ -87,7 +112,11 @@ export const ShiftFormScreen: React.FC<{ params: { shift?: Shift } }> = ({ param
           startTime: editing.startTime,
           endTime: editing.endTime,
           graceMinutes: String(editing.graceMinutes),
-          isActive: editing.isActive
+          isActive: editing.isActive,
+          // A shift without a break is asked again: set one, or confirm "No break".
+          breakMode: editing.breakStartTime && editing.breakEndTime ? 'set' : '',
+          breakStart: editing.breakStartTime ?? '12:00',
+          breakEnd: editing.breakEndTime ?? '12:30'
         }
       : emptyForm
   )
@@ -104,6 +133,8 @@ export const ShiftFormScreen: React.FC<{ params: { shift?: Shift } }> = ({ param
     if (form.graceMinutes.trim() === '' || !Number.isInteger(grace) || grace < 0 || grace > 240) {
       return setFormError('Grace period must be a whole number between 0 and 240 minutes')
     }
+    const problem = breakProblem(form)
+    if (problem) return setFormError(problem)
 
     setSaving(true)
     setFormError(null)
@@ -114,7 +145,9 @@ export const ShiftFormScreen: React.FC<{ params: { shift?: Shift } }> = ({ param
         startTime: form.startTime,
         endTime: form.endTime,
         graceMinutes: grace,
-        isActive: form.isActive
+        isActive: form.isActive,
+        breakStartTime: form.breakMode === 'set' ? form.breakStart : null,
+        breakEndTime: form.breakMode === 'set' ? form.breakEnd : null
       }
       if (!editing) {
         await api.post('/api/shifts', body)
@@ -157,6 +190,14 @@ export const ShiftFormScreen: React.FC<{ params: { shift?: Shift } }> = ({ param
   }
 
   const formValid = HHMM.test(form.startTime) && HHMM.test(form.endTime) && form.startTime !== form.endTime
+  const breakIssue = form.breakMode === 'set' ? breakProblem(form) : null
+  const chooseBreak = (mode: 'set' | 'none') =>
+    setForm((f) => {
+      if (mode === 'none' || f.breakMode === 'set') return { ...f, breakMode: mode }
+      // First time: suggest 30 minutes, 4 hours into the shift (or halfway through a short one).
+      const breakStart = toHHMM(toMinutes(f.startTime) + Math.min(240, Math.floor(shiftLength(f.startTime, f.endTime) / 2)))
+      return { ...f, breakMode: 'set', breakStart, breakEnd: toHHMM(toMinutes(breakStart) + 30) }
+    })
 
   return (
     <Screen
@@ -190,6 +231,32 @@ export const ShiftFormScreen: React.FC<{ params: { shift?: Shift } }> = ({ param
           maxLength={3}
         />
         {editing ? <Text className="text-[13px] leading-[18px] text-staff-muted">Changing shift times replaces upcoming checks for this shift; completed history is kept.</Text> : null}
+      </FormSection>
+
+      <FormSection title="Break time" description="Every worker on this shift gets this break. Moving a worker to another shift gives them that shift's break.">
+        <Segmented<'set' | 'none' | ''>
+          options={[
+            { value: 'set', label: 'Set a break time' },
+            { value: 'none', label: 'No break' }
+          ]}
+          value={form.breakMode}
+          onChange={(v) => v && chooseBreak(v)}
+        />
+        {form.breakMode === '' ? <Text className="text-[13px] leading-[18px] text-due">Required: choose a break time, or No break.</Text> : null}
+        {form.breakMode === 'set' ? (
+          <>
+            <TimeField
+              label="Break start"
+              required
+              value={form.breakStart}
+              onChange={(v) => setForm((f) => ({ ...f, breakStart: v, breakEnd: toHHMM(toMinutes(v) + span(f.breakStart, f.breakEnd)) }))}
+            />
+            <TimeField label="Break end" required value={form.breakEnd} onChange={(v) => set('breakEnd', v)} />
+            <Text className={`text-[13px] leading-[18px] ${breakIssue ? 'text-missed' : 'text-staff-muted'}`}>
+              {breakIssue ?? `${span(form.breakStart, form.breakEnd)} min break. No check notifications and no Missed checks during it.`}
+            </Text>
+          </>
+        ) : null}
       </FormSection>
 
       <FormSection title="Status">

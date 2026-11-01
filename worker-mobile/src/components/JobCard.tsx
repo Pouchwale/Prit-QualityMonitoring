@@ -12,6 +12,7 @@ import { TextField } from './ui/TextField'
 import { FieldLabel } from './ui/FieldLabel'
 import { Icon } from './ui/Icon'
 import { itemCodeError as itemCodeFormatError } from '../utils/itemCode'
+import { Rise } from './ui/Rise'
 
 interface Props {
   machine: AssignedMachine
@@ -84,10 +85,12 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
   if (!job && !features.startJobs) {
     // Starting jobs is switched off for workers (Roles & Permissions).
     return (
-      <View className="rounded-2xl bg-surface p-4">
-        <Text className="text-[17px] font-semibold text-ink">No job running</Text>
-        <Text className="mt-0.5 text-[15px] leading-[20px] text-ink-muted">Your supervisor starts the jobs on this machine.</Text>
-      </View>
+      <Rise>
+        <View className="rounded-2xl bg-surface p-4">
+          <Text className="text-[17px] font-semibold text-ink">No job running</Text>
+          <Text className="mt-0.5 text-[15px] leading-[20px] text-ink-muted">Your supervisor starts the jobs on this machine.</Text>
+        </View>
+      </Rise>
     )
   }
 
@@ -184,70 +187,72 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
       </View>
     )
     return (
-      <View className="rounded-2xl bg-surface p-4">
-        <Text className="text-[17px] font-semibold text-ink">No job running</Text>
-        <Text className="mt-0.5 text-[15px] leading-[20px] text-ink-muted">
-          {planned.length > 0
-            ? 'Open an assigned job, or a different one with its Item Code and PO No. The department and its checks come from the Item Code: the pre-start checks first, then the checks during the job and at job end.'
-            : 'Enter the Item Code and PO No. to see the job’s check plan. The department and its checks come from the Item Code: the pre-start checks first, then the checks during the job and at job end.'}
-        </Text>
-        {planned.length > 0 ? (
-          <View className="mt-4 gap-2.5">
-            <Text className="text-[15px] font-semibold text-ink-muted">Assigned jobs</Text>
-            {planned.map((p) => (
-              <View key={p.id} className="rounded-xl border border-line p-3">
-                <Text className="text-[17px] font-semibold text-ink">PO No. {p.jobNo}</Text>
-                <Text className="mt-0.5 text-[15px] text-ink-secondary">
-                  {[
-                    p.itemCode ? `Item Code ${p.itemCode}` : null,
-                    p.departmentName ? `Department ${p.departmentName}` : null,
-                    p.plannedFor ? `Planned for ${formatDate(p.plannedFor)}` : null
-                  ]
-                    .filter(Boolean)
-                    .join(' · ') || 'Planned job'}
-                </Text>
-                {p.note ? <Text className="mt-0.5 text-[14px] text-ink-muted">{p.note}</Text> : null}
-                {planError?.key === p.id ? <Text className="mt-2 text-[15px] font-medium text-missed">{planError.message}</Text> : null}
-                {preview?.key === p.id ? (
-                  <>
-                    <PlanPreview preview={preview.data} />
+      <Rise>
+        <View className="rounded-2xl bg-surface p-4">
+          <Text className="text-[17px] font-semibold text-ink">No job running</Text>
+          <Text className="mt-0.5 text-[15px] leading-[20px] text-ink-muted">
+            {planned.length > 0
+              ? 'Open an assigned job, or a different one with its Item Code and PO No. The department and its checks come from the Item Code: the pre-start checks first, then the checks during the job and at job end.'
+              : 'Enter the Item Code and PO No. to see the job’s check plan. The department and its checks come from the Item Code: the pre-start checks first, then the checks during the job and at job end.'}
+          </Text>
+          {planned.length > 0 ? (
+            <View className="mt-4 gap-2.5">
+              <Text className="text-[15px] font-semibold text-ink-muted">Assigned jobs</Text>
+              {planned.map((p) => (
+                <View key={p.id} className="rounded-xl border border-line p-3">
+                  <Text className="text-[17px] font-semibold text-ink">PO No. {p.jobNo}</Text>
+                  <Text className="mt-0.5 text-[15px] text-ink-secondary">
+                    {[
+                      p.itemCode ? `Item Code ${p.itemCode}` : null,
+                      p.departmentName ? `Department ${p.departmentName}` : null,
+                      p.plannedFor ? `Planned for ${formatDate(p.plannedFor)}` : null
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || 'Planned job'}
+                  </Text>
+                  {p.note ? <Text className="mt-0.5 text-[14px] text-ink-muted">{p.note}</Text> : null}
+                  {planError?.key === p.id ? <Text className="mt-2 text-[15px] font-medium text-missed">{planError.message}</Text> : null}
+                  {preview?.key === p.id ? (
+                    <>
+                      <PlanPreview preview={preview.data} />
+                      <Button
+                        label={startLabel(preview.data)}
+                        icon="play-outline"
+                        size="compact"
+                        accessibilityLabel={`${startLabel(preview.data)} ${p.jobNo}`}
+                        loading={busy === `plan:${p.id}`}
+                        onPress={async () => {
+                          if (await onStartPlanned(p)) setPreview(null)
+                        }}
+                        className="mt-3"
+                      />
+                    </>
+                  ) : (
                     <Button
-                      label={startLabel(preview.data)}
-                      icon="play-outline"
+                      label="View Check Plan"
+                      icon="list-outline"
                       size="compact"
-                      accessibilityLabel={`${startLabel(preview.data)} ${p.jobNo}`}
-                      loading={busy === `plan:${p.id}`}
-                      onPress={async () => {
-                        if (await onStartPlanned(p)) setPreview(null)
-                      }}
+                      accessibilityLabel={`View Check Plan ${p.jobNo}`}
+                      loading={planLoading === p.id}
+                      onPress={() => loadPlan(p.id, { plannedJobId: p.id })}
                       className="mt-3"
                     />
-                  </>
-                ) : (
-                  <Button
-                    label="View Check Plan"
-                    icon="list-outline"
-                    size="compact"
-                    accessibilityLabel={`View Check Plan ${p.jobNo}`}
-                    loading={planLoading === p.id}
-                    onPress={() => loadPlan(p.id, { plannedJobId: p.id })}
-                    className="mt-3"
-                  />
-                )}
-              </View>
-            ))}
-            {showNew ? (
-              newForm
-            ) : (
-              <Pressable onPress={() => setShowNew(true)} accessibilityRole="button" className="h-11 justify-center self-start active:opacity-50">
-                <Text className="text-[16px] font-semibold text-accent">Start a different job</Text>
-              </Pressable>
-            )}
-          </View>
-        ) : (
-          newForm
-        )}
-      </View>
+                  )}
+                </View>
+              ))}
+              {showNew ? (
+                newForm
+              ) : (
+                <Pressable onPress={() => setShowNew(true)} accessibilityRole="button" className="h-11 justify-center self-start active:opacity-50">
+                  <Text className="text-[16px] font-semibold text-accent">Start a different job</Text>
+                </Pressable>
+              )}
+            </View>
+          ) : (
+            newForm
+          )}
+        </View>
+      </Rise>
     )
   }
 
@@ -262,93 +267,95 @@ export const JobCard: React.FC<Props> = ({ machine, meId, busy, onStartPlanned, 
     : { text: 'Monitoring', tone: 'text-success', dot: 'bg-success' }
 
   return (
-    <View className="rounded-2xl bg-surface p-4">
-      <View className="flex-row items-center">
-        <View className={`mr-2 h-2 w-2 rounded-full ${head.dot}`} />
-        <Text className="flex-1 text-[17px] font-semibold text-ink" accessibilityRole="header">
-          Current Job
-        </Text>
-        {job.startedAt ? <Text className="text-[15px] text-ink-muted">Started {formatTime(job.startedAt)}</Text> : null}
+    <Rise>
+      <View className="rounded-2xl bg-surface p-4">
+        <View className="flex-row items-center">
+          <View className={`mr-2 h-2 w-2 rounded-full ${head.dot}`} />
+          <Text className="flex-1 text-[17px] font-semibold text-ink" accessibilityRole="header">
+            Current Job
+          </Text>
+          {job.startedAt ? <Text className="text-[15px] text-ink-muted">Started {formatTime(job.startedAt)}</Text> : null}
+        </View>
+        {/* The department was worked out by the server from the Item Code and saved with the job: shown, never chosen here. */}
+        <View className="mt-3 flex-row flex-wrap rounded-xl bg-subtle px-3 pt-2.5">
+          <JobFact label="Item Code" value={job.itemCode || '—'} />
+          <JobFact label="PO No." value={job.jobNo} />
+          <JobFact label="Department" value={job.departmentName ? job.departmentName.toUpperCase() : '—'} />
+          <JobFact label="Status" value={head.text} tone={head.tone} />
+        </View>
+        {machine.checkPlan ? (
+          <>
+            <Text className="mb-3 mt-4 text-[17px] font-semibold text-ink" accessibilityRole="header">
+              Job Check Plan
+            </Text>
+            <CheckPlan plan={machine.checkPlan} status={status} checks={checks} canAct={mine} onOpenCheck={onOpenCheck} />
+            {!mine ? (
+              <View className="mt-3 flex-row items-start border-t border-line pt-3">
+                <Icon name="person-outline" size={18} color="muted" />
+                <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink-muted">
+                  This job is with {job.assignedWorkerName ?? 'another worker'}. They can hand it over to you.
+                </Text>
+              </View>
+            ) : status === 'ACTIVE' && features.changeJobs ? (
+              <View className="mt-4 flex-row gap-2.5">
+                <View className="flex-1">
+                  <Button label="Handover" icon="swap-horizontal-outline" variant="secondary" size="compact" onPress={onHandover} accessibilityLabel="Handover Job" />
+                </View>
+                <View className="flex-1">
+                  <Button label="End Job" icon="stop-circle-outline" variant="secondary" size="compact" loading={busy === 'job'} onPress={onEndJob} />
+                </View>
+              </View>
+            ) : null}
+          </>
+        ) : !mine ? (
+          // An older server sends no check plan: the job card as it was.
+          <View className="mt-3 flex-row items-start border-t border-line pt-3">
+            <Icon name="person-outline" size={18} color="muted" />
+            <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink-muted">
+              This job is with {job.assignedWorkerName ?? 'another worker'}. They can hand it over to you.
+            </Text>
+          </View>
+        ) : status === 'STARTING' ? (
+          <View className="mt-4">
+            <Text className="text-[15px] leading-[20px] text-ink-secondary">
+              Check the start parameters{startCheck?.parameterNames.length ? ` (${startCheck.parameterNames.join(', ')})` : ''}. The scheduled checks begin once you submit.
+            </Text>
+            {startCheck ? <Button label="Job Start check" icon="clipboard-outline" onPress={() => onOpenCheck(startCheck.id)} className="mt-3" /> : null}
+          </View>
+        ) : status === 'ENDING' ? (
+          <View className="mt-4">
+            <Text className="text-[15px] leading-[20px] text-ink-secondary">
+              Check the end parameters{endCheck?.parameterNames.length ? ` (${endCheck.parameterNames.join(', ')})` : ''}. The job is completed when you submit.
+            </Text>
+            {endCheck ? <Button label="Job End check" icon="clipboard-outline" onPress={() => onOpenCheck(endCheck.id)} className="mt-3" /> : null}
+          </View>
+        ) : (
+          <View className="mt-3">
+            {nextCheck ? (
+              <View className="flex-row items-start rounded-xl bg-subtle px-3 py-2.5">
+                <Icon name="time-outline" size={18} color={nextCheck.canSubmit ? 'due' : 'muted'} />
+                <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink-secondary">
+                  {nextCheck.canSubmit ? 'Due now' : `Next check at ${formatTime(nextCheck.scheduledAt)}`}: {nextCheck.parameterNames.join(', ')}
+                </Text>
+              </View>
+            ) : null}
+            {features.changeJobs ? (
+              <View className="mt-4 flex-row gap-2.5">
+                <View className="flex-1">
+                  <Button label="Handover" icon="swap-horizontal-outline" variant="secondary" size="compact" onPress={onHandover} accessibilityLabel="Handover Job" />
+                </View>
+                <View className="flex-1">
+                  <Button label="End Job" icon="stop-circle-outline" variant="secondary" size="compact" loading={busy === 'job'} onPress={onEndJob} />
+                </View>
+              </View>
+            ) : null}
+          </View>
+        )}
+        <Pressable onPress={onOpenJob} accessibilityRole="button" accessibilityLabel={`Job details ${job.jobNo}`} className="mt-2 h-11 flex-row items-center self-start active:opacity-50">
+          <Text className="text-[16px] font-semibold text-accent">Job details and history</Text>
+          <Icon name="chevron-forward" size={16} color="accent" />
+        </Pressable>
       </View>
-      {/* The department was worked out by the server from the Item Code and saved with the job: shown, never chosen here. */}
-      <View className="mt-3 flex-row flex-wrap rounded-xl bg-subtle px-3 pt-2.5">
-        <JobFact label="Item Code" value={job.itemCode || '—'} />
-        <JobFact label="PO No." value={job.jobNo} />
-        <JobFact label="Department" value={job.departmentName ? job.departmentName.toUpperCase() : '—'} />
-        <JobFact label="Status" value={head.text} tone={head.tone} />
-      </View>
-      {machine.checkPlan ? (
-        <>
-          <Text className="mb-3 mt-4 text-[17px] font-semibold text-ink" accessibilityRole="header">
-            Job Check Plan
-          </Text>
-          <CheckPlan plan={machine.checkPlan} status={status} checks={checks} canAct={mine} onOpenCheck={onOpenCheck} />
-          {!mine ? (
-            <View className="mt-3 flex-row items-start border-t border-line pt-3">
-              <Icon name="person-outline" size={18} color="muted" />
-              <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink-muted">
-                This job is with {job.assignedWorkerName ?? 'another worker'}. They can hand it over to you.
-              </Text>
-            </View>
-          ) : status === 'ACTIVE' && features.changeJobs ? (
-            <View className="mt-4 flex-row gap-2.5">
-              <View className="flex-1">
-                <Button label="Handover" icon="swap-horizontal-outline" variant="secondary" size="compact" onPress={onHandover} accessibilityLabel="Handover Job" />
-              </View>
-              <View className="flex-1">
-                <Button label="End Job" icon="stop-circle-outline" variant="secondary" size="compact" loading={busy === 'job'} onPress={onEndJob} />
-              </View>
-            </View>
-          ) : null}
-        </>
-      ) : !mine ? (
-        // An older server sends no check plan: the job card as it was.
-        <View className="mt-3 flex-row items-start border-t border-line pt-3">
-          <Icon name="person-outline" size={18} color="muted" />
-          <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink-muted">
-            This job is with {job.assignedWorkerName ?? 'another worker'}. They can hand it over to you.
-          </Text>
-        </View>
-      ) : status === 'STARTING' ? (
-        <View className="mt-4">
-          <Text className="text-[15px] leading-[20px] text-ink-secondary">
-            Check the start parameters{startCheck?.parameterNames.length ? ` (${startCheck.parameterNames.join(', ')})` : ''}. The scheduled checks begin once you submit.
-          </Text>
-          {startCheck ? <Button label="Job Start check" icon="clipboard-outline" onPress={() => onOpenCheck(startCheck.id)} className="mt-3" /> : null}
-        </View>
-      ) : status === 'ENDING' ? (
-        <View className="mt-4">
-          <Text className="text-[15px] leading-[20px] text-ink-secondary">
-            Check the end parameters{endCheck?.parameterNames.length ? ` (${endCheck.parameterNames.join(', ')})` : ''}. The job is completed when you submit.
-          </Text>
-          {endCheck ? <Button label="Job End check" icon="clipboard-outline" onPress={() => onOpenCheck(endCheck.id)} className="mt-3" /> : null}
-        </View>
-      ) : (
-        <View className="mt-3">
-          {nextCheck ? (
-            <View className="flex-row items-start rounded-xl bg-subtle px-3 py-2.5">
-              <Icon name="time-outline" size={18} color={nextCheck.canSubmit ? 'due' : 'muted'} />
-              <Text className="ml-2 flex-1 text-[15px] leading-[20px] text-ink-secondary">
-                {nextCheck.canSubmit ? 'Due now' : `Next check at ${formatTime(nextCheck.scheduledAt)}`}: {nextCheck.parameterNames.join(', ')}
-              </Text>
-            </View>
-          ) : null}
-          {features.changeJobs ? (
-            <View className="mt-4 flex-row gap-2.5">
-              <View className="flex-1">
-                <Button label="Handover" icon="swap-horizontal-outline" variant="secondary" size="compact" onPress={onHandover} accessibilityLabel="Handover Job" />
-              </View>
-              <View className="flex-1">
-                <Button label="End Job" icon="stop-circle-outline" variant="secondary" size="compact" loading={busy === 'job'} onPress={onEndJob} />
-              </View>
-            </View>
-          ) : null}
-        </View>
-      )}
-      <Pressable onPress={onOpenJob} accessibilityRole="button" accessibilityLabel={`Job details ${job.jobNo}`} className="mt-2 h-11 flex-row items-center self-start active:opacity-50">
-        <Text className="text-[16px] font-semibold text-accent">Job details and history</Text>
-        <Icon name="chevron-forward" size={16} color="accent" />
-      </Pressable>
-    </View>
+    </Rise>
   )
 }

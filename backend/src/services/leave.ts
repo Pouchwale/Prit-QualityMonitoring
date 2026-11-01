@@ -15,6 +15,7 @@ import { dayStates } from './plantCalendar'
 import { invalidateCheckGeneration } from './checkGenerator'
 import { sendToUser } from './notifications'
 import { sendLoggedEmail, smtpOf } from './reportDelivery'
+import { departmentScope, scopedWorkerIds, workerScopeWhere, type DepartmentScope } from './departmentScope'
 
 /**
  * Leave Management: workers apply for leave and for shift changes in the worker app; staff with the
@@ -350,6 +351,8 @@ export interface RequestFilters {
   q?: string
   ids?: string[]
   limit?: number
+  /** A Manager's workers only (services/departmentScope.ts); null or missing: everyone. */
+  workerIds?: string[] | null
 }
 
 const leaveColumns = {
@@ -409,6 +412,7 @@ function filterWhere(table: typeof leaveRequests | typeof shiftChangeRequests, f
   if (f.departmentId) where.push(eq(workers.departmentId, f.departmentId))
   if (f.decidedById) where.push(eq(table.decidedById, f.decidedById))
   if (f.ids?.length) where.push(inArray(table.id, f.ids))
+  if (f.workerIds) where.push(inArray(table.workerId, f.workerIds.length ? f.workerIds : ['00000000-0000-0000-0000-000000000000']))
   if (f.q) {
     const term = `%${f.q}%`
     where.push(or(sql`${workers.name} ilike ${term}`, sql`${workers.employeeId} ilike ${term}`, sql`${table.reason} ilike ${term}`))
@@ -476,10 +480,11 @@ export async function listShiftChanges(f: RequestFilters) {
 }
 
 /** Requests waiting for a decision (the Leave Approval badge). */
-export async function pendingCounts() {
+export async function pendingCounts(workerIds?: string[] | null) {
+  const mine = (col: typeof leaveRequests.workerId | typeof shiftChangeRequests.workerId) => (workerIds ? inArray(col, workerIds.length ? workerIds : ['00000000-0000-0000-0000-000000000000']) : undefined)
   const [[l], [s]] = await Promise.all([
-    db.select({ n: sql<number>`count(*)::int` }).from(leaveRequests).where(eq(leaveRequests.status, 'PENDING')),
-    db.select({ n: sql<number>`count(*)::int` }).from(shiftChangeRequests).where(eq(shiftChangeRequests.status, 'PENDING'))
+    db.select({ n: sql<number>`count(*)::int` }).from(leaveRequests).where(and(eq(leaveRequests.status, 'PENDING'), mine(leaveRequests.workerId))),
+    db.select({ n: sql<number>`count(*)::int` }).from(shiftChangeRequests).where(and(eq(shiftChangeRequests.status, 'PENDING'), mine(shiftChangeRequests.workerId)))
   ])
   return { leave: l.n, shiftChanges: s.n, total: l.n + s.n }
 }
@@ -734,11 +739,11 @@ export async function cancelRequest(req: Request, kind: RequestKind, id: string,
 // ---------------------------------------------------------------------------- Calendar and reports
 
 /** Leave and shift changes between two dates, with the plant's closed days, for the calendar. */
-export async function leaveCalendar(fromKey: string, toKey: string, includePending: boolean) {
+export async function leaveCalendar(fromKey: string, toKey: string, includePending: boolean, workerIds?: string[] | null) {
   const statuses: RequestStatus[] = includePending ? ['APPROVED', 'PENDING'] : ['APPROVED']
   const [leave, changes, days] = await Promise.all([
-    listLeaveRequests({ from: fromKey, to: toKey, limit: 2000 }),
-    listShiftChanges({ from: fromKey, to: toKey, limit: 2000 }),
+    listLeaveRequests({ from: fromKey, to: toKey, limit: 2000, workerIds }),
+    listShiftChanges({ from: fromKey, to: toKey, limit: 2000, workerIds }),
     dayStates(parseDateKey(fromKey), parseDateKey(toKey))
   ])
   return {
@@ -749,13 +754,13 @@ export async function leaveCalendar(fromKey: string, toKey: string, includePendi
 }
 
 /** Every active worker's balance in the leave year of `atKey`, with taken days per type in the period. */
-export async function leaveReport(atKey: string) {
+export async function leaveReport(atKey: string, scope?: DepartmentScope) {
   const s = await getLeaveSettings()
   const people = await db
     .select({ id: users.id, name: users.name, employeeId: users.employeeId, isActive: users.isActive, designation: users.designation, department: departments.name })
     .from(users)
     .leftJoin(departments, eq(departments.id, users.departmentId))
-    .where(eq(users.role, 'WORKER'))
+    .where(and(eq(users.role, 'WORKER'), scope ? workerScopeWhere(scope) : undefined))
     .orderBy(asc(users.name))
   const { year, balances } = await balancesFor(
     people.map((p) => p.id),
@@ -781,8 +786,11 @@ const esc = (v: unknown) =>
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const unique = (list: (string | null | undefined)[]) => [...new Map(list.filter((e): e is string => !!e && EMAIL_RE.test(e.trim())).map((e) => [e.trim().toLowerCase(), e.trim()])).values()]
 
-/** The staff who may approve requests and have an email on their account (Super Admins included). */
-async function approverEmails() {
+/**
+ * The staff who may approve this worker's requests and have an email on their account (Super
+ * Admins included). A Manager only for the workers of their own department.
+ */
+async function approverEmails(workerId?: string) {
   const staff = await db
     .select({ id: users.id, role: users.role, email: users.email })
     .from(users)
@@ -790,6 +798,7 @@ async function approverEmails() {
   const result: string[] = []
   for (const u of staff) {
     if (!u.email) continue
+    if (u.role === 'MANAGER' && workerId && !((await scopedWorkerIds(await departmentScope({ id: u.id, role: 'MANAGER' }))) ?? []).includes(workerId)) continue
     if (u.role === 'SUPER_ADMIN' || (await loadActions(u.id, u.role)).leave.approve) result.push(u.email)
   }
   return result
@@ -841,7 +850,7 @@ const shiftRows = (d: ShiftChangeDto): [string, string][] => [
 /** A new request: to the approvers (and the configured extra addresses), a copy to the Super Admin. */
 async function notifySubmitted(kind: RequestKind, d: LeaveDto | ShiftChangeDto) {
   const s = await getLeaveSettings()
-  const to = unique([...(s.notify.approvers ? await approverEmails() : []), ...s.notify.approverEmails, s.notify.copySuperAdmin ? s.notify.superAdminEmail : null, ...s.notify.ccEmails])
+  const to = unique([...(s.notify.approvers ? await approverEmails(d.workerId) : []), ...s.notify.approverEmails, s.notify.copySuperAdmin ? s.notify.superAdminEmail : null, ...s.notify.ccEmails])
   if (kind === 'leave') {
     const l = d as LeaveDto
     await sendLeaveEmail(

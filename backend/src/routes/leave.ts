@@ -12,6 +12,7 @@ import { audit, snapshot } from '../lib/audit'
 import { idParam } from '../lib/validate'
 import { can, requireModule } from '../lib/permissions'
 import { assertActivation, isSuperAdmin } from '../lib/activation'
+import { assertWorkerInScope, departmentScope, scopedWorkerIds } from '../services/departmentScope'
 import { deleteOrDisable } from '../lib/crud'
 import {
   ATTACHMENT_ERROR,
@@ -160,42 +161,58 @@ const filters = z.object({
 })
 
 /** The Leave Approval badge: requests waiting for a decision (view or approve). */
+/** The workers a Manager's leave pages show (their department); null for Admins: everyone. */
+const myWorkers = async (req: import('express').Request) => scopedWorkerIds(await departmentScope(req.user!))
+
+/** Refuses a request of a worker outside the Manager's department. */
+async function assertRequestInScope(req: import('express').Request, kind: 'leave' | 'shift', id: string) {
+  const table = kind === 'leave' ? leaveRequests : shiftChangeRequests
+  const [row] = await db.select({ workerId: table.workerId }).from(table).where(eq(table.id, id))
+  if (!row) throw notFound(kind === 'leave' ? 'Leave request' : 'Shift change request')
+  await assertWorkerInScope(await departmentScope(req.user!), row.workerId)
+}
+
 leaveRouter.get('/pending-count', ((req, res, next) =>
-  can(req.user!.actions, 'leave', 'view') || can(req.user!.actions, 'leave', 'approve') ? next() : next(new HttpError(403, 'You do not have permission for this action'))) as RequestHandler, async (_req, res) => {
+  can(req.user!.actions, 'leave', 'view') || can(req.user!.actions, 'leave', 'approve') ? next() : next(new HttpError(403, 'You do not have permission for this action'))) as RequestHandler, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store')
-  res.json(await pendingCounts())
+  res.json(await pendingCounts(await myWorkers(req)))
 })
 
 leaveRouter.get('/requests', view, async (req, res) => {
-  res.json(await listLeaveRequests(filters.parse(req.query)))
+  res.json(await listLeaveRequests({ ...filters.parse(req.query), workerIds: await myWorkers(req) }))
 })
 
 leaveRouter.get('/shift-changes', view, async (req, res) => {
   const { leaveTypeId: _l, ...f } = filters.parse(req.query)
-  res.json(await listShiftChanges(f))
+  res.json(await listShiftChanges({ ...f, workerIds: await myWorkers(req) }))
 })
 
 const decision = z.object({ approve: z.boolean(), comment: z.string().trim().max(1000).optional() })
 
 leaveRouter.post('/requests/:id/decision', approve, async (req, res) => {
   const body = decision.parse(req.body)
+  await assertRequestInScope(req, 'leave', idParam(req))
   res.json(await decideRequest(req, 'leave', idParam(req), body.approve, body.comment || null))
 })
 
 leaveRouter.post('/shift-changes/:id/decision', approve, async (req, res) => {
   const body = decision.parse(req.body)
+  await assertRequestInScope(req, 'shift', idParam(req))
   res.json(await decideRequest(req, 'shift', idParam(req), body.approve, body.comment || null))
 })
 
 leaveRouter.post('/requests/:id/cancel', cancel, async (req, res) => {
+  await assertRequestInScope(req, 'leave', idParam(req))
   res.json(await cancelRequest(req, 'leave', idParam(req), false))
 })
 
 leaveRouter.post('/shift-changes/:id/cancel', cancel, async (req, res) => {
+  await assertRequestInScope(req, 'shift', idParam(req))
   res.json(await cancelRequest(req, 'shift', idParam(req), false))
 })
 
 leaveRouter.get('/attachment/:kind/:id', view, async (req, res) => {
+  await assertRequestInScope(req, kindParam(req.params.kind), idParam(req))
   await sendAttachment(res, await attachmentRow(kindParam(req.params.kind), idParam(req)))
 })
 
@@ -203,13 +220,13 @@ leaveRouter.get('/attachment/:kind/:id', view, async (req, res) => {
 leaveRouter.get('/calendar', view, async (req, res) => {
   const q = z.object({ from: dateKey, to: dateKey }).parse(req.query)
   if (q.to < q.from) throw badRequest('The end date must be on or after the start date')
-  res.json(await leaveCalendar(q.from, q.to, true))
+  res.json(await leaveCalendar(q.from, q.to, true, await myWorkers(req)))
 })
 
 /** Every worker's balance per leave type in the leave year of `at` (today when left out). */
 leaveRouter.get('/report', view, async (req, res) => {
   const q = z.object({ at: dateKey.optional() }).parse(req.query)
-  res.json(await leaveReport(q.at ?? new Date().toISOString().slice(0, 10)))
+  res.json(await leaveReport(q.at ?? new Date().toISOString().slice(0, 10), await departmentScope(req.user!)))
 })
 
 // ---- settings and leave types

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { Clock3, Moon, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Clock3, Coffee, Moon, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Shift } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
@@ -28,9 +28,25 @@ interface FormState {
   endTime: string
   graceMinutes: string
   isActive: boolean
+  /** The break question: null until answered (a new shift must answer it). */
+  breakMode: 'set' | 'none' | null
+  breakStart: string
+  breakEnd: string
+  breakMinutes: string
 }
 
-const emptyForm: FormState = { name: '', code: '', startTime: '08:00', endTime: '16:00', graceMinutes: '15', isActive: true }
+const emptyForm: FormState = {
+  name: '',
+  code: '',
+  startTime: '08:00',
+  endTime: '16:00',
+  graceMinutes: '15',
+  isActive: true,
+  breakMode: null,
+  breakStart: '12:00',
+  breakEnd: '12:30',
+  breakMinutes: '30'
+}
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/
 
@@ -53,6 +69,26 @@ const durationLabel = (minutes: number) => {
 
 const isOvernight = (s: { startTime: string; endTime: string }) => toMinutes(s.endTime) <= toMinutes(s.startTime)
 
+const toHHMM = (minutes: number) => {
+  const m = ((minutes % 1440) + 1440) % 1440
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+}
+/** Minutes from one time to the next (round the clock). */
+const span = (from: string, to: string) => (toMinutes(to) - toMinutes(from) + 1440) % 1440 || 1440
+
+/** Why this break does not fit the shift, or null when it does (the server checks the same). */
+function breakProblem(f: FormState): string | null {
+  if (f.breakMode === null) return 'Set the break time of this shift, or choose "No break".'
+  if (f.breakMode === 'none') return null
+  if (!HHMM.test(f.breakStart) || !HHMM.test(f.breakEnd)) return 'Choose the break start and end.'
+  if (f.breakStart === f.breakEnd) return 'The break must end after it starts.'
+  const length = span(f.breakStart, f.breakEnd)
+  if (length > 240) return 'A break can be at most 4 hours.'
+  const offset = (toMinutes(f.breakStart) - toMinutes(f.startTime) + 1440) % 1440
+  if (offset + length > shiftLength(f.startTime, f.endTime)) return "The break must be inside the shift's hours. Change the break or the shift times."
+  return null
+}
+
 /**
  * Where the shift falls in the day, midnight to midnight; an overnight shift wraps round to the
  * start. Decorative: the times are always written next to it.
@@ -67,6 +103,77 @@ const DayBar: React.FC<{ start: string; end: string }> = ({ start, end }) => {
         <span key={a} className="absolute inset-y-0 bg-[var(--color-chart-primary)] rounded-full" style={{ left: `${a}%`, width: `${b - a}%` }} />
       ))}
     </span>
+  )
+}
+
+/**
+ * The shift's break, asked together with its hours: every worker on the shift gets it (no checks are
+ * due or missed during it), and a worker moved to another shift takes that shift's break.
+ */
+const BreakFields: React.FC<{ form: FormState; setForm: React.Dispatch<React.SetStateAction<FormState>> }> = ({ form, setForm }) => {
+  // Start keeps the length, End sets the length, Length moves the end.
+  const setStart = (breakStart: string) =>
+    setForm((f) => {
+      const m = Number(f.breakMinutes)
+      return { ...f, breakStart, breakEnd: Number.isInteger(m) && m > 0 ? toHHMM(toMinutes(breakStart) + m) : f.breakEnd }
+    })
+  const setEnd = (breakEnd: string) => setForm((f) => ({ ...f, breakEnd, breakMinutes: String(span(f.breakStart, breakEnd)) }))
+  const setLength = (breakMinutes: string) =>
+    setForm((f) => {
+      const m = Number(breakMinutes)
+      return { ...f, breakMinutes, breakEnd: Number.isInteger(m) && m > 0 ? toHHMM(toMinutes(f.breakStart) + m) : f.breakEnd }
+    })
+  const choose = (mode: 'set' | 'none') =>
+    setForm((f) => {
+      if (mode === 'none' || f.breakMode === 'set') return { ...f, breakMode: mode }
+      // First time: suggest 30 minutes, 4 hours into the shift (or halfway through a short one).
+      const into = Math.min(240, Math.floor(shiftLength(f.startTime, f.endTime) / 2))
+      const breakStart = toHHMM(toMinutes(f.startTime) + into)
+      return { ...f, breakMode: 'set', breakStart, breakEnd: toHHMM(toMinutes(breakStart) + 30), breakMinutes: '30' }
+    })
+  const problem = form.breakMode === 'set' ? breakProblem(form) : null
+  return (
+    <fieldset className={`rounded-md border p-3 space-y-3 ${form.breakMode === null ? 'border-due-line bg-due-bg' : 'border-line'}`}>
+      <legend className="px-1 text-[12.5px] font-semibold text-ink">
+        Break time <span className="text-failed">*</span>
+      </legend>
+      <p className="text-[12px] text-ink-muted -mt-1">Every worker on this shift gets this break. Moving a worker to another shift gives them that shift's break.</p>
+      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Break time">
+        {(['set', 'none'] as const).map((m) => (
+          <label
+            key={m}
+            className={`inline-flex items-center gap-2 h-8 px-3 rounded-md border cursor-pointer text-[13px] bg-white ${form.breakMode === m ? 'border-accent text-ink' : 'border-line text-ink-secondary hover:border-line-strong'}`}
+          >
+            <input type="radio" name="break-mode" checked={form.breakMode === m} onChange={() => choose(m)} />
+            {m === 'set' ? 'Set a break time' : 'No break'}
+          </label>
+        ))}
+      </div>
+      {form.breakMode === 'set' && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Break start" required>
+              <TimeInput label="Break start" value={form.breakStart} onChange={setStart} />
+            </Field>
+            <Field label="Break end" required>
+              <TimeInput label="Break end" value={form.breakEnd} onChange={setEnd} />
+            </Field>
+          </div>
+          <Field label="Length (minutes)" required hint="Changing it moves the break end.">
+            <input type="number" min={1} max={240} step={1} value={form.breakMinutes} onChange={(e) => setLength(e.target.value)} className={`${inputClass} sm:max-w-[10rem]`} />
+          </Field>
+          {problem ? (
+            <p className="text-[12px] text-failed" role="alert">
+              {problem}
+            </p>
+          ) : (
+            <p className="text-[12px] text-ink-muted">
+              During the break the shift's workers get no check notifications and no check is marked Missed; checks due then are due at the end of the break.
+            </p>
+          )}
+        </>
+      )}
+    </fieldset>
   )
 }
 
@@ -102,7 +209,12 @@ export const ShiftsPage: React.FC = () => {
       startTime: s.startTime,
       endTime: s.endTime,
       graceMinutes: String(s.graceMinutes),
-      isActive: s.isActive
+      isActive: s.isActive,
+      // A shift without a break is asked again: set one, or confirm "No break".
+      breakMode: s.breakStartTime && s.breakEndTime ? 'set' : null,
+      breakStart: s.breakStartTime ?? '12:00',
+      breakEnd: s.breakEndTime ?? '12:30',
+      breakMinutes: String(s.breakStartTime && s.breakEndTime ? span(s.breakStartTime, s.breakEndTime) : 30)
     })
     setFormError(null)
     setEditing(s)
@@ -117,6 +229,8 @@ export const ShiftsPage: React.FC = () => {
     if (!HHMM.test(form.startTime) || !HHMM.test(form.endTime)) return setFormError('Choose a start and an end time')
     if (form.startTime === form.endTime) return setFormError('Start and end time cannot be the same')
     if (!Number.isInteger(grace) || grace < 0 || grace > 240) return setFormError('Grace period must be a whole number between 0 and 240 minutes')
+    const problem = breakProblem(form)
+    if (problem) return setFormError(problem)
 
     setSaving(true)
     setFormError(null)
@@ -127,14 +241,16 @@ export const ShiftsPage: React.FC = () => {
         startTime: form.startTime,
         endTime: form.endTime,
         graceMinutes: grace,
-        isActive: form.isActive
+        isActive: form.isActive,
+        breakStartTime: form.breakMode === 'set' ? form.breakStart : null,
+        breakEndTime: form.breakMode === 'set' ? form.breakEnd : null
       }
       if (editing === 'new') {
         await api.post('/api/shifts', body)
         notify('success', 'Shift created', body.name)
       } else if (editing) {
         await api.put(`/api/shifts/${editing.id}`, body)
-        notify('success', 'Shift updated', `${body.name}. Upcoming checks for this shift will be regenerated.`)
+        notify('success', 'Shift updated', `${body.name}. Upcoming checks for this shift will be regenerated; its workers follow its break.`)
       }
       setEditing(null)
       reload()
@@ -216,6 +332,7 @@ export const ShiftsPage: React.FC = () => {
                     <th>Time</th>
                     <th>Timeline</th>
                     <th className="num">Duration</th>
+                    <th>Break</th>
                     <th className="num">Grace</th>
                     <th>Status</th>
                     {canWrite && (
@@ -253,6 +370,17 @@ export const ShiftsPage: React.FC = () => {
                         <DayBar start={s.startTime} end={s.endTime} />
                       </td>
                       <td className="num text-ink-secondary whitespace-nowrap">{durationLabel(shiftLength(s.startTime, s.endTime))}</td>
+                      <td className="whitespace-nowrap" data-label="Break">
+                        {s.breakStartTime && s.breakEndTime ? (
+                          <span className="inline-flex items-center gap-1.5 tabular-nums text-ink">
+                            <Coffee className="w-3.5 h-3.5 text-ink-muted" aria-hidden />
+                            {formatClockRange(s.breakStartTime, s.breakEndTime)}
+                            <span className="text-ink-muted">· {span(s.breakStartTime, s.breakEndTime)} min</span>
+                          </span>
+                        ) : (
+                          <span className="text-ink-muted">No break</span>
+                        )}
+                      </td>
                       <td className="num text-ink-secondary whitespace-nowrap">{s.graceMinutes} min</td>
                       <td className="whitespace-nowrap">
                         <StatusBadge status={s.isActive ? 'ACTIVE' : 'INACTIVE'} size="sm" />
@@ -281,7 +409,7 @@ export const ShiftsPage: React.FC = () => {
       {/* Shift Sign-In and Company Wi-Fi have their own permissions (Roles & Permissions). */}
       {can('shift_signin') && <ShiftLoginSettingsCard canEdit={can('shift_signin', 'edit')} />}
 
-      <WorkerBreaksCard canEdit={canEdit} canDelete={canDelete} />
+      <WorkerBreaksCard />
 
       {can('wifi_rule') && <WifiRuleCard />}
 
@@ -289,7 +417,7 @@ export const ShiftsPage: React.FC = () => {
         isOpen={editing !== null}
         onClose={close}
         title={editing === 'new' ? 'Add Shift' : 'Edit Shift'}
-        subtitle="Start and end times in plant time"
+        subtitle="Hours and break, in plant time"
         footer={
           <>
             <Button size="sm" variant="outline" onClick={close} disabled={saving}>
@@ -331,6 +459,7 @@ export const ShiftsPage: React.FC = () => {
               </span>
             </div>
           )}
+          <BreakFields form={form} setForm={setForm} />
           <Field label="Grace period (minutes)" hint="Minutes a check stays open after its scheduled time before it is marked Missed.">
             <input
               type="number"

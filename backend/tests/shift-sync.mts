@@ -56,10 +56,11 @@ const checksOf = (workerId: string) => db.select().from(qualityChecks).where(eq(
 const strip = (rows: Record<string, unknown>[]) => JSON.stringify(rows.map((r) => ({ ...r })).sort((a, b) => String(a.id).localeCompare(String(b.id))))
 
 const [sa] = await db.select().from(users).where(eq(users.role, 'SUPER_ADMIN'))
-const [mgr] = await db.select().from(users).where(eq(users.role, 'MANAGER'))
 const SA = await tokenFor(sa.id)
-const MGR = await tokenFor(mgr.id)
 const ankit = await byName('Ankit')
+// A Manager who manages Ankit: Managers see only their own department's workers (services/departmentScope.ts).
+const madeMgr = await call(SA, 'POST', '/users', { employeeId: `SSM${Date.now() % 100000}`, name: 'Shift-sync QC Manager', role: 'MANAGER', workerQualityRole: ankit.workerQualityRole, departmentId: ankit.departmentId, password: 'secret12' })
+const MGR = await tokenFor(madeMgr.json.id)
 const hiren = await byName('Hiren')
 const shiftD = await shiftNamed('shift D')
 const oldShiftId = ankit.shiftId

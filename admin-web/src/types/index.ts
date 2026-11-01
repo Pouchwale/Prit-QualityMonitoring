@@ -132,6 +132,8 @@ export interface Department {
   name: string
   code: string
   isActive: boolean
+  /** Departments whose checks this one's workers also do (IPQC (Print): Pouch, Label, Sleeve). */
+  coversDepartmentIds?: string[]
   /**
    * The active Item Code prefixes of this department (upper case), from Department Configuration.
    * A job whose Item Code starts with one of them belongs to this department: the server works it out.
@@ -163,6 +165,9 @@ export interface Shift {
   startTime: string
   endTime: string
   graceMinutes: number
+  /** The shift's daily break (HH:MM, plant time); both null: no break. Every worker on the shift has it. */
+  breakStartTime: string | null
+  breakEndTime: string | null
   isActive: boolean
 }
 

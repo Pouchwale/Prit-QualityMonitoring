@@ -287,6 +287,9 @@ await updateReportSharingSettings({
   const before = deliveredTo('b@ok.test')
   const result = await resendDailyTaskReport({ name: 'test' })
   check('8 Resend today’s report: SENT to both recipients through the new delivery', result.success && deliveredTo('b@ok.test') === before + 1, result.error ?? '')
+  // The Missed Tasks Report is part of the same email (quoted-printable: soft line breaks removed).
+  const body = (received.filter((m) => m.to.includes('b@ok.test')).at(-1)?.data ?? '').replace(/=\r?\n/g, '')
+  check('8b the daily email includes the Missed Tasks Report', /MISSED TASKS REPORT/.test(body) && /Missed tasks/.test(body), body.slice(0, 80))
 }
 
 // ---- 9. Persistence, read / dismiss

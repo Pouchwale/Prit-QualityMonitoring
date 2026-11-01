@@ -10,13 +10,11 @@ import { inputClass } from '../../components/common/Form'
 import { DateInput } from '../../components/common/DateTimeInputs'
 import { Card, CardHeader } from '../../components/ui/Card'
 import { StatCard } from '../../components/ui/StatCard'
-import { BarList, ChartLegend, DonutChart, ProgressBar, SegmentBar, STATUS_SERIES, type BarListRow } from '../../components/ui/charts'
-import { IconButton, ResultCount, Segmented } from '../../components/ui/Toolbar'
-import { Pagination, usePagination } from '../../components/ui/Pagination'
+import { BarList, ChartLegend, DonutChart, ProgressBar, STATUS_SERIES, type BarListRow } from '../../components/ui/charts'
+import { IconButton, Segmented } from '../../components/ui/Toolbar'
 import { WeeklyScores } from './WeeklyScores'
-import { ScoreFormulaCard } from './ScoreFormula'
 import { OverallScores } from './OverallScores'
-import { Num, SCORE_INFO, ScorePill, scoreText } from './scoreParts'
+import { SCORE_INFO, scoreText } from './scoreParts'
 
 /** This week's Sunday (plant date); a week runs Sunday to Saturday. */
 const weekSunday = () => addDaysKey(dateKey(), -new Date(`${dateKey()}T00:00:00Z`).getUTCDay())
@@ -54,14 +52,13 @@ export const PerformancePage: React.FC = () => {
   const filters = useApi<PerformanceFilterValues>('/api/performance/filter-values')
   const scope = data?.scope ?? filters.data?.scope
 
-  // Lowest score first: the workers who need attention lead the table (it is the ranking).
+  // Lowest score first: the workers who need attention lead the ranking.
   const rows = useMemo(
     () => [...(data?.workers ?? [])].sort((a, b) => a.score - b.score || b.missed - a.missed || a.workerName.localeCompare(b.workerName)),
     [data]
   )
-  const paging = usePagination(rows, 25, `${from}|${to}|${workerId}|${machineId}|${shiftId}|${departmentId}|${jobNo}`)
 
-  // Score ranking: the workers who need attention first (the table below has everyone).
+  // Score ranking: the workers who need attention first.
   const ranking = useMemo<BarListRow[]>(
     () =>
       rows.slice(0, RANKING_ROWS).map((w: WorkerPerformance) => ({
@@ -332,7 +329,7 @@ export const PerformancePage: React.FC = () => {
             <CardHeader
               icon={<Trophy className="w-4 h-4" />}
               title="Score ranking"
-              subtitle={rows.length > RANKING_ROWS ? `Lowest ${RANKING_ROWS} of ${rows.length} workers · all in the table below` : 'Lowest score first'}
+              subtitle={rows.length > RANKING_ROWS ? `Lowest ${RANKING_ROWS} of ${rows.length} workers` : 'Lowest score first'}
               info={SCORE_INFO}
               actions={<ChartLegend items={STATUS_SERIES} className="hidden md:flex" />}
             />
@@ -344,67 +341,12 @@ export const PerformancePage: React.FC = () => {
         </div>
       )}
 
-      {/* How the score is worked out, with this period's numbers as the example. */}
-      <ScoreFormulaCard totals={totals} period={period} />
-
-      <DataState loading={loading} error={error} onRetry={reload} empty={data === null ? undefined : rows.length === 0} emptyText="No checks were assigned in this period.">
-        <Card className="overflow-hidden">
-          <CardHeader
-            icon={<Users className="w-4 h-4" />}
-            title="Workers"
-            subtitle={`Lowest score first · ${period}`}
-            info={SCORE_INFO}
-            actions={
-              <div className="flex items-center gap-4">
-                <ChartLegend items={STATUS_SERIES} className="hidden lg:flex" />
-                <ResultCount shown={rows.length} noun={rows.length === 1 ? 'worker' : 'workers'} />
-              </div>
-            }
-          />
-          <div className="overflow-x-auto">
-            <table className="data-table stack-sm">
-              <thead>
-                <tr>
-                  <th>Worker</th>
-                  <th className="num">Assigned</th>
-                  <th className="num">Completed</th>
-                  <th className="num">Exception</th>
-                  <th className="num">Missed</th>
-                  <th className="num" title="Still open: not counted yet">
-                    Open
-                  </th>
-                  <th className="hidden lg:table-cell w-[22%]">Checks</th>
-                  <th className="num">Done</th>
-                  <th className="num">Score</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paging.visible.map((w) => (
-                  <tr key={w.workerId}>
-                    <td>
-                      <div className="font-medium text-ink whitespace-nowrap">{w.workerName}</div>
-                      {w.employeeId.toLowerCase() !== w.workerName.toLowerCase() && <div className="text-[11.5px] text-ink-muted font-mono">{w.employeeId}</div>}
-                    </td>
-                    <td className="num">{w.assigned}</td>
-                    <td className="num text-success font-medium">{w.completed}</td>
-                    <Num value={w.exceptions} tone="text-exception" />
-                    <Num value={w.missed} tone="text-missed" />
-                    <td className="num text-ink-muted">{w.open}</td>
-                    <td className="hidden lg:table-cell">
-                      <SegmentBar values={{ completed: w.completed, exceptions: w.exceptions, missed: w.missed, open: w.open }} series={STATUS_SERIES} />
-                    </td>
-                    <td className="num text-ink-secondary">{w.completionRate}%</td>
-                    <td className="num">
-                      <ScorePill score={w.score} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <Pagination page={paging.page} pages={paging.pages} total={paging.total} pageSize={paging.pageSize} onPage={paging.setPage} noun="workers" />
-        </Card>
-      </DataState>
+      {/* Loading, error and "nothing in this period" for the section above (the Workers table was removed). */}
+      {(loading || error || (data !== null && rows.length === 0)) && (
+        <DataState loading={loading && !data} error={error} onRetry={reload} empty={data === null ? undefined : rows.length === 0} emptyText="No checks were assigned in this period.">
+          <span />
+        </DataState>
+      )}
 
       {/* 2. Overall score: each worker from their first check up to today (not the filters above).
           Shown with Worker Performance view, like the rest of the page (the server checks the same). */}

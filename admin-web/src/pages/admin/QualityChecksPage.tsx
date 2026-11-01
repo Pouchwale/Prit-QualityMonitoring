@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, ClipboardCheck, ClipboardList, Clock3, Download, Eye, FlaskConical, Pencil, RefreshCw, SearchX, Trash2, XCircle } from 'lucide-react'
 import type { CheckResult, QualityCheck, QualityCheckStatus } from '../../types'
 import { useApi } from '../../lib/useApi'
@@ -6,14 +6,14 @@ import { useAuth, useCan } from '../../lib/auth'
 import { CreateTestCheckModal } from './CreateTestCheckModal'
 import { EditCheckModal } from './EditCheckModal'
 import { api, mediaUrl, type Page } from '../../lib/api'
-import { CHECK_STATUSES, RESULT_HINT, RESULT_LABEL, checkStatusLabel, dateKey, downloadCsv, formatDateKey, formatDateTime, formatTime } from '../../lib/format'
+import { CHECK_STATUSES, RESULT_HINT, RESULT_LABEL, addDaysKey, checkStatusLabel, dateKey, downloadCsv, formatDateKey, formatDateTime, formatTime } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { PageHeader } from '../../components/common/PageHeader'
 import { DataState, TruncatedNotice } from '../../components/common/DataState'
 import { CheckStatusBadge, StatusBadge } from '../../components/common/StatusBadge'
 import { Card, EmptyState, InfoTip } from '../../components/ui/Card'
 import { StatCard } from '../../components/ui/StatCard'
-import { IconButton, ResultCount, Segmented, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
+import { IconButton, ResultCount, SearchInput, Segmented, Toolbar, ToolbarSpacer } from '../../components/ui/Toolbar'
 import { Pagination, usePagination } from '../../components/ui/Pagination'
 import { EvidenceViewer } from '../../components/common/EvidenceViewer'
 import { FilterBar, type MonitoringFilters } from '../../components/common/FilterBar'
@@ -72,6 +72,13 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
   // Correcting a submitted check is the Super Admin's alone; the server refuses everyone else.
   const canCorrect = useAuth().isSuperAdmin
   const [editingId, setEditingId] = useState<string | null>(null)
+  // Search by PO No. or Item Code (part of either), sent to the server a moment after typing stops.
+  const [search, setSearch] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  useEffect(() => {
+    const t = setTimeout(() => setSearchQuery(search.trim()), 300)
+    return () => clearTimeout(t)
+  }, [search])
 
   // Status is applied client-side so the summary chips can show counts for every status.
   // Loaded with the total too: the server caps the list and says so (X-Truncated).
@@ -83,7 +90,8 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
     workerId: filters.workerId,
     activityId: filters.activityId,
     departmentId: filters.departmentId,
-    module: filters.module || undefined
+    module: filters.module || undefined,
+    search: searchQuery || undefined
   }, loadPage)
 
   const all = useMemo(() => data?.rows ?? [], [data])
@@ -102,7 +110,7 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
   const period = multiDay ? `${formatDateKey(filters.from)} – ${formatDateKey(filters.to)}` : formatDateKey(filters.from)
 
   // Only one page of rows is rendered; the CSV below still uses every filtered row.
-  const paging = usePagination(rows, 25, JSON.stringify(filters))
+  const paging = usePagination(rows, 25, JSON.stringify(filters) + searchQuery)
 
   // Permanent delete: needs Delete Checks (checked again by the server). Only rows on the current
   // page can be selected, so nothing out of sight is ever deleted.
@@ -190,10 +198,19 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
       <FilterBar
         value={filters}
         onChange={setFilters}
-        onReset={() => setFilters(defaultFilters())}
+        onReset={() => {
+          setFilters(defaultFilters())
+          setSearch('')
+        }}
         fields={['module', 'worker', 'department', 'activity', 'status', 'shift', 'machine']}
         statusOptions={statusOptions}
-      />
+      >
+        {/* Search by PO No. or Item Code, on the filter panel with the other filters. */}
+        <div className="w-full sm:w-72">
+          <span className="block text-[11px] font-medium text-ink-muted mb-1">PO No. / Item Code</span>
+          <SearchInput value={search} onChange={setSearch} label="Search by PO No. or Item Code" placeholder="Search PO No. or Item Code…" className="sm:w-72" />
+        </div>
+      </FilterBar>
 
       {/* KPI strip for the filtered period (before the status tab narrows it). */}
       {data !== null && (
@@ -245,7 +262,19 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
           </Toolbar>
 
           {rows.length === 0 ? (
-            <EmptyState icon={<SearchX className="w-5 h-5" />} title="No quality checks match these filters." hint="Try another status, date range or filter." />
+            <EmptyState
+              icon={<SearchX className="w-5 h-5" />}
+              title={searchQuery ? `No checks with a PO No. or Item Code containing “${searchQuery}” in this period.` : 'No quality checks match these filters.'}
+              hint={searchQuery ? 'Check the spelling, or search a longer period.' : 'Try another status, date range or filter.'}
+              action={
+                // A PO from an earlier day: one click searches the last 12 months (the longest period allowed).
+                searchQuery && filters.from > addDaysKey(dateKey(), -365) ? (
+                  <Button size="sm" variant="outline" onClick={() => setFilters({ ...filters, from: addDaysKey(dateKey(), -365), to: dateKey() })}>
+                    Search the last 12 months
+                  </Button>
+                ) : undefined
+              }
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="data-table stack-sm">

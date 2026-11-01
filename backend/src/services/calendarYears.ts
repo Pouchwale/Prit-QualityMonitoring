@@ -24,7 +24,8 @@ import { CALENDAR_V2_START, ruleCloses, rulesBetween, WEEKDAY_NAMES } from './we
  */
 
 export const FIRST_CALENDAR_YEAR = Number(CALENDAR_V2_START.slice(0, 4))
-export const CALENDAR_DOCS_DIR = path.resolve(process.cwd(), 'calendar-documents')
+/** Where uploaded calendar documents are kept (CALENDAR_DOCS_DIR; a separate folder for tests). */
+export const CALENDAR_DOCS_DIR = path.resolve(process.cwd(), process.env.CALENDAR_DOCS_DIR ?? 'calendar-documents')
 
 export type Item = typeof calendarYearItems.$inferSelect
 export type Year = typeof calendarYears.$inferSelect

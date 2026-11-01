@@ -198,6 +198,38 @@ export async function upload<T>(path: string, form: FormData, query?: Query, ret
   return (await res.json()) as T
 }
 
+/** Like `upload`, reporting progress (0–1) as the file is sent: for large files such as backups. */
+export function uploadWithProgress<T>(path: string, form: FormData, onProgress: (fraction: number) => void, retry = true): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_URL}${path}`)
+    const token = storage.get(ACCESS_KEY)
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    xhr.setRequestHeader('Accept', 'application/json')
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total)
+    xhr.onerror = () => reject(new ApiError(0, `Cannot reach the server at ${API_URL}. Is the backend running?`))
+    xhr.onload = async () => {
+      let body: { error?: string } | null = null
+      try {
+        body = JSON.parse(xhr.responseText)
+      } catch {
+        /* not JSON */
+      }
+      if (xhr.status === 401 && retry && (await refresh().catch(() => false))) {
+        uploadWithProgress<T>(path, form, onProgress, false).then(resolve, reject)
+        return
+      }
+      if (xhr.status === 401) {
+        clearTokens()
+        unauthorizedHandler?.()
+      }
+      if (xhr.status < 200 || xhr.status >= 300) reject(new ApiError(xhr.status, typeof body?.error === 'string' ? body.error : `Request failed (${xhr.status})`))
+      else resolve(body as T)
+    }
+    xhr.send(form)
+  })
+}
+
 /** Fetches a protected file (e.g. an uploaded document) as a blob for previewing. */
 export async function fetchBlob(path: string, retry = true): Promise<Blob> {
   const token = storage.get(ACCESS_KEY)
