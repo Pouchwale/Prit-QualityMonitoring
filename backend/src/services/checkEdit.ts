@@ -10,6 +10,9 @@ import { validItemCode } from '../lib/validate'
 import { emptyValue, isEmpty, PHOTO_VALUE, readingValue, ruleText } from './evaluate'
 import { requireItemCodeDepartment } from './itemCodeDepartment'
 
+/** A reading recorded with measurements ("PASS · Height 120 mm · …"): corrected with them. */
+const measuredReading = (value: string | null) => (value ?? '').includes('·')
+
 /**
  * Super Admin corrections of a submitted check (routes/monitoring.ts). What can be corrected is what
  * the worker typed: the readings, the Item Code and PO No. (unless a job set them) and, on an
@@ -76,7 +79,9 @@ export async function checkEditForm(id: string) {
         editable: editableValue(v, l),
         options: p?.options ?? [],
         materialOptions: p?.materialOptions ?? [],
-        multiSelect: p?.multiSelect ?? false
+        multiSelect: p?.multiSelect ?? false,
+        // A correction keeps the reading's own form, whatever the switch says today.
+        measureFields: p && measuredReading(v.value) ? p.measureFields : []
       }
     })
   }
@@ -114,7 +119,7 @@ export async function editCheck(req: Request, id: string, input: z.infer<typeof 
       if ((row.value ?? '') === entry.value.trim()) continue
       if (!editableValue(row, l)) throw badRequest(`${row.parameterName} cannot be corrected here.`)
       const p = l.params.get(row.parameterId!)!
-      const config = { name: p.name, type: p.type, unit: p.unit, minValue: p.minValue, maxValue: p.maxValue, options: p.options, materialOptions: p.materialOptions, multiSelect: p.multiSelect }
+      const config = { name: p.name, type: p.type, unit: p.unit, minValue: p.minValue, maxValue: p.maxValue, options: p.options, materialOptions: p.materialOptions, multiSelect: p.multiSelect, measureFields: p.measureFields, measureEnabled: measuredReading(row.value) }
       // Required or not is set per check type, as on the worker's form.
       const [link] = await tx
         .select({ isRequired: activityParameters.isRequired })

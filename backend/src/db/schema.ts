@@ -208,6 +208,18 @@ export const parameters = pgTable('parameters', {
   materialOptions: jsonb('material_options').$type<string[]>().notNull().default([]),
   /** Dropdown only: the worker may choose several options, stored as one comma-separated value. */
   multiSelect: boolean('multi_select').notNull().default(false),
+  /**
+   * Pass / Fail only: measurements the worker enters before choosing Pass or Fail, e.g. Pouch Size:
+   * Height, Width, Gusset (in `unit`). Stored with the answer as one reading,
+   * "PASS · Height 120 mm · Width 80 mm · Gusset 30 mm". Empty for a plain Pass / Fail.
+   */
+  measureFields: jsonb('measure_fields').$type<string[]>().notNull().default([]),
+  /**
+   * The measurements above are asked for only while this is on. Switched by the Super Admin or an
+   * Admin (PUT /api/parameters/:id/measurements); off, the worker sees a plain Pass / Fail and the
+   * list is kept for when it is switched back on.
+   */
+  measureEnabled: boolean('measure_enabled').notNull().default(true),
   /** Default for new activity assignments; each activity can override it. */
   isRequired: boolean('is_required').notNull().default(true),
   isActive: boolean('is_active').notNull().default(true),

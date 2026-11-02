@@ -1,0 +1,1 @@
+ALTER TABLE "parameters" ADD COLUMN "measure_enabled" boolean DEFAULT true NOT NULL;

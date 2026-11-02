@@ -344,6 +344,20 @@
       "when": 1793430574980,
       "tag": "0048_shift_breaks",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1793528087908,
+      "tag": "0049_pouch_size_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1793529294084,
+      "tag": "0050_measurements_switch",
+      "breakpoints": true
     }
   ]
 }

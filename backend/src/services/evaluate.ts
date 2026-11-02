@@ -22,10 +22,49 @@ export interface ParameterConfig {
   materialOptions?: string[] | null
   /** Dropdown only: the worker may choose several options. Absent (older callers) means one. */
   multiSelect?: boolean | null
+  /**
+   * Pass / Fail only: measurements entered before the answer, e.g. Height, Width, Gusset (in
+   * `unit`). Absent or empty for a plain Pass / Fail.
+   */
+  measureFields?: string[] | null
+  /** The measurements are asked for only while this is on. Absent (older callers) means on. */
+  measureEnabled?: boolean | null
 }
 
 /** How several chosen dropdown options are stored and shown: one readable, comma-separated value. */
 export const MULTI_SEPARATOR = ', '
+
+/** Between the answer and each measurement of a measured Pass / Fail: "PASS · Height 120 mm · …". */
+export const MEASURE_SEPARATOR = ' · '
+
+/** The measurements a Pass / Fail asks for now: none while the Super Admin or an Admin has them off. */
+export const activeMeasureFields = (p: Pick<ParameterConfig, 'measureFields' | 'measureEnabled'>): string[] =>
+  p.measureEnabled === false ? [] : (p.measureFields ?? [])
+
+const hasMeasures = (p: ParameterConfig) => activeMeasureFields(p).length > 0
+
+/**
+ * A measured Pass / Fail's answer and measurements, from the stored or submitted text
+ * ("PASS · Height 120 mm · Width 80 mm · Gusset 30 mm"). A measurement is found by its field name,
+ * the longest name first, so "Width 2" is never read as "Width". Missing parts are null.
+ */
+export function measuredAnswer(p: ParameterConfig, raw: unknown): { result: 'PASS' | 'FAIL' | null; values: Record<string, number | null> } {
+  const fields = [...(p.measureFields ?? [])].sort((a, b) => b.length - a.length)
+  const values: Record<string, number | null> = Object.fromEntries((p.measureFields ?? []).map((f) => [f, null]))
+  let result: 'PASS' | 'FAIL' | null = null
+  for (const token of String(raw ?? '').split('·').map((t) => t.trim()).filter(Boolean)) {
+    const upper = token.toUpperCase()
+    if (upper === 'PASS' || upper === 'FAIL') {
+      result = upper
+      continue
+    }
+    const field = fields.find((f) => token.toLowerCase().startsWith(f.toLowerCase()))
+    if (!field) continue
+    const number = token.slice(field.length).match(/-?\d+(?:[.,]\d+)?/)
+    values[field] = number ? Number(number[0].replace(',', '.')) : null
+  }
+  return { result, values }
+}
 
 /**
  * The options a worker chose for a dropdown, from either a list or the stored text. An option whose
@@ -57,7 +96,7 @@ export function ruleText(p: ParameterConfig): string | null {
       if (p.maxValue != null) return `Maximum ${formatNumber(p.maxValue)}${unit}`
       return p.unit ? `Value in ${p.unit}` : null
     case 'PASS_FAIL':
-      return 'Pass or Fail'
+      return hasMeasures(p) ? `${p.measureFields!.join(', ')}${p.unit ? ` (${p.unit})` : ''}, then Pass or Fail` : 'Pass or Fail'
     case 'YES_NO':
       return 'Yes or No'
     case 'DROPDOWN': {
@@ -111,7 +150,25 @@ export function evaluateValue(p: ParameterConfig, raw: unknown): { value: string
       return { value: formatNumber(num), result: ok ? 'PASS' : 'FAIL' }
     }
     case 'PASS_FAIL': {
-      const v = text.toUpperCase()
+      if (hasMeasures(p)) {
+        // Every measurement, then the answer: stored together as one readable reading.
+        const answer = measuredAnswer(p, raw)
+        // A form opened while the measurements were off sends a plain answer: it must be reopened.
+        if (p.measureFields!.every((field) => answer.values[field] == null) && /^(PASS|FAIL)$/i.test(text)) {
+          throw badRequest(`${p.name} now asks for ${p.measureFields!.join(', ')}. Go back and open the check again.`)
+        }
+        for (const field of p.measureFields!) {
+          const n = answer.values[field]
+          if (n == null) throw badRequest(`${p.name}: enter the ${field}`)
+          if (!(n > 0) || n > MAX_READING) throw badRequest(`${p.name}: the ${field} must be a number above 0`)
+        }
+        if (!answer.result) throw badRequest(`${p.name}: choose Pass or Fail`)
+        const unit = p.unit ? ` ${p.unit}` : ''
+        const parts = p.measureFields!.map((field) => `${field} ${formatNumber(answer.values[field]!)}${unit}`)
+        return { value: [answer.result, ...parts].join(MEASURE_SEPARATOR), result: answer.result }
+      }
+      // A form opened while measurements were on may still send them: only the answer is kept.
+      const v = text.split('·')[0].trim().toUpperCase()
       if (v !== 'PASS' && v !== 'FAIL') throw badRequest(`${p.name} must be Pass or Fail`)
       return { value: v, result: v }
     }

@@ -414,7 +414,9 @@ export async function monitoringOverview(): Promise<OverviewMachine[]> {
         maxValue: parameters.maxValue,
         options: parameters.options,
         materialOptions: parameters.materialOptions,
-        multiSelect: parameters.multiSelect
+        multiSelect: parameters.multiSelect,
+        measureFields: parameters.measureFields,
+        measureEnabled: parameters.measureEnabled
       })
       .from(activityParameters)
       .innerJoin(parameters, eq(activityParameters.parameterId, parameters.id))
@@ -497,7 +499,9 @@ export async function monitoringOverview(): Promise<OverviewMachine[]> {
                   maxValue: p.maxValue,
                   options: p.options,
                   materialOptions: p.materialOptions,
-                  multiSelect: p.multiSelect
+                  multiSelect: p.multiSelect,
+                  measureFields: p.measureFields,
+                  measureEnabled: p.measureEnabled
                 }),
                 isRequired: p.isRequired,
                 isEnabled: p.isEnabled,

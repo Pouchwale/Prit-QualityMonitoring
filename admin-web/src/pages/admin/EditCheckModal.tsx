@@ -28,6 +28,8 @@ interface EditForm {
     options: string[]
     materialOptions: string[]
     multiSelect: boolean
+    /** Pass / Fail with measurements (Pouch Size): corrected as text, "PASS · Height 120 mm · …". */
+    measureFields?: string[]
   }[]
 }
 
@@ -88,7 +90,7 @@ export const EditCheckModal: React.FC<{ checkId: string | null; onClose: () => v
   const input = (v: EditForm['values'][number]) => {
     const value = values[v.id] ?? ''
     const set = (next: string) => setValues((prev) => ({ ...prev, [v.id]: next }))
-    const choices = v.type === 'PASS_FAIL' ? ['PASS', 'FAIL'] : v.type === 'YES_NO' ? ['YES', 'NO'] : v.type === 'DROPDOWN' && !v.multiSelect && !v.materialOptions.length ? v.options : null
+    const choices = v.type === 'PASS_FAIL' ? (v.measureFields?.length ? null : ['PASS', 'FAIL']) : v.type === 'YES_NO' ? ['YES', 'NO'] : v.type === 'DROPDOWN' && !v.multiSelect && !v.materialOptions.length ? v.options : null
     if (choices) {
       return (
         <Select value={value} onChange={(e) => set(e.target.value)}>
@@ -125,7 +127,7 @@ export const EditCheckModal: React.FC<{ checkId: string | null; onClose: () => v
       }
     >
       {!form ? (
-        error ? <p className="text-sm text-missed">{error}</p> : <p className="text-sm text-ink-muted">Loading…</p>
+        error ? <p className="text-[14.5px] text-missed">{error}</p> : <p className="text-[14.5px] text-ink-muted">Loading…</p>
       ) : (
         <div className="space-y-4">
           {form.values.map((v) => (
@@ -137,7 +139,7 @@ export const EditCheckModal: React.FC<{ checkId: string | null; onClose: () => v
                   ? v.notApplicable
                     ? 'Marked Not Applicable by the worker: cannot be corrected here.'
                     : 'Photo or removed parameter: cannot be corrected here.'
-                  : [v.rule ? `Rule: ${v.rule}` : null, v.multiSelect || v.materialOptions.length ? `Options: ${[...v.materialOptions, ...v.options].join(', ')} (comma-separated)` : null]
+                  : [v.rule ? `Rule: ${v.rule}` : null, v.multiSelect || v.materialOptions.length ? `Options: ${[...v.materialOptions, ...v.options].join(', ')} (comma-separated)` : null, v.measureFields?.length ? `Keep the format: PASS or FAIL · ${v.measureFields.map((f) => `${f} <number>`).join(' · ')}` : null]
                       .filter(Boolean)
                       .join(' · ') || undefined
               }
@@ -155,7 +157,7 @@ export const EditCheckModal: React.FC<{ checkId: string | null; onClose: () => v
               </Field>
             </div>
           ) : (
-            <p className="text-sm text-ink-muted">Item Code {form.itemCode || '—'} · PO No. {form.jobNo || '—'} come from the job and are corrected there.</p>
+            <p className="text-[14.5px] text-ink-muted">Item Code {form.itemCode || '—'} · PO No. {form.jobNo || '—'} come from the job and are corrected there.</p>
           )}
           {form.remark !== null ? (
             <Field label={`Exception remark (${form.exceptionReason})`}>
@@ -165,7 +167,7 @@ export const EditCheckModal: React.FC<{ checkId: string | null; onClose: () => v
           <Field label="Reason for the correction" hint="Saved in the audit log with the old and new values.">
             <TextArea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500} placeholder="e.g. Worker typed 220 instead of 22" />
           </Field>
-          {error ? <p className="text-sm text-missed">{error}</p> : null}
+          {error ? <p className="text-[14.5px] text-missed">{error}</p> : null}
         </div>
       )}
     </Modal>

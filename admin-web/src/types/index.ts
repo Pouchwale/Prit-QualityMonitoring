@@ -202,6 +202,10 @@ export interface Parameter {
   materialOptions: string[]
   /** Dropdown only: the worker may choose several options instead of one. */
   multiSelect: boolean
+  /** Pass / Fail only: measurements entered before the answer, e.g. Height, Width, Gusset. */
+  measureFields?: string[]
+  /** The measurements are asked for only while this is on (Super Admin / Admin switch). */
+  measureEnabled?: boolean
   /** The departments this parameter is used by. Empty: unassigned, so every check type may use it. */
   departmentIds: string[]
   departmentNames: string[]

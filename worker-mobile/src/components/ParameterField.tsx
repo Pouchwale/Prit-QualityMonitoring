@@ -54,6 +54,52 @@ export function materialAnswer(p: FormParameter, raw: string) {
 /** The value after changing one half of the answer; the other half is kept. */
 export const materialValue = (material: string | null, option: string | null) => [material, option].filter(Boolean).join(', ')
 
+/** This Pass / Fail asks for measurements first, e.g. Pouch Size: Height, Width, Gusset. */
+export const hasMeasures = (p: FormParameter) => (p.measureFields?.length ?? 0) > 0
+
+/**
+ * A measured Pass / Fail's answer and measurements as typed, from the value the form keeps: the
+ * same readable text the server stores, "PASS · Height 120 mm · Width 80 mm · Gusset 30 mm".
+ */
+export function measureAnswer(p: FormParameter, raw: string): { result: 'PASS' | 'FAIL' | null; values: Record<string, string> } {
+  const fields = [...(p.measureFields ?? [])].sort((a, b) => b.length - a.length)
+  const values: Record<string, string> = Object.fromEntries((p.measureFields ?? []).map((f) => [f, '']))
+  let result: 'PASS' | 'FAIL' | null = null
+  for (const token of raw.split('·').map((t) => t.trim()).filter(Boolean)) {
+    const upper = token.toUpperCase()
+    if (upper === 'PASS' || upper === 'FAIL') {
+      result = upper
+      continue
+    }
+    const field = fields.find((f) => token.toLowerCase().startsWith(f.toLowerCase()))
+    if (field) values[field] = token.slice(field.length).match(/^[\s:]*([-\d.,]*)/)?.[1] ?? ''
+  }
+  return { result, values }
+}
+
+/** The value to keep after changing one part; empty when nothing is entered yet. */
+export function measureValue(p: FormParameter, result: string | null, values: Record<string, string>): string {
+  const fields = p.measureFields ?? []
+  if (!result && fields.every((f) => !values[f]?.trim())) return ''
+  const unit = p.unit ? ` ${p.unit}` : ''
+  return [result, ...fields.map((f) => (values[f]?.trim() ? `${f} ${values[f].trim()}${unit}` : f))].filter(Boolean).join(' · ')
+}
+
+/** The Pass / Fail answer of any Pass / Fail parameter, measured or not. */
+export function passFailAnswer(p: FormParameter, raw: string): 'PASS' | 'FAIL' | null {
+  if (hasMeasures(p)) return measureAnswer(p, raw).result
+  const v = raw.trim().toUpperCase()
+  return v === 'PASS' || v === 'FAIL' ? v : null
+}
+
+/** What a measured Pass / Fail still needs: the measurements left empty, then the answer. */
+export function measureMissing(p: FormParameter, raw: string): string[] {
+  const answer = measureAnswer(p, raw)
+  const missing = (p.measureFields ?? []).filter((f) => !(Number(answer.values[f].replace(',', '.')) > 0))
+  if (!answer.result) missing.push('Pass / Fail')
+  return missing
+}
+
 /** One dropdown choice. Same look as before: tinted with a tick once it is the answer. */
 const Chip: React.FC<{
   label: string
@@ -161,7 +207,46 @@ export const ParameterInput: React.FC<Props> = ({ parameter: p, value, onChange,
         <TextField placeholder="Type here" value={value} onChangeText={onChange} invalid={invalid} accessibilityLabel={p.name} />
       )}
 
-      {p.type === 'PASS_FAIL' && (
+      {p.type === 'PASS_FAIL' && hasMeasures(p) ? (
+        // Pouch Size: each measurement on its own row, then Pass or Fail.
+        <View className="gap-2.5">
+          {(p.measureFields ?? []).map((field) => {
+            const answer = measureAnswer(p, value)
+            const typed = answer.values[field]
+            return (
+              <View key={field} className="flex-row items-center">
+                <Text className="w-[84px] text-[17px] font-medium text-ink">{field}</Text>
+                <View className="flex-1">
+                  <TextField
+                    keyboardType="decimal-pad"
+                    placeholder={`Enter ${field.toLowerCase()}`}
+                    value={typed}
+                    onChangeText={(text) => onChange(measureValue(p, answer.result, { ...answer.values, [field]: text.replace(/[^\d.,]/g, '') }))}
+                    suffix={p.unit}
+                    invalid={invalid && !(Number(typed.replace(',', '.')) > 0)}
+                    accessibilityLabel={`${field} for ${p.name}`}
+                  />
+                </View>
+              </View>
+            )
+          })}
+          <Segmented
+            value={measureAnswer(p, value).result ?? ''}
+            forName={p.name}
+            onChange={(result) => {
+              const answer = measureAnswer(p, value)
+              onChange(measureValue(p, result, answer.values))
+            }}
+            invalid={invalid && !measureAnswer(p, value).result}
+            options={[
+              { value: 'PASS', label: 'Pass', tone: 'success', icon: 'checkmark' },
+              { value: 'FAIL', label: 'Fail', tone: 'missed', icon: 'close' }
+            ]}
+          />
+        </View>
+      ) : null}
+
+      {p.type === 'PASS_FAIL' && !hasMeasures(p) && (
         <Segmented
           value={value}
           forName={p.name}

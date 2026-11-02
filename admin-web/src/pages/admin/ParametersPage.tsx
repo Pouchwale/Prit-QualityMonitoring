@@ -24,7 +24,7 @@ import {
 import type { Department, Parameter, ParameterType } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
-import { useModuleActions, useCanActivate, ACTIVATION_HINT } from '../../lib/auth'
+import { useAuth, useModuleActions, useCanActivate, ACTIVATION_HINT } from '../../lib/auth'
 import { PARAMETER_TYPE_LABEL } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { Modal } from '../../components/common/Modal'
@@ -50,7 +50,7 @@ const TYPE_ICON: Record<ParameterType, React.ReactNode> = {
 }
 
 /** A small neutral chip: codes, input types, departments. */
-const chip = 'inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[11px] text-ink-secondary whitespace-nowrap'
+const chip = 'inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[12.5px] text-ink-secondary whitespace-nowrap'
 
 /** Request body for POST / PUT /api/parameters. */
 interface ParameterBody {
@@ -63,6 +63,8 @@ interface ParameterBody {
   options: string[]
   materialOptions: string[]
   multiSelect: boolean
+  measureFields: string[]
+  measureEnabled: boolean
   isRequired: boolean
   isActive: boolean
   sortOrder: number
@@ -80,6 +82,8 @@ interface ParameterForm {
   options: string[]
   materialOptions: string[]
   multiSelect: boolean
+  measureFields: string[]
+  measureEnabled: boolean
   isRequired: boolean
   isActive: boolean
   description: string
@@ -96,6 +100,8 @@ const emptyForm: ParameterForm = {
   options: [''],
   materialOptions: [],
   multiSelect: false,
+  measureFields: [],
+  measureEnabled: true,
   isRequired: true,
   isActive: true,
   description: '',
@@ -112,6 +118,8 @@ const formFromParameter = (p: Parameter): ParameterForm => ({
   options: p.options.length ? [...p.options] : [''],
   materialOptions: [...p.materialOptions],
   multiSelect: p.multiSelect,
+  measureFields: [...(p.measureFields ?? [])],
+  measureEnabled: p.measureEnabled ?? true,
   isRequired: p.isRequired,
   isActive: p.isActive,
   description: p.description ?? '',
@@ -129,6 +137,8 @@ const bodyFromParameter = (p: Parameter): ParameterBody => ({
   options: p.options,
   materialOptions: p.materialOptions,
   multiSelect: p.multiSelect,
+  measureFields: p.measureFields ?? [],
+  measureEnabled: p.measureEnabled ?? true,
   isRequired: p.isRequired,
   isActive: p.isActive,
   sortOrder: p.sortOrder,
@@ -136,10 +146,59 @@ const bodyFromParameter = (p: Parameter): ParameterBody => ({
   departmentIds: p.departmentIds
 })
 
+/**
+ * A measured Pass / Fail's switch in the list: "Measurements ON / OFF". The Super Admin and Admins
+ * click it to switch; everyone else only sees the state.
+ */
+const MeasurementsSwitch: React.FC<{ parameter: Parameter; canSwitch: boolean; busy: boolean; onToggle: () => void }> = ({
+  parameter: p,
+  canSwitch,
+  busy,
+  onToggle
+}) => {
+  const on = p.measureEnabled ?? true
+  const names = (p.measureFields ?? []).join(', ')
+  const look = on ? 'bg-success-bg text-success ring-success-line' : 'bg-subtle text-ink-muted ring-line'
+  const base = `mt-1 inline-flex items-center gap-1.5 h-5 px-2 rounded-full ring-1 ring-inset text-[12.5px] font-semibold whitespace-nowrap ${look}`
+  const content = (
+    <>
+      {busy ? (
+        <Loader2 className="w-3 h-3 animate-spin" aria-hidden />
+      ) : (
+        <span className={`w-1.5 h-1.5 rounded-full ${on ? 'bg-success' : 'bg-ink-faint'}`} aria-hidden />
+      )}
+      Measurements {on ? 'ON' : 'OFF'}
+    </>
+  )
+  if (!canSwitch) {
+    return (
+      <span className={base} title={`${names}: ${on ? 'asked for' : 'switched off'}. Only the Super Admin and Admins can switch this.`}>
+        {content}
+      </span>
+    )
+  }
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={`Measurements for ${p.name}: ${on ? 'on' : 'off'}. Click to switch ${on ? 'off' : 'on'}.`}
+      title={on ? `Workers enter ${names}. Click to switch off.` : 'Plain Pass / Fail now. Click to switch the measurements back on.'}
+      disabled={busy}
+      onClick={onToggle}
+      className={`${base} hover:brightness-95 disabled:opacity-60`}
+    >
+      {content}
+    </button>
+  )
+}
+
 const toNumberOrNull = (value: string) => (value.trim() === '' ? null : Number(value))
 
 export const ParametersPage: React.FC = () => {
   const canActivate = useCanActivate()
+  /** Measurements (Pouch Size: Height, Width, Gusset) are switched and changed by the Super Admin and Admins only. */
+  const controlsMeasurements = useAuth().isAdmin
   const { canCreate, canEdit, canDelete, canWrite } = useModuleActions('parameters')
   const notify = useToast()
   const { data, error, loading, reload, setData } = useApi<Parameter[]>('/api/parameters')
@@ -199,10 +258,13 @@ export const ParametersPage: React.FC = () => {
     const isNumber = form.type === 'NUMBER'
     const options = form.type === 'DROPDOWN' ? form.options.map((o) => o.trim()).filter(Boolean) : []
     const materialOptions = form.type === 'DROPDOWN' ? form.materialOptions.map((o) => o.trim()).filter(Boolean) : []
+    const measureFields = form.type === 'PASS_FAIL' ? form.measureFields.map((o) => o.trim()).filter(Boolean) : []
+    const measured = measureFields.length > 0
     const minValue = isNumber ? toNumberOrNull(form.minValue) : null
     const maxValue = isNumber ? toNumberOrNull(form.maxValue) : null
 
     if (form.type === 'DROPDOWN' && options.length === 0) return setFormError('Add at least one dropdown option')
+    if (new Set(measureFields.map((m) => m.toLowerCase())).size !== measureFields.length) return setFormError('Each measurement needs a different name')
     if ((minValue !== null && !Number.isFinite(minValue)) || (maxValue !== null && !Number.isFinite(maxValue))) {
       return setFormError('Minimum and maximum must be numbers')
     }
@@ -212,12 +274,14 @@ export const ParametersPage: React.FC = () => {
       name: form.name.trim(),
       code: form.code.trim(),
       type: form.type,
-      unit: isNumber && form.unit.trim() ? form.unit.trim() : null,
+      unit: (isNumber || measured) && form.unit.trim() ? form.unit.trim() : null,
       minValue,
       maxValue,
       options,
       materialOptions,
       multiSelect: form.type === 'DROPDOWN' && form.multiSelect,
+      measureFields,
+      measureEnabled: form.measureEnabled,
       isRequired: form.isRequired,
       isActive: form.isActive,
       sortOrder: editing ? editing.sortOrder : nextSortOrder,
@@ -248,6 +312,25 @@ export const ParametersPage: React.FC = () => {
       reload()
     } catch (err) {
       notify('error', 'Could not update parameter', errorText(err))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  /** Measurements on or off, e.g. off today and on again tomorrow. The list itself is kept. */
+  const toggleMeasurements = async (p: Parameter) => {
+    const enabled = !(p.measureEnabled ?? true)
+    setBusyId(`m:${p.id}`)
+    try {
+      await api.put(`/api/parameters/${p.id}/measurements`, { enabled })
+      notify(
+        'success',
+        enabled ? 'Measurements switched on' : 'Measurements switched off',
+        enabled ? `Workers enter ${(p.measureFields ?? []).join(', ')} for ${p.name}.` : `${p.name} is a plain Pass / Fail until it is switched on again.`
+      )
+      reload()
+    } catch (err) {
+      notify('error', 'Could not switch the measurements', errorText(err))
     } finally {
       setBusyId(null)
     }
@@ -333,8 +416,8 @@ export const ParametersPage: React.FC = () => {
               type="button"
               aria-pressed={showDisabled}
               onClick={() => setShowDisabled(!showDisabled)}
-              className={`inline-flex items-center gap-1.5 h-[40px] lg:h-8 px-2.5 rounded-md border text-[12.5px] font-medium transition-colors ${
-                showDisabled ? 'bg-accent-soft border-accent-line text-accent-strong' : 'bg-white border-line-strong text-ink-secondary hover:bg-subtle'
+              className={`inline-flex items-center gap-1.5 h-[40px] lg:h-8 px-2.5 rounded-md border text-[14px] font-medium transition-colors ${
+                showDisabled ? 'bg-accent-soft border-accent-line text-accent-strong' : 'bg-surface border-line-strong text-ink-secondary hover:bg-subtle'
               }`}
             >
               {showDisabled ? <Eye className="w-3.5 h-3.5" aria-hidden /> : <EyeOff className="w-3.5 h-3.5" aria-hidden />}
@@ -342,7 +425,7 @@ export const ParametersPage: React.FC = () => {
             </button>
             <ToolbarSpacer />
             {canEdit && filtersActive && (
-              <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-exception-bg text-exception ring-1 ring-inset ring-exception-line text-[11px] font-medium">
+              <span className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-exception-bg text-exception ring-1 ring-inset ring-exception-line text-[12.5px] font-medium">
                 <Filter className="w-3 h-3" aria-hidden />
                 Filtered: a row moves past the next visible row
               </span>
@@ -374,7 +457,7 @@ export const ParametersPage: React.FC = () => {
                     <tr key={p.id} className={p.isActive ? '' : 'bg-subtle/50'}>
                       <td className="whitespace-nowrap">
                         <div className="flex items-center gap-1">
-                          <span className="w-5 font-mono text-[11.5px] text-ink-muted text-right tabular-nums">{positionById.get(p.id)}</span>
+                          <span className="w-5 font-mono text-[13px] text-ink-muted text-right tabular-nums">{positionById.get(p.id)}</span>
                           {canEdit && (
                             <span className="flex lg:flex-col">
                               <button
@@ -408,7 +491,7 @@ export const ParametersPage: React.FC = () => {
                             {p.code}
                           </span>
                         </div>
-                        {p.description && <span className="block text-[11.5px] text-ink-muted truncate max-w-xs">{p.description}</span>}
+                        {p.description && <span className="block text-[13px] text-ink-muted truncate max-w-xs">{p.description}</span>}
                       </td>
                       <td className="whitespace-nowrap">
                         <span className={`${chip} gap-1 text-ink`}>
@@ -420,11 +503,19 @@ export const ParametersPage: React.FC = () => {
                       </td>
                       <td className="min-w-[170px] max-w-[260px]">
                         {p.rule ? (
-                          <code className="w-fit max-w-full px-1.5 py-0.5 rounded bg-subtle ring-1 ring-inset ring-line font-mono text-[11.5px] text-ink leading-snug line-clamp-2" title={p.rule}>
+                          <code className="w-fit max-w-full px-1.5 py-0.5 rounded bg-subtle ring-1 ring-inset ring-line font-mono text-[13px] text-ink leading-snug line-clamp-2" title={p.rule}>
                             {p.rule}
                           </code>
                         ) : (
                           <span className="text-ink-faint">—</span>
+                        )}
+                        {p.type === 'PASS_FAIL' && (p.measureFields?.length ?? 0) > 0 && (
+                          <MeasurementsSwitch
+                            parameter={p}
+                            canSwitch={controlsMeasurements}
+                            busy={busyId === `m:${p.id}`}
+                            onToggle={() => toggleMeasurements(p)}
+                          />
                         )}
                       </td>
                       <td>
@@ -437,19 +528,19 @@ export const ParametersPage: React.FC = () => {
                             ))}
                           </div>
                         ) : (
-                          <span className="text-[12px] text-ink-muted whitespace-nowrap" title="Every check type can use it">
+                          <span className="text-[13.5px] text-ink-muted whitespace-nowrap" title="Every check type can use it">
                             Unassigned
                           </span>
                         )}
                       </td>
                       <td className="whitespace-nowrap">
                         {p.isRequired ? (
-                          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-ink">
+                          <span className="inline-flex items-center gap-1 text-[13.5px] font-medium text-ink">
                             <Asterisk className="w-3 h-3 text-accent" aria-hidden />
                             Required
                           </span>
                         ) : (
-                          <span className="text-[12px] text-ink-muted">Optional</span>
+                          <span className="text-[13.5px] text-ink-muted">Optional</span>
                         )}
                       </td>
                       <td className="num whitespace-nowrap">
@@ -544,14 +635,14 @@ export const ParametersPage: React.FC = () => {
             </Field>
             {/* Not a <Field>: that renders a <label>, which would bind the heading to the first box. */}
             <div>
-              <span className="block text-[13px] lg:text-[12.5px] font-medium text-ink-secondary mb-1.5">Departments</span>
+              <span className="block text-[14.5px] lg:text-[14px] font-medium text-ink-secondary mb-1.5">Departments</span>
               <MultiSelectList
                 items={departmentOptions.map((d) => ({ id: d.id, label: d.name, detail: d.isActive ? null : 'disabled' }))}
                 selected={form.departmentIds}
                 onChange={(ids) => update('departmentIds', ids)}
                 emptyText={departments === null ? 'Loading departments…' : 'No departments configured yet'}
               />
-              <span className="block text-[11px] text-ink-muted mt-1">
+              <span className="block text-[12.5px] text-ink-muted mt-1">
                 {form.departmentIds.length
                   ? `${form.departmentIds.length} selected. Only these departments' check types can use this parameter.`
                   : 'None selected: unassigned, so every check type can use it.'}
@@ -584,12 +675,85 @@ export const ParametersPage: React.FC = () => {
                   />
                 </Field>
               </div>
-              <p className="text-[11px] text-ink-muted">Leave empty if there is no limit. Use the company-approved SOP limits.</p>
+              <p className="text-[12.5px] text-ink-muted">Leave empty if there is no limit. Use the company-approved SOP limits.</p>
+            </div>
+          )}
+
+          {form.type === 'PASS_FAIL' && (
+            <div className="p-3 bg-subtle/60 border border-line rounded-md space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[14px] font-semibold text-ink-secondary">Measurements (optional)</span>
+                <span className="text-[12.5px] text-ink-muted">
+                  {controlsMeasurements ? 'Entered before Pass or Fail' : 'Changed by the Super Admin and Admins only'}
+                </span>
+              </div>
+              {form.measureFields.some((o) => o.trim()) && (
+                <Toggle
+                  checked={form.measureEnabled}
+                  disabled={!controlsMeasurements}
+                  onChange={(v) => update('measureEnabled', v)}
+                  label={form.measureEnabled ? 'On: workers enter these measurements' : 'Off: workers answer a plain Pass / Fail'}
+                  description="Switch off for a while (e.g. today) and back on later: the measurements below are kept."
+                />
+              )}
+              <div className="space-y-1.5">
+                {form.measureFields.map((field, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <span className="w-5 text-right font-mono text-[12.5px] text-ink-muted">{index + 1}</span>
+                    <TextInput
+                      value={field}
+                      onChange={(e) => update('measureFields', form.measureFields.map((o, i) => (i === index ? e.target.value : o)))}
+                      aria-label={`Measurement ${index + 1}`}
+                      placeholder="e.g. Height"
+                      maxLength={40}
+                      disabled={!controlsMeasurements}
+                    />
+                    <button
+                      type="button"
+                      title="Remove"
+                      aria-label={`Remove measurement ${index + 1}`}
+                      disabled={!controlsMeasurements}
+                      onClick={() => update('measureFields', form.measureFields.filter((_, i) => i !== index))}
+                      className="w-7 h-7 shrink-0 flex items-center justify-center rounded text-ink-muted hover:text-failed hover:bg-surface"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-end gap-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  type="button"
+                  disabled={!controlsMeasurements || form.measureFields.length >= 8}
+                  onClick={() => update('measureFields', [...form.measureFields, ''])}
+                  icon={<Plus className="w-3 h-3" />}
+                >
+                  Add measurement
+                </Button>
+                {form.measureFields.some((o) => o.trim()) && (
+                  <div className="w-32">
+                    <Field label="Unit">
+                      <TextInput value={form.unit} onChange={(e) => update('unit', e.target.value)} placeholder="mm" maxLength={30} disabled={!controlsMeasurements} />
+                    </Field>
+                  </div>
+                )}
+              </div>
+              <p className="text-[12.5px] text-ink-muted">
+                {form.measureFields.some((o) => o.trim())
+                  ? `The worker enters each measurement, then chooses Pass or Fail. All are recorded together, e.g. "PASS · ${form.measureFields
+                      .map((o) => o.trim())
+                      .filter(Boolean)
+                      .map((o, i) => `${o} ${[120, 80, 30, 50, 60, 70, 90, 100][i]}${form.unit.trim() ? ` ${form.unit.trim()}` : ''}`)
+                      .join(' · ')}".`
+                  : 'Leave empty for a plain Pass / Fail. Add measurements (such as Height, Width, Gusset) to have the worker enter them first.'}
+              </p>
             </div>
           )}
 
           {form.type === 'PHOTO' && (
-            <p className="flex items-start gap-2 p-3 bg-subtle/60 border border-line rounded-md text-[12px] text-ink-secondary">
+            <p className="flex items-start gap-2 p-3 bg-subtle/60 border border-line rounded-md text-[13.5px] text-ink-secondary">
               <Camera className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden />
               The worker takes a photo with the app camera instead of typing a value. When the parameter is Required on a check type, the photo is required.
             </p>
@@ -598,13 +762,13 @@ export const ParametersPage: React.FC = () => {
           {form.type === 'DROPDOWN' && (
             <div className="p-3 bg-subtle/60 border border-line rounded-md space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[12.5px] font-semibold text-ink-secondary">First choice (optional)</span>
-                <span className="text-[11px] text-ink-muted">Asked before the options below</span>
+                <span className="text-[14px] font-semibold text-ink-secondary">First choice (optional)</span>
+                <span className="text-[12.5px] text-ink-muted">Asked before the options below</span>
               </div>
               <div className="space-y-1.5">
                 {form.materialOptions.map((option, index) => (
                   <div key={index} className="flex items-center gap-2">
-                    <span className="w-5 text-right font-mono text-[11px] text-ink-muted">{index + 1}</span>
+                    <span className="w-5 text-right font-mono text-[12.5px] text-ink-muted">{index + 1}</span>
                     <TextInput
                       value={option}
                       onChange={(e) => update('materialOptions', form.materialOptions.map((o, i) => (i === index ? e.target.value : o)))}
@@ -616,7 +780,7 @@ export const ParametersPage: React.FC = () => {
                       title="Remove"
                       aria-label={`Remove material ${index + 1}`}
                       onClick={() => update('materialOptions', form.materialOptions.filter((_, i) => i !== index))}
-                      className="w-7 h-7 shrink-0 flex items-center justify-center rounded text-ink-muted hover:text-failed hover:bg-white"
+                      className="w-7 h-7 shrink-0 flex items-center justify-center rounded text-ink-muted hover:text-failed hover:bg-surface"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -632,21 +796,21 @@ export const ParametersPage: React.FC = () => {
               >
                 Add first choice
               </Button>
-              <p className="text-[11px] text-ink-muted">
+              <p className="text-[12.5px] text-ink-muted">
                 {form.materialOptions.some((o) => o.trim())
                   ? 'The worker picks one of these first, then one of the options below. Both are recorded together, e.g. "BOPP 38, 40 Dyne".'
                   : 'Leave empty for an ordinary dropdown. Fill it in to ask the worker something first, such as the material.'}
               </p>
               <div className="flex items-center justify-between pt-1 border-t border-line">
-                <span className="text-[12.5px] font-semibold text-ink-secondary">
+                <span className="text-[14px] font-semibold text-ink-secondary">
                   Dropdown options<span className="text-missed"> *</span>
                 </span>
-                <span className="text-[11px] text-ink-muted">Shown to the worker in this order</span>
+                <span className="text-[12.5px] text-ink-muted">Shown to the worker in this order</span>
               </div>
               <div className="space-y-1.5">
                 {form.options.map((option, index) => (
                   <div key={index} className="flex items-center gap-2">
-                    <span className="w-5 text-right font-mono text-[11px] text-ink-muted">{index + 1}</span>
+                    <span className="w-5 text-right font-mono text-[12.5px] text-ink-muted">{index + 1}</span>
                     <TextInput
                       value={option}
                       onChange={(e) => update('options', form.options.map((o, i) => (i === index ? e.target.value : o)))}
@@ -659,7 +823,7 @@ export const ParametersPage: React.FC = () => {
                       aria-label={`Remove option ${index + 1}`}
                       disabled={form.options.length === 1}
                       onClick={() => update('options', form.options.filter((_, i) => i !== index))}
-                      className="w-7 h-7 shrink-0 flex items-center justify-center rounded text-ink-muted hover:text-failed hover:bg-white disabled:opacity-30 disabled:hover:bg-transparent"
+                      className="w-7 h-7 shrink-0 flex items-center justify-center rounded text-ink-muted hover:text-failed hover:bg-surface disabled:opacity-30 disabled:hover:bg-transparent"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>

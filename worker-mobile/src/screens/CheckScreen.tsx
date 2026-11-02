@@ -22,7 +22,7 @@ import { ProgressBar } from '../components/ui/ProgressBar'
 import { Icon } from '../components/ui/Icon'
 import { EmptyState, ErrorState, Loading } from '../components/ui/LoadState'
 import { RadioMark } from '../components/RadioMark'
-import { hasMaterial, materialAnswer, numberStatus } from '../components/ParameterField'
+import { hasMaterial, hasMeasures, materialAnswer, measureMissing, numberStatus, passFailAnswer } from '../components/ParameterField'
 import { ParameterCard, needsPhoto, type NaChoice } from '../components/ParameterCard'
 import { EvidenceField } from '../components/EvidenceField'
 import { NaReasonSheet } from '../components/NaReasonSheet'
@@ -57,6 +57,8 @@ function whatIsMissing(p: FormParameter, value: string, na: NaChoice | null, med
     if (!answer.material) missing.push('Material')
     else if (!answer.option) missing.push('Value')
   }
+  // A measured Pass / Fail (Pouch Size) needs every measurement and the answer.
+  else if (hasMeasures(p) && value.trim()) missing.push(...measureMissing(p, value))
   if (needsPhoto(p) && !media[photoField(p.id)]) missing.push('Photo')
   if (p.requireVideo && !media[videoField(p.id)]) missing.push('Video')
   return missing
@@ -407,7 +409,13 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
       ...(overall.includes('Machine') ? [{ label: 'Machine', detail: 'Select a machine for this check', icon: 'construct-outline' as const }] : []),
       ...(overall.includes('PO No.') ? [{ label: 'PO No.', detail: 'Enter the job number', icon: 'create-outline' as const }] : []),
       ...(overall.includes('Item Code') ? [{ label: 'Item Code', detail: ITEM_CODE_ERROR, icon: 'create-outline' as const }] : []),
-      ...parameters.filter((p) => (perParameter[p.id] ?? []).includes('Value')).map((p) => ({ label: p.name, detail: 'Reading required', icon: 'create-outline' as const }))
+      // A reading left empty, or one only partly answered (Pouch Size without its Gusset, a
+      // dropdown without its material): named with what it still needs.
+      ...parameters.flatMap((p) => {
+        const needs = (perParameter[p.id] ?? []).filter((n) => n !== 'Photo' && n !== 'Video')
+        if (!needs.length) return []
+        return [{ label: p.name, detail: needs.includes('Value') ? 'Reading required' : `Still needed: ${needs.join(', ')}`, icon: 'create-outline' as const }]
+      })
     ]
     const photos = files.filter((f) => f.target.mode === 'photo').length
     const videos = files.length - photos
@@ -594,7 +602,7 @@ export const CheckScreen: React.FC<Props> = ({ checkId, onClose, startWith, onOp
   if (result) {
     const outOfRange = parameters.some((p) => {
       const raw = values[p.id]?.trim() ?? ''
-      return p.type === 'PASS_FAIL' ? raw.toUpperCase() === 'FAIL' : p.type === 'NUMBER' && numberStatus(p, raw) === 'out'
+      return p.type === 'PASS_FAIL' ? passFailAnswer(p, raw) === 'FAIL' : p.type === 'NUMBER' && numberStatus(p, raw) === 'out'
     })
     return (
       <>

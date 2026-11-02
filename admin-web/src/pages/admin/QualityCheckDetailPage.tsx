@@ -20,9 +20,6 @@ interface QualityCheckDetailPageProps {
   onBack: () => void
 }
 
-/** How the check was started. */
-const SUBMISSION_LABEL = { MANUAL: 'Manual', NOTIFICATION: 'Notification' } as const
-
 /**
  * Evidence grouped the way the worker captured it: one group per parameter (in form order),
  * then the overall check evidence (media with no parameter, including older checks).
@@ -84,7 +81,7 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
           }
           actions={
             <>
-              <IconButton label="Refresh" size="md" onClick={() => reload()} className="border border-line-strong bg-white">
+              <IconButton label="Refresh" size="md" onClick={() => reload()} className="border border-line-strong bg-surface">
                 <RefreshCw className={`w-4 h-4 ${loading && check !== null ? 'animate-spin' : ''}`} />
               </IconButton>
               {canExport && (
@@ -117,7 +114,7 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
             {/* Print-only heading */}
             <div className="hidden print:block border-b border-ink pb-2">
               <h2 className="text-base font-bold uppercase">Quality Check Record</h2>
-              <p className="text-xs font-mono">
+              <p className="text-[13px] font-mono">
                 {check.code} · {check.status}
                 {check.result ? ` · Result: ${RESULT_LABEL[check.result]}` : ''} · printed {formatDateTime(new Date().toISOString())}
               </p>
@@ -157,12 +154,6 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                   value={check.submittedByName}
                   detail={[check.submittedByEmployeeId, check.submittedAt ? formatDateTime(check.submittedAt) : null].filter(Boolean).join(' · ') || null}
                 />
-                <Info
-                  label="Submission"
-                  value={check.submissionType ? SUBMISSION_LABEL[check.submissionType] : null}
-                  detail={check.submissionType === 'MANUAL' ? 'Started by the worker' : check.submissionType ? 'From a due notification' : null}
-                />
-                <Info label="Next check due" value={check.nextDueAt ? formatDateTime(check.nextDueAt) : null} />
                 <Info label="Department" value={check.departmentName} />
                 <Info label="Device" value={check.deviceInfo} className="col-span-2" />
               </dl>
@@ -180,13 +171,11 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                 <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3.5 p-4">
                   <Info label="Reason" value={check.exception.reason} className="col-span-2" />
                   {check.exception.reading && <Info label="Reading" value={check.exception.reading} className="col-span-2" />}
-                  <Info label="Raised at" value={formatDateTime(check.exception.createdAt)} />
-                  <Info label="Reviewed by" value={check.exception.reviewedByName} />
+                  <Info label="Raised at" value={formatDateTime(check.exception.createdAt)} className="col-span-2" />
                   <Info label="Worker remark" value={check.exception.remark} className="col-span-2" multiline />
-                  <Info label="Resolution notes" value={check.exception.resolutionNotes} className="col-span-2" multiline />
                 </dl>
                 <div className="px-4 pb-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted mb-1.5">Exception photo</div>
+                  <div className="text-[12.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted mb-1.5">Exception photo</div>
                   <EvidenceViewer media={check.exception.media} workerName={check.submittedByName ?? check.workerName} />
                 </div>
               </Card>
@@ -227,13 +216,13 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                           <tr key={v.parameterId ?? i} className={v.result === 'FAIL' ? 'bg-missed-bg/40' : undefined}>
                             <td>
                               <div className="font-semibold text-ink">{v.parameterName}</div>
-                              <div className="text-[11.5px] text-ink-muted">{PARAMETER_TYPE_LABEL[v.parameterType]}</div>
+                              <div className="text-[13px] text-ink-muted">{PARAMETER_TYPE_LABEL[v.parameterType]}</div>
                             </td>
                             <td>
                               {v.notApplicable ? (
                                 <span className="text-ink-secondary">
                                   {v.naReason ?? 'No reason given'}
-                                  {v.naRemark && <span className="block text-[11.5px] text-ink-muted">{v.naRemark}</span>}
+                                  {v.naRemark && <span className="block text-[13px] text-ink-muted">{v.naRemark}</span>}
                                 </span>
                               ) : v.value !== null && v.value !== '' ? (
                                 <span className="font-mono">
@@ -247,7 +236,7 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                             <td className="text-ink-secondary">{v.rule ?? '—'}</td>
                             <td className="whitespace-nowrap">
                               {v.notApplicable ? (
-                                <span className="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-full ring-1 ring-inset ring-line-strong bg-white text-[11px] font-medium text-ink-muted">
+                                <span className="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-full ring-1 ring-inset ring-line-strong bg-surface text-[12.5px] font-medium text-ink-muted">
                                   <span className="w-1.5 h-1.5 rounded-full border border-ink-faint" aria-hidden />
                                   Not applicable
                                 </span>
@@ -306,11 +295,11 @@ const SummaryTile: React.FC<{ icon: React.ReactNode; label: string; value: strin
       {icon}
     </span>
     <div className="min-w-0">
-      <div className="text-[11.5px] font-medium text-ink-muted">{label}</div>
-      <div className={`text-[14px] font-semibold truncate ${value ? 'text-ink' : 'text-ink-faint'} ${mono ? 'font-mono' : ''}`} title={value ?? undefined}>
+      <div className="text-[13px] font-medium text-ink-muted">{label}</div>
+      <div className={`text-[15.5px] font-semibold truncate ${value ? 'text-ink' : 'text-ink-faint'} ${mono ? 'font-mono' : ''}`} title={value ?? undefined}>
         {value || '—'}
       </div>
-      {detail && <div className={`text-[11.5px] text-ink-muted truncate ${mono ? 'font-mono' : ''}`}>{detail}</div>}
+      {detail && <div className={`text-[13px] text-ink-muted truncate ${mono ? 'font-mono' : ''}`}>{detail}</div>}
     </div>
   </div>
 )
@@ -323,21 +312,21 @@ const Info: React.FC<{
   className?: string
 }> = ({ label, value, detail, multiline, className = '' }) => (
   <div className={`min-w-0 ${className}`}>
-    <dt className="text-[11.5px] text-ink-muted">{label}</dt>
+    <dt className="text-[13px] text-ink-muted">{label}</dt>
     <dd
-      className={`mt-0.5 text-[13px] font-medium tabular-nums ${value ? 'text-ink' : 'text-ink-faint'} ${multiline ? 'whitespace-pre-wrap' : 'truncate'}`}
+      className={`mt-0.5 text-[14.5px] font-medium tabular-nums ${value ? 'text-ink' : 'text-ink-faint'} ${multiline ? 'whitespace-pre-wrap' : 'truncate'}`}
       title={multiline ? undefined : (value ?? undefined)}
     >
       {value || '—'}
     </dd>
-    {detail && <dd className="text-[11.5px] text-ink-muted truncate">{detail}</dd>}
+    {detail && <dd className="text-[13px] text-ink-muted truncate">{detail}</dd>}
   </div>
 )
 
 /** Overall result: Completed, Missed or Exception. */
 const ResultBadge: React.FC<{ result: CheckResult; size?: 'sm' | 'md' }> = ({ result, size = 'md' }) => (
   <span className="inline-flex items-center gap-1">
-    <span className="text-[11px] text-ink-muted">Result</span>
+    <span className="text-[12.5px] text-ink-muted">Result</span>
     <StatusBadge status={result} size={size} showDot={false} />
   </span>
 )

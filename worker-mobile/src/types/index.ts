@@ -254,6 +254,8 @@ export interface FormParameter {
   materialOptions?: string[]
   /** Dropdown only: the worker may choose several options. Absent on an older server. */
   multiSelect?: boolean
+  /** Pass / Fail only: measurements entered before the answer (Pouch Size: Height, Width, Gusset). */
+  measureFields?: string[]
   description: string | null
   isRequired: boolean
   rule: string | null

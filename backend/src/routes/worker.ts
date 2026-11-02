@@ -38,7 +38,7 @@ import {
   refreshStatuses,
   removePendingJobChecks
 } from '../services/checkGenerator'
-import { emptyValue, isEmpty, notApplicableValue, PHOTO_VALUE, readingValue, ruleText } from '../services/evaluate'
+import { activeMeasureFields, emptyValue, isEmpty, notApplicableValue, PHOTO_VALUE, readingValue, ruleText } from '../services/evaluate'
 import { jobById, jobDtoById, plannedJobs, runningJob, runningJobs, type JobDto } from '../services/jobs'
 import {
   PRE_START_INCOMPLETE,
@@ -211,6 +211,8 @@ async function formParameters(activityId: string, only: string[] | null = null) 
       options: parameters.options,
       materialOptions: parameters.materialOptions,
       multiSelect: parameters.multiSelect,
+      measureFields: parameters.measureFields,
+      measureEnabled: parameters.measureEnabled,
       description: parameters.description,
       isRequired: activityParameters.isRequired,
       /** Evidence and applicability rules of this parameter inside this check type. */
@@ -230,7 +232,9 @@ async function formParameters(activityId: string, only: string[] | null = null) 
       )
     )
     .orderBy(asc(activityParameters.sortOrder))
-  return only ? rows.filter((p) => only.includes(p.id)) : rows
+  // Measurements switched off by the Super Admin or an Admin: the form asks for a plain Pass / Fail.
+  const active = rows.map((p) => ({ ...p, measureFields: p.type === 'PASS_FAIL' ? activeMeasureFields(p) : [] }))
+  return only ? active.filter((p) => only.includes(p.id)) : active
 }
 
 /**
@@ -1450,7 +1454,9 @@ workerRouter.post('/checks/:id/submit', submitUpload, async (req, res) => {
         parameterId: p.id,
         parameterName: p.name,
         parameterType: p.type,
-        unit: p.unit,
+        // A measured Pass / Fail has the unit inside its reading ("Height 120 mm"), so it is not
+        // stored again here, where the reports would add it after the reading.
+        unit: p.type === 'PASS_FAIL' ? null : p.unit,
         rule: ruleText(p),
         appliesWhen: p.appliesWhen,
         sortOrder: index

@@ -1,9 +1,10 @@
-import { Router } from 'express'
+import { Router, type Request } from 'express'
 import { z } from 'zod'
 import { asc, desc, eq } from 'drizzle-orm'
 import { db } from '../db/client'
 import { activityParameters, departments, parameterDepartments, parameters } from '../db/schema'
 import { idParam, optionalText, optionalUuid } from '../lib/validate'
+import { requireRole } from '../lib/auth'
 import { badRequest, notFound } from '../lib/http'
 import { audit, snapshot } from '../lib/audit'
 import { ruleText } from '../services/evaluate'
@@ -40,6 +41,13 @@ const input = z
     materialOptions: z.array(z.string().trim().min(1).max(100)).optional(),
     /** Dropdown only: the worker may choose several options instead of one. */
     multiSelect: z.boolean().default(false),
+    /**
+     * Pass / Fail only: measurements entered before the answer, e.g. Height, Width, Gusset. Left
+     * out of the request, the stored list (and its unit) is kept, as for `materialOptions`.
+     */
+    measureFields: z.array(z.string().trim().min(1, 'A measurement needs a name').max(40)).max(8, 'At most 8 measurements').optional(),
+    /** Whether the measurements are asked for. Left out, it stays as it is. Super Admin / Admin only. */
+    measureEnabled: z.boolean().optional(),
     isRequired: z.boolean().default(true),
     isActive: z.boolean().default(true),
     /** Omit to keep the current position (update) or append at the end (create). */
@@ -57,9 +65,13 @@ const input = z
   .transform((p) => {
     // Keep only the fields that apply to the chosen input type.
     const isNumber = p.type === 'NUMBER'
+    const measureFields = p.type === 'PASS_FAIL' ? (p.measureFields ? [...new Set(p.measureFields)] : undefined) : []
     return {
       ...p,
-      unit: isNumber ? p.unit : null,
+      // A measured Pass / Fail keeps its unit (mm). An older screen that sends no measurements
+      // leaves both as they are: undefined is not written.
+      unit: isNumber ? p.unit : measureFields === undefined ? undefined : measureFields.length ? p.unit : null,
+      measureFields,
       minValue: isNumber ? p.minValue : null,
       maxValue: isNumber ? p.maxValue : null,
       options: p.type === 'DROPDOWN' ? [...new Set(p.options)] : [],
@@ -68,6 +80,20 @@ const input = z
       departmentIds: p.departmentIds ?? (p.departmentId ? [p.departmentId] : undefined)
     }
   })
+
+/** The measurements of a Pass / Fail (Pouch Size) are the Super Admin's and the Admins' to change. */
+const controlsMeasurements = (req: Request) => req.user?.role === 'SUPER_ADMIN' || req.user?.role === 'ADMIN'
+
+/** Another role saving a parameter leaves its measurements, their switch and their unit as they are. */
+function keepMeasurements(req: Request, data: z.infer<typeof input>) {
+  if (controlsMeasurements(req)) return
+  data.measureEnabled = undefined
+  // Another input type has no measurements, so they are cleared whoever changes the type.
+  if (data.type === 'PASS_FAIL') {
+    data.measureFields = undefined
+    data.unit = undefined
+  }
+}
 
 function validate(p: z.infer<typeof input>) {
   if (p.type === 'DROPDOWN' && p.options.length === 0) throw badRequest('Add at least one dropdown option')
@@ -124,6 +150,7 @@ async function withDepartments(parameter: typeof parameters.$inferSelect) {
 
 parametersRouter.post('/', async (req, res) => {
   const data = input.parse(req.body)
+  keepMeasurements(req, data)
   validate(data)
   if (data.sortOrder === undefined) {
     const [last] = await db.select({ sortOrder: parameters.sortOrder }).from(parameters).orderBy(desc(parameters.sortOrder)).limit(1)
@@ -149,9 +176,29 @@ parametersRouter.put('/order', async (req, res) => {
   res.status(204).end()
 })
 
+/**
+ * Switches a parameter's measurements on or off (Pouch Size: Height, Width, Gusset), e.g. off today
+ * and on again tomorrow. Off, the worker answers a plain Pass / Fail; the list itself is kept.
+ * The Super Admin and Admins only, whatever other rights a role has on Parameters.
+ */
+parametersRouter.put('/:id/measurements', requireRole('SUPER_ADMIN', 'ADMIN'), async (req, res) => {
+  const id = idParam(req)
+  const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body)
+  const [before] = await db.select().from(parameters).where(eq(parameters.id, id))
+  if (!before) throw notFound('Parameter')
+  if (before.type !== 'PASS_FAIL' || !before.measureFields.length) throw badRequest(`${before.name} has no measurements to switch on or off.`)
+  const [row] = await db.update(parameters).set({ measureEnabled: enabled }).where(eq(parameters.id, id)).returning()
+  await audit(req, enabled ? 'ENABLE_PARAMETER_MEASUREMENTS' : 'DISABLE_PARAMETER_MEASUREMENTS', 'Parameter', id, {
+    oldValue: { name: before.name, measurements: before.measureFields, enabled: before.measureEnabled },
+    newValue: { name: row.name, measurements: row.measureFields, enabled: row.measureEnabled }
+  })
+  res.json({ ...(await withDepartments(row)), rule: ruleText(row) })
+})
+
 parametersRouter.put('/:id', async (req, res) => {
   const id = idParam(req)
   const data = input.parse(req.body)
+  keepMeasurements(req, data)
   validate(data)
   const [before] = await db.select().from(parameters).where(eq(parameters.id, id))
   if (!before) throw notFound('Parameter')
