@@ -285,7 +285,7 @@ export const ShiftSignInStatusCard: React.FC = () => {
                       {r.shiftName ? (
                         <>
                           <div className="text-ink">{r.shiftName}</div>
-                          <div className="text-[11.5px] text-ink-muted tabular-nums">
+                          <div className="text-[13px] text-ink-muted tabular-nums">
                             {r.onShift && r.shiftStart && r.shiftEnd
                               ? blockLabel(r.shiftStart, r.shiftEnd)
                               : r.nextShiftStart
@@ -306,7 +306,7 @@ export const ShiftSignInStatusCard: React.FC = () => {
                       {r.remindersSent > 0 ? (
                         <>
                           <div className="text-ink tabular-nums">{r.remindersSent} sent</div>
-                          <div className="text-[11.5px] text-ink-muted tabular-nums">Last {formatTime(r.lastReminderAt)}</div>
+                          <div className="text-[13px] text-ink-muted tabular-nums">Last {formatTime(r.lastReminderAt)}</div>
                         </>
                       ) : (
                         <span className="text-ink-muted">—</span>
@@ -316,13 +316,13 @@ export const ShiftSignInStatusCard: React.FC = () => {
                       {r.lastLogoutAt ? (
                         <>
                           <div className="text-ink tabular-nums">{formatDateTime(r.lastLogoutAt)}</div>
-                          <div className="text-[11.5px] text-ink-muted">{r.lastLogoutReason === 'SHIFT_ENDED' ? 'Shift ended (automatic)' : 'Signed out'}</div>
+                          <div className="text-[13px] text-ink-muted">{r.lastLogoutReason === 'SHIFT_ENDED' ? 'Shift ended (automatic)' : 'Signed out'}</div>
                         </>
                       ) : (
                         <span className="text-ink-muted">—</span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap text-[12.5px]">
+                    <td className="whitespace-nowrap text-[14px]">
                       <WifiSeen at={r.wifiSeenAt} />
                     </td>
                   </tr>

@@ -67,7 +67,7 @@ function yearStatus(year: { status: string; pendingChanges: boolean }) {
 const YearStatusPill: React.FC<{ year: { status: string; pendingChanges: boolean } }> = ({ year }) => {
   const s = yearStatus(year)
   return (
-    <span className={`inline-flex items-center gap-1.5 h-[22px] px-2 rounded-full ring-1 ring-inset text-[11.5px] font-medium whitespace-nowrap ${s.className}`}>
+    <span className={`inline-flex items-center gap-1.5 h-[22px] px-2 rounded-full ring-1 ring-inset text-[13px] font-medium whitespace-nowrap ${s.className}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} aria-hidden />
       {s.label}
     </span>
@@ -155,14 +155,14 @@ const YearList: React.FC<{ onOpenYear: (id: string) => void }> = ({ onOpenYear }
                     key={year.id}
                     type="button"
                     onClick={() => onOpenYear(year.id)}
-                    className="group text-left bg-white border border-line rounded-[10px] p-4 shadow-[var(--shadow-card)] hover:border-line-strong hover:shadow-[var(--shadow-pop)] transition-[box-shadow,border-color] duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="group text-left bg-surface border border-line rounded-[10px] p-4 shadow-[var(--shadow-card)] hover:border-line-strong hover:shadow-[var(--shadow-pop)] transition-[box-shadow,border-color] duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                     aria-label={`${year.year} calendar, ${status.label}`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="text-[26px] leading-none font-semibold tracking-tight text-ink tabular-nums">{year.year}</div>
+                      <div className="text-[27px] leading-none font-semibold tracking-tight text-ink tabular-nums">{year.year}</div>
                       <YearStatusPill year={year} />
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-1.5 text-[12px]">
+                    <div className="mt-3 flex flex-wrap gap-1.5 text-[13.5px]">
                       <span className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-success-bg text-success ring-1 ring-inset ring-success-line">
                         <PartyPopper className="w-3 h-3" aria-hidden />
                         <span className="font-semibold tabular-nums">{year.holidays}</span> holiday{year.holidays === 1 ? '' : 's'}
@@ -172,14 +172,14 @@ const YearList: React.FC<{ onOpenYear: (id: string) => void }> = ({ onOpenYear }
                         <span className="font-semibold tabular-nums">{year.workingDays}</span> adjustment working day{year.workingDays === 1 ? '' : 's'}
                       </span>
                     </div>
-                    <div className="mt-2.5 flex items-center gap-1.5 text-[11.5px] text-ink-muted min-w-0">
+                    <div className="mt-2.5 flex items-center gap-1.5 text-[13px] text-ink-muted min-w-0">
                       <FileText className="w-3.5 h-3.5 shrink-0 text-ink-faint" aria-hidden />
                       <span className="truncate">
                         {year.sourceFileName ? `${year.sourceFileName} · ${METHOD_LABEL[year.extractionMethod ?? ''] ?? ''}` : 'No document imported'}
                       </span>
                     </div>
                     <div
-                      className={`mt-2.5 pt-2.5 border-t border-line flex items-center gap-1.5 text-[12px] font-medium ${
+                      className={`mt-2.5 pt-2.5 border-t border-line flex items-center gap-1.5 text-[13.5px] font-medium ${
                         year.openIssues ? 'text-exception' : ready ? 'text-success' : 'text-ink-muted'
                       }`}
                     >
@@ -397,15 +397,15 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
     <div className="space-y-4">
       <div className="card px-3 sm:px-4 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <IconButton label="Back to annual calendars" size="md" onClick={onBack} className="border border-line-strong bg-white">
+          <IconButton label="Back to annual calendars" size="md" onClick={onBack} className="border border-line-strong bg-surface">
             <ArrowLeft className="w-4 h-4" />
           </IconButton>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-[17px] font-semibold tracking-tight text-ink tabular-nums">{year.year} calendar</h2>
+              <h2 className="text-[18px] font-semibold tracking-tight text-ink tabular-nums">{year.year} calendar</h2>
               <YearStatusPill year={year} />
             </div>
-            <p className="text-[12px] text-ink-muted">
+            <p className="text-[13.5px] text-ink-muted">
               {holidays.length} holiday{holidays.length === 1 ? '' : 's'} · {workingDays.length} adjustment working day{workingDays.length === 1 ? '' : 's'}
               {year.approvedAt ? ` · last approved ${formatDateTime(year.approvedAt)}` : ''}
             </p>
@@ -454,7 +454,7 @@ const YearReview: React.FC<{ yearId: string; onBack: () => void }> = ({ yearId, 
       </div>
 
       {importing && (
-        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-accent-line bg-accent-soft text-[12.5px] text-accent-strong" role="status">
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-md border border-accent-line bg-accent-soft text-[14px] text-accent-strong" role="status">
           <Loader2 className="w-4 h-4 shrink-0 animate-spin" aria-hidden />
           Reading the document on the server. Photos and scans are read with offline OCR, which can take up to a minute.
         </div>
@@ -598,13 +598,13 @@ const ReviewSummary: React.FC<{ year: CalendarYearDetail; blocking: number; chec
   return (
     <div className="space-y-2">
       {year.year.extractionNote && (
-        <div className="flex items-start gap-2 px-3 py-2.5 rounded-md border border-line bg-subtle/60 text-[12.5px] text-ink-secondary">
+        <div className="flex items-start gap-2 px-3 py-2.5 rounded-md border border-line bg-subtle/60 text-[14px] text-ink-secondary">
           <Info className="w-4 h-4 shrink-0 mt-px text-ink-muted" aria-hidden />
           <span>{year.year.extractionNote}</span>
         </div>
       )}
       <div
-        className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 rounded-md border text-[12.5px] ${
+        className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2.5 rounded-md border text-[14px] ${
           blocking ? 'border-failed-line bg-failed-bg' : checks ? 'border-exception-line bg-exception-bg' : 'border-success-line bg-success-bg'
         }`}
         role="status"
@@ -631,7 +631,7 @@ const ReviewSummary: React.FC<{ year: CalendarYearDetail; blocking: number; chec
         )}
       </div>
       {general.map((issue, i) => (
-        <div key={i} className="flex items-start gap-2 px-3 py-2 rounded-md border border-failed-line bg-failed-bg text-[12.5px] text-missed" role="alert">
+        <div key={i} className="flex items-start gap-2 px-3 py-2 rounded-md border border-failed-line bg-failed-bg text-[14px] text-missed" role="alert">
           <CircleAlert className="w-4 h-4 shrink-0 mt-px" aria-hidden />
           {issue.message}
         </div>
@@ -666,14 +666,14 @@ const ItemRow: React.FC<{
               {fullDate(item.date)}
               {dateUncertain && <AlertTriangle className="inline w-3 h-3 ml-1 -mt-0.5" aria-label="Date uncertain" />}
             </div>
-            <div className="text-[11.5px] text-ink-muted">{weekdayName(item.date)}</div>
+            <div className="text-[13px] text-ink-muted">{weekdayName(item.date)}</div>
           </>
         ) : (
           <span className="font-semibold text-missed">Not readable</span>
         )}
       </td>
       <td className="whitespace-nowrap">
-        <span className={`inline-flex items-center gap-1 h-[22px] px-2 rounded-md text-[11.5px] font-semibold ${style.chip}`}>
+        <span className={`inline-flex items-center gap-1 h-[22px] px-2 rounded-md text-[13px] font-semibold ${style.chip}`}>
           <span className="shrink-0 [&>svg]:w-3 [&>svg]:h-3" aria-hidden>
             {style.icon}
           </span>
@@ -683,11 +683,11 @@ const ItemRow: React.FC<{
       <td className="min-w-[180px] max-w-[320px]">
         <div className={nameUncertain ? 'text-exception font-medium' : 'text-ink'}>{item.name || <span className="text-ink-faint">—</span>}</div>
         {item.type === 'WORKING' && (
-          <div className="text-[11.5px] text-ink-muted">
+          <div className="text-[13px] text-ink-muted">
             Replaces {replaces ? `${replaces.name ?? 'holiday'} (${fullDate(replaces.date!)})` : item.forHolidayDate ? fullDate(item.forHolidayDate) : '—'}
           </div>
         )}
-        <div className="mt-1 text-[11.5px] text-ink-muted break-words">
+        <div className="mt-1 text-[13px] text-ink-muted break-words">
           {item.sourceText ? (
             <>
               Document: {item.sourceText}
@@ -700,13 +700,13 @@ const ItemRow: React.FC<{
       </td>
       <td className="min-w-[200px] max-w-[360px]">
         {blocking.length === 0 && checks.length === 0 ? (
-          <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-success-bg text-success ring-1 ring-inset ring-success-line text-[11px] font-medium">
+          <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-success-bg text-success ring-1 ring-inset ring-success-line text-[12.5px] font-medium">
             <CheckCheck className="w-3 h-3" aria-hidden /> Checked
           </span>
         ) : (
           <ul className="space-y-1">
             {[...blocking, ...checks].map((issue, i) => (
-              <li key={i} className={`flex items-start gap-1 text-[11.5px] ${issue.severity === 'BLOCKING' ? 'text-missed' : 'text-exception'}`}>
+              <li key={i} className={`flex items-start gap-1 text-[13px] ${issue.severity === 'BLOCKING' ? 'text-missed' : 'text-exception'}`}>
                 {issue.severity === 'BLOCKING' ? <CircleAlert className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden /> : <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden />}
                 <span>{issue.message}</span>
               </li>
@@ -714,7 +714,7 @@ const ItemRow: React.FC<{
           </ul>
         )}
         {info.map((issue, i) => (
-          <div key={i} className="mt-1 flex items-start gap-1 text-[11.5px] text-ink-muted">
+          <div key={i} className="mt-1 flex items-start gap-1 text-[13px] text-ink-muted">
             <Info className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden />
             <span>{issue.message}</span>
           </div>
@@ -786,12 +786,12 @@ const ItemModal: React.FC<{
       <form id="calendar-item-form" onSubmit={submit} className="space-y-4">
         <FormError message={error} />
         {sourceText && (
-          <div className="px-3 py-2 rounded-md border border-line bg-subtle/60 text-[12px] text-ink-secondary">
+          <div className="px-3 py-2 rounded-md border border-line bg-subtle/60 text-[13.5px] text-ink-secondary">
             <span className="font-semibold text-ink">Read from document:</span> {sourceText}
           </div>
         )}
         <fieldset>
-          <legend className="block text-[13px] lg:text-[12.5px] font-medium text-ink-secondary mb-1.5">
+          <legend className="block text-[14.5px] lg:text-[14px] font-medium text-ink-secondary mb-1.5">
             Type<span className="text-missed"> *</span>
           </legend>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="radiogroup" aria-label="Type">
@@ -805,10 +805,10 @@ const ItemModal: React.FC<{
                   role="radio"
                   aria-checked={active}
                   onClick={() => set('type', t)}
-                  className={`flex items-center gap-2.5 text-left px-3 py-2 rounded-md border transition-colors ${active ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-line-strong bg-white hover:bg-subtle'}`}
+                  className={`flex items-center gap-2.5 text-left px-3 py-2 rounded-md border transition-colors ${active ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-line-strong bg-surface hover:bg-subtle'}`}
                 >
                   <span className={`w-6 h-6 shrink-0 rounded-md flex items-center justify-center ${style.chip}`} aria-hidden>{style.icon}</span>
-                  <span className="text-[12.5px] font-semibold text-ink">{style.label}</span>
+                  <span className="text-[14px] font-semibold text-ink">{style.label}</span>
                 </button>
               )
             })}
@@ -876,7 +876,7 @@ const DocumentPreview: React.FC<{ yearId: string; year: CalendarYearDetail['year
   return (
     <Card className="overflow-hidden 2xl:sticky 2xl:top-4" aria-label="Company document">
       <div className="px-4 pt-3.5 pb-3 border-b border-line flex items-center justify-between gap-2">
-        <h3 className="text-[13.5px] font-semibold text-ink flex items-center gap-2.5 min-w-0">
+        <h3 className="text-[15px] font-semibold text-ink flex items-center gap-2.5 min-w-0">
           <span className="w-7 h-7 shrink-0 rounded-md bg-subtle text-ink-secondary flex items-center justify-center" aria-hidden>
             {kind === 'image' ? <ImageIcon className="w-4 h-4" /> : kind === 'sheet' ? <FileSpreadsheet className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
           </span>
@@ -884,7 +884,7 @@ const DocumentPreview: React.FC<{ yearId: string; year: CalendarYearDetail['year
         </h3>
         <span className="flex items-center gap-2 shrink-0">
           {year.extractionMethod && year.hasDocument && (
-            <span className="inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[11px] text-ink-secondary whitespace-nowrap">{METHOD_LABEL[year.extractionMethod]}</span>
+            <span className="inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[12.5px] text-ink-secondary whitespace-nowrap">{METHOD_LABEL[year.extractionMethod]}</span>
           )}
           {kind && kind !== 'sheet' && (
             <Button size="sm" variant="ghost" onClick={() => setExpanded((v) => !v)} className="2xl:hidden" aria-expanded={expanded}>
@@ -897,17 +897,17 @@ const DocumentPreview: React.FC<{ yearId: string; year: CalendarYearDetail['year
         <EmptyState icon={<FileText className="w-5 h-5" />} title="No document imported" hint="The company document is shown here for checking each date." />
       ) : kind === 'sheet' ? (
         <div className="px-4 py-8 text-center space-y-3">
-          <p className="text-[12.5px] text-ink-muted">Spreadsheets can't be previewed here. Open the file to compare.</p>
+          <p className="text-[14px] text-ink-muted">Spreadsheets can't be previewed here. Open the file to compare.</p>
           <Button size="sm" variant="outline" onClick={() => download(`/api/calendar-years/${yearId}/document`, undefined, year.sourceFileName ?? 'calendar')}>
             Download {year.sourceFileName}
           </Button>
         </div>
       ) : error ? (
-        <p className="px-4 py-6 text-[12.5px] text-missed" role="alert">
+        <p className="px-4 py-6 text-[14px] text-missed" role="alert">
           {error}
         </p>
       ) : !url ? (
-        <p className="px-4 py-10 text-center text-[12.5px] text-ink-muted">Loading document…</p>
+        <p className="px-4 py-10 text-center text-[14px] text-ink-muted">Loading document…</p>
       ) : kind === 'image' ? (
         <div className={`${expanded ? 'max-h-none' : 'max-h-[320px]'} 2xl:max-h-[75vh] overflow-auto bg-subtle`}>
           <img src={url} alt={`${year.year} company calendar`} className="w-full h-auto" />

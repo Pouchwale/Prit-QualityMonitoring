@@ -27,7 +27,7 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerNam
 
   if (media.length === 0) {
     return (
-      <div className={`flex items-center justify-center gap-2 px-4 py-5 rounded-lg border border-dashed border-line-strong bg-subtle text-[12px] text-ink-muted ${className}`}>
+      <div className={`flex items-center justify-center gap-2 px-4 py-5 rounded-lg border border-dashed border-line-strong bg-subtle text-[13.5px] text-ink-muted ${className}`}>
         <Camera className="w-4 h-4 text-ink-faint" aria-hidden />
         No photo or video attached{label ? ` for ${label}` : ''}
       </div>
@@ -56,7 +56,7 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerNam
           <button
             type="button"
             onClick={() => setPreview(videos[0])}
-            className="w-[44px] h-[44px] lg:w-9 lg:h-9 shrink-0 rounded-md ring-1 ring-line-strong bg-ink text-white flex items-center justify-center hover:ring-accent"
+            className="w-[44px] h-[44px] lg:w-9 lg:h-9 shrink-0 rounded-md ring-1 ring-line-strong bg-media text-white flex items-center justify-center hover:ring-accent"
             title="Play video"
             aria-label="Play evidence video"
           >
@@ -64,7 +64,7 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerNam
           </button>
         )}
         {more > 0 && (
-          <span className="text-[11px] font-medium text-ink-muted tabular-nums" title={`${media.length} files in total`}>
+          <span className="text-[12.5px] font-medium text-ink-muted tabular-nums" title={`${media.length} files in total`}>
             +{more}
           </span>
         )}
@@ -74,12 +74,12 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerNam
   }
 
   return (
-    <div className={`rounded-lg border border-line bg-white overflow-hidden ${className}`}>
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-line text-[12.5px] font-semibold text-ink">
+    <div className={`rounded-lg border border-line bg-surface overflow-hidden ${className}`}>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-line text-[14px] font-semibold text-ink">
         <ShieldCheck className="w-4 h-4 text-success shrink-0" aria-hidden />
         <span className="truncate">{label ?? 'Live camera evidence'}</span>
-        {label && <span className="text-[11.5px] font-normal text-ink-muted whitespace-nowrap">· live camera</span>}
-        <span className="ml-auto text-[11.5px] font-normal text-ink-muted tabular-nums whitespace-nowrap">
+        {label && <span className="text-[13px] font-normal text-ink-muted whitespace-nowrap">· live camera</span>}
+        <span className="ml-auto text-[13px] font-normal text-ink-muted tabular-nums whitespace-nowrap">
           {[photos.length ? `${photos.length} photo${photos.length === 1 ? '' : 's'}` : null, videos.length ? `${videos.length} video${videos.length === 1 ? '' : 's'}` : null]
             .filter(Boolean)
             .join(' · ')}
@@ -90,7 +90,7 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerNam
       <div className="grid gap-3 p-3 sm:grid-cols-2 xl:grid-cols-3">
         {[...photos, ...videos].map((file) => (
           <figure key={file.id} className="min-w-0 rounded-md border border-line overflow-hidden">
-            <div className="relative bg-ink flex items-center justify-center h-56">
+            <div className="relative bg-media flex items-center justify-center h-56">
               {file.kind === 'PHOTO' ? (
                 <button
                   type="button"
@@ -99,7 +99,7 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({ media, workerNam
                   aria-label={`Enlarge evidence photo${file.capturedAt ? ` captured ${formatDateTime(file.capturedAt)}` : ''}`}
                 >
                   <img src={mediaUrl(file.url)} alt="" loading="lazy" decoding="async" className="max-h-56 w-full object-contain" />
-                  <span className="absolute top-2 right-2 w-7 h-7 rounded-md bg-white/90 text-ink flex items-center justify-center opacity-0 group-hover/zoom:opacity-100 group-focus-visible/zoom:opacity-100 transition-opacity" aria-hidden>
+                  <span className="absolute top-2 right-2 w-7 h-7 rounded-md bg-surface/90 text-ink flex items-center justify-center opacity-0 group-hover/zoom:opacity-100 group-focus-visible/zoom:opacity-100 transition-opacity" aria-hidden>
                     <Maximize2 className="w-3.5 h-3.5" />
                   </span>
                 </button>
@@ -150,8 +150,8 @@ function storageNote(file: MediaFile) {
 
 const Meta: React.FC<{ label: string; value: string; mono?: boolean; title?: string }> = ({ label, value, mono, title }) => (
   <div className="min-w-0">
-    <div className="text-[11px] text-ink-muted">{label}</div>
-    <div className={`text-[12px] font-medium text-ink truncate ${mono ? 'font-mono' : ''}`} title={title ?? value}>
+    <div className="text-[12.5px] text-ink-muted">{label}</div>
+    <div className={`text-[13.5px] font-medium text-ink truncate ${mono ? 'font-mono' : ''}`} title={title ?? value}>
       {value}
     </div>
   </div>
@@ -162,7 +162,7 @@ const PreviewModal: React.FC<{ file: MediaFile; onClose: () => void }> = ({ file
   const dialogRef = useDialogFocus<HTMLDivElement>(true, onClose)
   const what = file.kind === 'PHOTO' ? 'Evidence photo' : 'Evidence video'
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/90 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-media/90 p-4" onClick={onClose}>
       <div
         className="relative max-w-5xl w-full outline-none"
         onClick={(e) => e.stopPropagation()}
@@ -175,7 +175,7 @@ const PreviewModal: React.FC<{ file: MediaFile; onClose: () => void }> = ({ file
         <button
           type="button"
           onClick={onClose}
-          className="absolute -top-11 right-0 w-10 h-10 flex items-center justify-center rounded-md text-white/80 hover:text-white hover:bg-white/10"
+          className="absolute -top-11 right-0 w-10 h-10 flex items-center justify-center rounded-md text-white/80 hover:text-white hover:bg-surface/10"
           aria-label={`Close ${what.toLowerCase()}`}
           data-autofocus
         >
@@ -184,9 +184,9 @@ const PreviewModal: React.FC<{ file: MediaFile; onClose: () => void }> = ({ file
         {file.kind === 'PHOTO' ? (
           <img src={mediaUrl(file.url)} alt={`${what} captured ${formatDateTime(file.capturedAt)}`} className="max-h-[85vh] w-full object-contain rounded-md" />
         ) : (
-          <video src={mediaUrl(file.url)} controls autoPlay className="max-h-[85vh] w-full rounded-md bg-ink" />
+          <video src={mediaUrl(file.url)} controls autoPlay className="max-h-[85vh] w-full rounded-md bg-media" />
         )}
-        <div className="mt-2 flex items-center gap-1.5 text-[11.5px] text-white/80 font-mono break-all">
+        <div className="mt-2 flex items-center gap-1.5 text-[13px] text-white/80 font-mono break-all">
           {file.kind === 'VIDEO' && <Play className="w-3 h-3 shrink-0" aria-hidden />}
           Captured {formatDateTime(file.capturedAt)} · SHA-256 {file.sha256}
         </div>

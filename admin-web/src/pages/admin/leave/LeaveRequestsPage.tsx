@@ -203,11 +203,11 @@ export const LeaveRequestsPage: React.FC<{ mode: 'approval' | 'all'; onCountsCha
           <ResultCount shown={rows.length} noun={rows.length === 1 ? 'request' : 'requests'} />
         </Toolbar>
         <div className="px-3 sm:px-4 py-2.5 border-b border-line grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
-          <label className="flex items-center gap-1.5 text-[12px] text-ink-muted col-span-1">
+          <label className="flex items-center gap-1.5 text-[13.5px] text-ink-muted col-span-1">
             <span className="shrink-0">From</span>
             <DateInput value={from} onChange={(e) => setFrom(e.target.value)} aria-label="From date" className="w-full sm:w-36" />
           </label>
-          <label className="flex items-center gap-1.5 text-[12px] text-ink-muted col-span-1">
+          <label className="flex items-center gap-1.5 text-[13.5px] text-ink-muted col-span-1">
             <span className="shrink-0">To</span>
             <DateInput value={to} onChange={(e) => setTo(e.target.value)} aria-label="To date" className="w-full sm:w-36" />
           </label>
@@ -265,7 +265,7 @@ export const LeaveRequestsPage: React.FC<{ mode: 'approval' | 'all'; onCountsCha
                     <tr key={`${kindOf(r)}-${r.id}`}>
                       <td>
                         <div className="font-semibold text-ink">{r.workerName}</div>
-                        <div className="text-[11.5px] text-ink-muted">
+                        <div className="text-[13px] text-ink-muted">
                           {r.workerEmployeeId}
                           {r.departmentName ? ` · ${r.departmentName}` : ''}
                         </div>
@@ -277,7 +277,7 @@ export const LeaveRequestsPage: React.FC<{ mode: 'approval' | 'all'; onCountsCha
                               <Pill className="bg-accent-soft text-accent-strong ring-accent-line">Leave</Pill>
                               {r.leaveTypeName}
                             </div>
-                            <div className="text-[11.5px] text-ink-muted mt-0.5">
+                            <div className="text-[13px] text-ink-muted mt-0.5">
                               {r.dayPartLabel}
                               {r.isPaid ? '' : ' · Unpaid'}
                             </div>
@@ -290,7 +290,7 @@ export const LeaveRequestsPage: React.FC<{ mode: 'approval' | 'all'; onCountsCha
                                 {r.currentShiftName ?? '—'} → <span className="font-semibold">{r.requestedShiftName}</span>
                               </span>
                             </div>
-                            <div className="text-[11.5px] text-ink-muted mt-0.5">{shiftTime(r.requestedShiftTime)}</div>
+                            <div className="text-[13px] text-ink-muted mt-0.5">{shiftTime(r.requestedShiftTime)}</div>
                           </>
                         )}
                       </td>
@@ -305,7 +305,7 @@ export const LeaveRequestsPage: React.FC<{ mode: 'approval' | 'all'; onCountsCha
                       <td className="whitespace-nowrap text-ink-secondary">{formatDateTime(r.createdAt)}</td>
                       <td className="whitespace-nowrap">
                         <LeaveStatusBadge status={r.status} />
-                        {r.decidedByName && <div className="text-[11px] text-ink-muted mt-0.5">by {r.decidedByName}</div>}
+                        {r.decidedByName && <div className="text-[12.5px] text-ink-muted mt-0.5">by {r.decidedByName}</div>}
                       </td>
                       <td className="text-right whitespace-nowrap" data-label="">
                         <div className="inline-flex items-center gap-0.5">

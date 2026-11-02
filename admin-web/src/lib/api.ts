@@ -266,6 +266,30 @@ export async function download(path: string, query?: Query, fallbackName = 'down
   return name
 }
 
+/** Like `download`, but sends a JSON body (e.g. a confirmation password that must not be in the address). */
+export async function downloadPost(path: string, body: unknown, fallbackName = 'download', retry = true): Promise<string> {
+  const token = storage.get(ACCESS_KEY)
+  const res = await send(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body)
+  })
+  if (res.status === 401 && retry && (await refresh())) return downloadPost(path, body, fallbackName, false)
+  if (res.status === 401) return endSession(res)
+  if (!res.ok) throw new ApiError(res.status, await errorMessage(res))
+
+  const name = /filename="?([^"]+)"?/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? fallbackName
+  const url = URL.createObjectURL(await res.blob())
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+  return name
+}
+
 export async function login(employeeId: string, password: string): Promise<CurrentUser> {
   const res = await send('/api/auth/login', {
     method: 'POST',

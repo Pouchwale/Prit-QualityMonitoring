@@ -53,15 +53,15 @@ const Tile: React.FC<{ d: DayScore; upcoming?: boolean; week?: boolean }> = ({ d
     const label = d.pending ? `${d.pending} open` : '—'
     const title = d.pending ? `${d.pending} check${d.pending === 1 ? '' : 's'} still open, not counted yet` : upcoming ? 'Day still ahead' : 'No checks'
     return (
-      <div title={title} className={`h-[54px] rounded-lg flex items-center justify-center text-[12px] ${upcoming ? 'text-ink-faint/60' : 'bg-subtle/60 text-ink-faint'}`}>
+      <div title={title} className={`h-[54px] rounded-lg flex items-center justify-center text-[13.5px] ${upcoming ? 'text-ink-faint/60' : 'bg-subtle/60 text-ink-faint'}`}>
         {label}
       </div>
     )
   }
   return (
     <div title={tip(d)} className={`h-[54px] rounded-lg ring-1 ring-inset flex flex-col items-center justify-center leading-tight ${tone(d.score)}`}>
-      <span className={`font-bold tabular-nums ${week ? 'text-[18px]' : 'text-[16px]'}`}>{d.score}%</span>
-      <span className="text-[11px] tabular-nums whitespace-nowrap opacity-85">
+      <span className={`font-bold tabular-nums ${week ? 'text-[19px]' : 'text-[17px]'}`}>{d.score}%</span>
+      <span className="text-[12.5px] tabular-nums whitespace-nowrap opacity-85">
         {d.done}/{d.assigned}
         {d.missed ? <span className="font-semibold"> · {d.missed} missed</span> : null}
       </span>
@@ -72,13 +72,13 @@ const Tile: React.FC<{ d: DayScore; upcoming?: boolean; week?: boolean }> = ({ d
 /** Phone: a small square per day, with its weekday letter. */
 const DayChip: React.FC<{ d: DayScore; date: string; today: string }> = ({ d, date, today }) => (
   <div className="flex flex-col items-center gap-1 min-w-0">
-    <span className={`text-[10.5px] font-semibold ${date === today ? 'text-accent' : 'text-ink-muted'}`}>{dayName(date)[0]}</span>
+    <span className={`text-[12px] font-semibold ${date === today ? 'text-accent' : 'text-ink-muted'}`}>{dayName(date)[0]}</span>
     {d.score === null ? (
-      <span title={d.pending ? `${d.pending} check${d.pending === 1 ? '' : 's'} still open` : 'No checks'} className={`w-full h-8 rounded-md flex items-center justify-center text-[11px] ${date > today ? 'text-ink-faint/60' : 'bg-subtle/60 text-ink-faint'}`}>
+      <span title={d.pending ? `${d.pending} check${d.pending === 1 ? '' : 's'} still open` : 'No checks'} className={`w-full h-8 rounded-md flex items-center justify-center text-[12.5px] ${date > today ? 'text-ink-faint/60' : 'bg-subtle/60 text-ink-faint'}`}>
         {d.pending ? '…' : '—'}
       </span>
     ) : (
-      <span title={tip(d)} className={`w-full h-8 rounded-md ring-1 ring-inset flex items-center justify-center text-[11.5px] font-bold tabular-nums ${tone(d.score)} ${date === today ? 'outline outline-2 outline-accent/50' : ''}`}>
+      <span title={tip(d)} className={`w-full h-8 rounded-md ring-1 ring-inset flex items-center justify-center text-[13px] font-bold tabular-nums ${tone(d.score)} ${date === today ? 'outline outline-2 outline-accent/50' : ''}`}>
         {d.score}
       </span>
     )}
@@ -145,12 +145,12 @@ export const WeeklyScores: React.FC = () => {
         }
       />
       <DataState loading={loading} error={error} onRetry={reload}>
-        {data && data.rows.length === 0 && <p className="px-4 py-6 text-center text-[13px] text-ink-muted">No workers yet.</p>}
+        {data && data.rows.length === 0 && <p className="px-4 py-6 text-center text-[14.5px] text-ink-muted">No workers yet.</p>}
         {data && data.rows.length > 0 && (
           <>
             {/* Wide screens: one row per worker, a column per day. */}
             <div className="hidden xl:block overflow-x-auto">
-              <table className="w-full min-w-[900px] table-fixed border-separate border-spacing-1.5 px-2.5 py-1.5 text-[13px]">
+              <table className="w-full min-w-[900px] table-fixed border-separate border-spacing-1.5 px-2.5 py-1.5 text-[14.5px]">
                 <caption className="sr-only">Each worker's score for every day of the week and for the whole week</caption>
                 <colgroup>
                   <col className="w-[180px]" />
@@ -161,7 +161,7 @@ export const WeeklyScores: React.FC = () => {
                 </colgroup>
                 <thead>
                   <tr>
-                    <th scope="col" className="sticky left-0 z-10 bg-white text-left px-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                    <th scope="col" className="sticky left-0 z-10 bg-surface text-left px-1.5 text-[12.5px] font-semibold uppercase tracking-wide text-ink-muted">
                       Worker
                     </th>
                     {data.days.map((d) => {
@@ -170,27 +170,27 @@ export const WeeklyScores: React.FC = () => {
                         <th
                           key={d}
                           scope="col"
-                          className={`rounded-lg px-1 py-1.5 text-center ${isToday ? 'bg-accent text-white' : d > today ? 'text-ink-muted' : 'bg-subtle text-ink'}`}
+                          className={`rounded-lg px-1 py-1.5 text-center ${isToday ? 'bg-accent-fill text-white' : d > today ? 'text-ink-muted' : 'bg-subtle text-ink'}`}
                         >
-                          <div className="text-[12.5px] font-semibold">{dayName(d)}</div>
-                          <div className={`text-[11px] font-normal tabular-nums ${isToday ? 'text-white/85' : 'text-ink-muted'}`}>{isToday ? `Today · ${shortDate(d)}` : shortDate(d)}</div>
+                          <div className="text-[14px] font-semibold">{dayName(d)}</div>
+                          <div className={`text-[12.5px] font-normal tabular-nums ${isToday ? 'text-white/85' : 'text-ink-muted'}`}>{isToday ? `Today · ${shortDate(d)}` : shortDate(d)}</div>
                         </th>
                       )
                     })}
-                    <th scope="col" className="rounded-lg px-1 py-1.5 text-center bg-ink text-white">
-                      <div className="text-[12.5px] font-semibold">Week</div>
-                      <div className="text-[11px] font-normal text-white/75">Sun – Sat</div>
+                    <th scope="col" className="rounded-lg px-1 py-1.5 text-center bg-inverse text-white">
+                      <div className="text-[14px] font-semibold">Week</div>
+                      <div className="text-[12.5px] font-normal text-white/75">Sun – Sat</div>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.rows.map((r) => (
                     <tr key={r.workerId}>
-                      <th scope="row" className="sticky left-0 z-10 bg-white px-1.5 text-left font-normal">
+                      <th scope="row" className="sticky left-0 z-10 bg-surface px-1.5 text-left font-normal">
                         <div className="font-semibold text-ink truncate" title={r.name}>
                           {r.name}
                         </div>
-                        {subline(r) && <div className="text-[11px] text-ink-muted truncate">{subline(r)}</div>}
+                        {subline(r) && <div className="text-[12.5px] text-ink-muted truncate">{subline(r)}</div>}
                       </th>
                       {r.days.map((d, i) => (
                         // Today's column is tinted all the way down, so it is easy to follow.
@@ -214,14 +214,14 @@ export const WeeklyScores: React.FC = () => {
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="font-semibold text-ink truncate">{r.name}</div>
-                      {subline(r) && <div className="text-[11.5px] text-ink-muted truncate">{subline(r)}</div>}
+                      {subline(r) && <div className="text-[13px] text-ink-muted truncate">{subline(r)}</div>}
                     </div>
                     {r.week.score === null ? (
-                      <span className="text-[12px] text-ink-faint shrink-0">{r.week.pending ? `${r.week.pending} open` : 'No checks'}</span>
+                      <span className="text-[13.5px] text-ink-faint shrink-0">{r.week.pending ? `${r.week.pending} open` : 'No checks'}</span>
                     ) : (
                       <span title={tip(r.week)} className={`shrink-0 rounded-lg ring-1 ring-inset px-2.5 py-1 text-right leading-tight ${tone(r.week.score)}`}>
-                        <span className="block text-[15px] font-bold tabular-nums">{r.week.score}%</span>
-                        <span className="block text-[10.5px] tabular-nums opacity-85">
+                        <span className="block text-[16.5px] font-bold tabular-nums">{r.week.score}%</span>
+                        <span className="block text-[12px] tabular-nums opacity-85">
                           {r.week.done}/{r.week.assigned} this week
                         </span>
                       </span>
@@ -236,7 +236,7 @@ export const WeeklyScores: React.FC = () => {
               ))}
             </ul>
 
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5 border-t border-line text-[11.5px] text-ink-muted">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2.5 border-t border-line text-[13px] text-ink-muted">
               {LEGEND.map((l) => (
                 <span key={l.label} className="inline-flex items-center gap-1.5">
                   <span className={`w-3 h-3 rounded ring-1 ring-inset ${l.className}`} aria-hidden />

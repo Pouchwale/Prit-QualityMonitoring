@@ -58,7 +58,7 @@ export async function openAttachment(kind: RequestKind, id: string) {
 }
 
 const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
-  <div className="grid grid-cols-[130px_1fr] gap-3 py-2 border-b border-line last:border-0 text-[13px]">
+  <div className="grid grid-cols-[130px_1fr] gap-3 py-2 border-b border-line last:border-0 text-[14.5px]">
     <dt className="text-ink-muted">{label}</dt>
     <dd className="text-ink min-w-0 break-words">{children}</dd>
   </div>

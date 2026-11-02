@@ -84,21 +84,21 @@ export const RoleChangeModal: React.FC<{ user: User | null; onClose: () => void;
                 disabled={current || saving}
                 onClick={() => setRole(r)}
                 className={`text-left rounded-lg border px-3 py-2.5 transition-colors disabled:cursor-default ${
-                  on ? 'border-accent-line bg-accent-soft/50 ring-1 ring-accent-line' : current ? 'border-line bg-subtle' : 'border-line bg-white hover:bg-subtle'
+                  on ? 'border-accent-line bg-accent-soft/50 ring-1 ring-accent-line' : current ? 'border-line bg-subtle' : 'border-line bg-surface hover:bg-subtle'
                 }`}
               >
                 <div className="flex items-center gap-2">
                   <RoleBadge role={r} />
-                  {current && <span className="text-[11.5px] text-ink-muted">Current role</span>}
+                  {current && <span className="text-[13px] text-ink-muted">Current role</span>}
                 </div>
-                <p className="mt-1 text-[12px] text-ink-secondary">{ROLE_SUMMARY[r]}</p>
+                <p className="mt-1 text-[13.5px] text-ink-secondary">{ROLE_SUMMARY[r]}</p>
               </button>
             )
           })}
         </div>
 
         {role && role !== user.role && (
-          <div className="rounded-lg border border-line bg-panel p-3 space-y-1.5 text-[12.5px] text-ink-secondary" aria-live="polite">
+          <div className="rounded-lg border border-line bg-panel p-3 space-y-1.5 text-[14px] text-ink-secondary" aria-live="polite">
             <div className="flex items-center gap-2 font-medium text-ink">
               <RoleBadge role={user.role} />
               <ArrowRight className="w-3.5 h-3.5" aria-hidden />

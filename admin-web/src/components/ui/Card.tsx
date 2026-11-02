@@ -38,11 +38,11 @@ export const CardHeader: React.FC<CardHeaderProps> = ({ title, subtitle, info, i
         </span>
       )}
       <div className="min-w-0">
-        <h2 className="flex items-center gap-1.5 text-[13.5px] font-semibold text-ink leading-tight truncate">
+        <h2 className="flex items-center gap-1.5 text-[15px] font-semibold text-ink leading-tight truncate">
           {title}
           {info && <InfoTip text={info} />}
         </h2>
-        {subtitle && <p className="text-[12px] text-ink-muted leading-snug line-clamp-2 mt-0.5">{subtitle}</p>}
+        {subtitle && <p className="text-[13.5px] text-ink-muted leading-snug line-clamp-2 mt-0.5">{subtitle}</p>}
       </div>
     </div>
     {actions && <div className="flex items-center gap-1.5 shrink-0">{actions}</div>}
@@ -67,7 +67,7 @@ export const InfoTip: React.FC<{ text: string; className?: string }> = ({ text, 
     </button>
     <span
       aria-hidden="true"
-      className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-64 -translate-x-1/2 rounded-md bg-ink px-2.5 py-2 text-[11.5px] font-normal leading-snug text-white opacity-0 shadow-[var(--shadow-pop)] transition-opacity duration-150 group-hover/tip:opacity-100 group-focus-within/tip:opacity-100 normal-case tracking-normal text-left"
+      className="pointer-events-none absolute left-1/2 top-full z-30 mt-1.5 w-64 -translate-x-1/2 rounded-md bg-inverse px-2.5 py-2 text-[13px] font-normal leading-snug text-white opacity-0 shadow-[var(--shadow-pop)] transition-opacity duration-150 group-hover/tip:opacity-100 group-focus-within/tip:opacity-100 normal-case tracking-normal text-left"
     >
       {text}
     </span>
@@ -88,8 +88,8 @@ export const EmptyState: React.FC<{ icon?: React.ReactNode; title: string; hint?
         {icon}
       </span>
     )}
-    <div className="text-[13px] font-medium text-ink-secondary">{title}</div>
-    {hint && <div className="mt-0.5 text-[12px] text-ink-muted max-w-sm">{hint}</div>}
+    <div className="text-[14.5px] font-medium text-ink-secondary">{title}</div>
+    {hint && <div className="mt-0.5 text-[13.5px] text-ink-muted max-w-sm">{hint}</div>}
     {action && <div className="mt-3">{action}</div>}
   </div>
 )

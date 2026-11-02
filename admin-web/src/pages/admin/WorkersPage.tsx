@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react'
-import { Clock3, HardHat, Info, KeyRound, Pencil, Plus, ShieldCheck, Smartphone, Trash2, UserCheck, UserCog, Users, UserX } from 'lucide-react'
+import { Clock3, FileDown, HardHat, Info, KeyRound, Pencil, Plus, ShieldCheck, Smartphone, Trash2, UserCheck, UserCog, Users, UserX } from 'lucide-react'
 import type { Department, Role, Shift, User, WorkerQualityRole } from '../../types'
 import { api, errorText } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
@@ -14,6 +14,7 @@ import { PageHeader } from '../../components/common/PageHeader'
 import { StatusBadge } from '../../components/common/StatusBadge'
 import { useToast } from '../../components/common/Toast'
 import { RevealPasswordModal } from './RevealPasswordModal'
+import { ExportPasswordsModal } from './ExportPasswordsModal'
 import { DeleteRecordsModal } from '../../components/common/DeleteRecordsModal'
 import { BulkDeleteBar, RowCheckbox, useSelection } from '../../components/common/BulkSelection'
 import { useDeletePermissions } from '../../lib/deletePermissions'
@@ -60,14 +61,14 @@ const ROLE_HINT: Record<Role, string> = {
 
 /** IPQC / QC / both: a neutral outline chip, the text carries the meaning. */
 const QualityRoleBadge: React.FC<{ role: WorkerQualityRole }> = ({ role }) => (
-  <Pill className="bg-white text-ink ring-line-strong font-semibold tracking-wide" title="Quality role">
+  <Pill className="bg-surface text-ink ring-line-strong font-semibold tracking-wide" title="Quality role">
     {QUALITY_ROLE_LABEL[role]}
   </Pill>
 )
 
 /** Mobile app sign-in: allowed or blocked, with an icon so it does not rely on colour. */
 const AppAccessBadge: React.FC<{ allowed: boolean }> = ({ allowed }) => (
-  <Pill className={allowed ? 'bg-white text-ink-secondary ring-line-strong' : 'bg-subtle text-ink-muted ring-line'} title={allowed ? 'Can sign in to the mobile app' : 'Mobile app blocked'}>
+  <Pill className={allowed ? 'bg-surface text-ink-secondary ring-line-strong' : 'bg-subtle text-ink-muted ring-line'} title={allowed ? 'Can sign in to the mobile app' : 'Mobile app blocked'}>
     <Smartphone className="w-3 h-3" aria-hidden />
     <span className="sr-only">Mobile app: </span>
     {allowed ? 'App' : 'No app'}
@@ -158,6 +159,7 @@ export const WorkersPage: React.FC = () => {
   const [saving, setSaving] = useState(false)
   const [disabling, setDisabling] = useState<User | null>(null)
   const [revealing, setRevealing] = useState<User | null>(null)
+  const [exportingPasswords, setExportingPasswords] = useState(false)
   // Only the Super Admin can view passwords.
   const canViewPasswords = me?.role === 'SUPER_ADMIN'
   // Permanent delete of an account and its history: the Super Admin only (Delete Users is never
@@ -329,11 +331,18 @@ export const WorkersPage: React.FC = () => {
         description={usersApi.data ? `${users.length} ${users.length === 1 ? 'account' : 'accounts'} · ${kpi.active} active` : 'Shop-floor workers, managers and administrators'}
         info="Accounts for shop-floor workers, managers and administrators. Workers sign in to the mobile app with their employee ID; managers and admins use this web console."
         actions={
-          canCreate && (
-            <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
-              Add User
-            </Button>
-          )
+          <>
+            {isSuperAdmin && (
+              <Button size="sm" variant="outline" onClick={() => setExportingPasswords(true)} icon={<FileDown className="w-3.5 h-3.5" />}>
+                Credentials PDF
+              </Button>
+            )}
+            {canCreate && (
+              <Button size="sm" variant="primary" onClick={openNew} icon={<Plus className="w-3.5 h-3.5" />}>
+                Add User
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -462,13 +471,13 @@ export const WorkersPage: React.FC = () => {
                                 <span className={`font-semibold truncate ${u.isActive ? 'text-ink' : 'text-ink-muted'}`}>{u.name}</span>
                                 {self && <Pill className="bg-accent-soft text-accent-strong ring-accent-line">You</Pill>}
                               </div>
-                              <div className="text-[11.5px] text-ink-muted truncate">
+                              <div className="text-[13px] text-ink-muted truncate">
                                 <span className="font-mono">{u.employeeId}</span>
                                 {u.designation ? ` · ${u.designation}` : ''}
                               </div>
                               {/* Tablets and small laptops: the Department column is folded in here. */}
                               {(u.departmentName || u.shiftName) && (
-                                <div className="hidden md:block xl:hidden text-[11.5px] text-ink-muted truncate">
+                                <div className="hidden md:block xl:hidden text-[13px] text-ink-muted truncate">
                                   {[departmentLabel(u, departments), u.shiftName].filter(Boolean).join(' · ')}
                                 </div>
                               )}
@@ -485,7 +494,7 @@ export const WorkersPage: React.FC = () => {
                         <td className="hidden xl:table-cell whitespace-nowrap" data-empty={!u.departmentName && !u.shiftName ? '' : undefined}>
                           <div className={u.departmentName ? 'text-ink' : 'text-ink-faint'}>{departmentLabel(u, departments) ?? '—'}</div>
                           {u.shiftName && (
-                            <div className="flex items-center gap-1 text-[11.5px] text-ink-muted">
+                            <div className="flex items-center gap-1 text-[13px] text-ink-muted">
                               <Clock3 className="w-3 h-3 shrink-0" aria-hidden />
                               {u.shiftName}
                             </div>
@@ -497,7 +506,7 @@ export const WorkersPage: React.FC = () => {
                             <AppAccessBadge allowed={u.appAccess} />
                           </div>
                           {/* Tablets and small laptops: the Last login column is folded in here. */}
-                          <div className="hidden md:block xl:hidden mt-0.5 text-[11.5px] text-ink-muted tabular-nums">
+                          <div className="hidden md:block xl:hidden mt-0.5 text-[13px] text-ink-muted tabular-nums">
                             Last login {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : 'never'}
                           </div>
                         </td>
@@ -666,7 +675,7 @@ export const WorkersPage: React.FC = () => {
           </div>
 
           {editing !== 'new' && !canResetPassword && (
-            <p className="text-[11px] text-ink-muted">
+            <p className="text-[12.5px] text-ink-muted">
               {isSelf && me?.role === 'SUPER_ADMIN' ? 'To change your own password, use My Account.' : 'Only the Super Admin can change passwords.'}
             </p>
           )}
@@ -688,7 +697,7 @@ export const WorkersPage: React.FC = () => {
           </div>
 
           {form.role === 'WORKER' && (
-            <div className="flex items-start gap-1.5 text-[11px] text-ink-muted">
+            <div className="flex items-start gap-1.5 text-[12.5px] text-ink-muted">
               <Info className="w-3.5 h-3.5 shrink-0 mt-px" />
               <span>
                 Workers receive schedule-based quality check notifications and perform checks for IPQC, QC, or both according to their assigned Quality Role.
@@ -713,6 +722,7 @@ export const WorkersPage: React.FC = () => {
         onClose={() => setDisabling(null)}
       />
       <RevealPasswordModal user={revealing} onClose={() => setRevealing(null)} />
+      <ExportPasswordsModal isOpen={exportingPasswords} onClose={() => setExportingPasswords(false)} />
       <DeleteRecordsModal
         type={deleting ? 'users' : null}
         ids={deleting?.ids ?? []}

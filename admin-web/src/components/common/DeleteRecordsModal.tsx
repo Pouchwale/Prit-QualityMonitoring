@@ -151,7 +151,7 @@ export const DeleteRecordsModal: React.FC<Props> = ({ type, ids, bulk = false, o
         )
       }
     >
-      <div className="space-y-3 text-xs">
+      <div className="space-y-3 text-[13px]">
         {loading && <p className="text-ink-muted">Working out what will be deleted…</p>}
         {loadError && (
           <div className="space-y-2">
@@ -217,7 +217,7 @@ export const DeleteRecordsModal: React.FC<Props> = ({ type, ids, bulk = false, o
             )}
 
             {impact.blocked > 0 && (
-              <div className="rounded border border-failed-line bg-white p-2.5 text-failed space-y-1" role="alert">
+              <div className="rounded border border-failed-line bg-surface p-2.5 text-failed space-y-1" role="alert">
                 <p className="flex items-center gap-1.5 font-semibold">
                   <Ban className="w-3.5 h-3.5" /> {bulk ? `${impact.blocked} of the selected records cannot be deleted` : 'This record cannot be deleted'}
                 </p>
@@ -236,7 +236,7 @@ export const DeleteRecordsModal: React.FC<Props> = ({ type, ids, bulk = false, o
                     Reason for deleting <span className="text-failed">*</span>
                   </span>
                   <TextArea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} placeholder="e.g. Test data created during training" />
-                  <span className="block text-[11px] text-ink-muted mt-1">Saved in the audit log.</span>
+                  <span className="block text-[12.5px] text-ink-muted mt-1">Saved in the audit log.</span>
                 </label>
                 {bulk && (
                   <label className="block">
@@ -261,8 +261,8 @@ export const DeleteRecordsModal: React.FC<Props> = ({ type, ids, bulk = false, o
 
 const Stat: React.FC<{ label: string; value: React.ReactNode; danger?: boolean }> = ({ label, value, danger }) => (
   <div className="rounded border border-line bg-subtle px-2.5 py-2">
-    <div className="text-[11px] text-ink-muted">{label}</div>
-    <div className={`text-sm font-semibold tabular-nums ${danger ? 'text-failed' : 'text-ink'}`}>{value}</div>
+    <div className="text-[12.5px] text-ink-muted">{label}</div>
+    <div className={`text-[14.5px] font-semibold tabular-nums ${danger ? 'text-failed' : 'text-ink'}`}>{value}</div>
   </div>
 )
 
@@ -290,12 +290,12 @@ const SingleItem: React.FC<{ item: DeleteImpactItem }> = ({ item }) => {
       <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 rounded border border-line p-2.5">
         {item.details.map((d) => (
           <div key={d.label} className="flex justify-between sm:block gap-2">
-            <dt className="text-[11px] text-ink-muted">{d.label}</dt>
+            <dt className="text-[12.5px] text-ink-muted">{d.label}</dt>
             <dd className="font-medium text-ink break-words text-right sm:text-left">{d.label === 'Status' ? statusText(d.value) : showValue(d.value)}</dd>
           </div>
         ))}
         <div className="flex justify-between sm:block gap-2">
-          <dt className="text-[11px] text-ink-muted">Evidence files</dt>
+          <dt className="text-[12.5px] text-ink-muted">Evidence files</dt>
           <dd className="font-medium text-ink">
             {item.files} ({formatBytes(item.fileBytes)})
           </dd>
@@ -326,7 +326,7 @@ const ItemList: React.FC<{ items: DeleteImpactItem[] }> = ({ items }) => (
           </span>
         </div>
         {i.blockers.map((b) => (
-          <p key={b} className="text-[11px] text-failed">
+          <p key={b} className="text-[12.5px] text-failed">
             {b}
           </p>
         ))}

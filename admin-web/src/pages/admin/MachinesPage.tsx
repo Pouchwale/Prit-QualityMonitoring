@@ -48,7 +48,7 @@ const STATUS_OPTIONS: { value: MachineStatus; label: string }[] = [
 ]
 
 /** A small neutral chip, e.g. a machine code or a check type name. */
-const chip = 'inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[11px] text-ink-secondary whitespace-nowrap'
+const chip = 'inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[12.5px] text-ink-secondary whitespace-nowrap'
 
 export const MachinesPage: React.FC = () => {
   const canActivate = useCanActivate()
@@ -267,14 +267,14 @@ export const MachinesPage: React.FC = () => {
                               {m.code}
                             </span>
                           </div>
-                          {m.notes && <span className="block text-[11.5px] text-ink-muted truncate max-w-xs">{m.notes}</span>}
+                          {m.notes && <span className="block text-[13px] text-ink-muted truncate max-w-xs">{m.notes}</span>}
                         </td>
                         <td>
                           <span className="text-ink-secondary">
                             {m.departments.length ? m.departments.map((d) => d.name).join(', ') : <span className="text-ink-faint">—</span>}
                           </span>
                           {(m.line || m.model) && (
-                            <span className="block text-[11.5px] text-ink-muted whitespace-nowrap">
+                            <span className="block text-[13px] text-ink-muted whitespace-nowrap">
                               {[m.line && `Line: ${m.line}`, m.model && `Model: ${m.model}`].filter(Boolean).join(' · ')}
                             </span>
                           )}
@@ -287,7 +287,7 @@ export const MachinesPage: React.FC = () => {
                             <span className="text-ink-faint">None</span>
                           ) : (
                             <div className="flex flex-wrap items-center gap-1">
-                              <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line text-[11px] font-semibold tabular-nums whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line text-[12.5px] font-semibold tabular-nums whitespace-nowrap">
                                 <ClipboardList className="w-3 h-3" aria-hidden />
                                 {m.activityIds.length} {m.activityIds.length === 1 ? 'type' : 'types'}
                               </span>
@@ -296,13 +296,13 @@ export const MachinesPage: React.FC = () => {
                                   <span className="truncate">{n}</span>
                                 </span>
                               ))}
-                              {names.length > 2 && <span className="hidden xl:inline text-[11px] text-ink-muted tabular-nums">+{names.length - 2}</span>}
+                              {names.length > 2 && <span className="hidden xl:inline text-[12.5px] text-ink-muted tabular-nums">+{names.length - 2}</span>}
                             </div>
                           )}
                         </td>
                         <td>
                           {m.isActive ? (
-                            <span className="text-[12px] font-medium text-success whitespace-nowrap">Enabled</span>
+                            <span className="text-[13.5px] font-medium text-success whitespace-nowrap">Enabled</span>
                           ) : (
                             <StatusBadge status="DISABLED" size="sm" />
                           )}
@@ -369,7 +369,7 @@ export const MachinesPage: React.FC = () => {
           </div>
 
           {(form.status !== 'ACTIVE' || !form.isActive) && (
-            <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-exception-line bg-exception-bg text-[12px] text-exception" role="note">
+            <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-exception-line bg-exception-bg text-[13.5px] text-exception" role="note">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden />
               <span>
                 {form.isActive
@@ -382,8 +382,8 @@ export const MachinesPage: React.FC = () => {
 
           <div>
             <div className="flex items-baseline justify-between mb-1.5">
-              <span className="text-[12.5px] font-medium text-ink-secondary">Departments</span>
-              <span className="text-[11px] text-ink-muted tabular-nums">{form.departmentIds.length} selected</span>
+              <span className="text-[14px] font-medium text-ink-secondary">Departments</span>
+              <span className="text-[12.5px] text-ink-muted tabular-nums">{form.departmentIds.length} selected</span>
             </div>
             <MultiSelectList
               items={departmentItems}
@@ -391,7 +391,7 @@ export const MachinesPage: React.FC = () => {
               onChange={(ids) => set('departmentIds', ids)}
               emptyText={departmentsApi.loading ? 'Loading departments…' : 'No departments configured yet'}
             />
-            <span className="block text-[11px] text-ink-muted mt-1">Every department this machine works for. One machine can serve several.</span>
+            <span className="block text-[12.5px] text-ink-muted mt-1">Every department this machine works for. One machine can serve several.</span>
           </div>
 
           <Field label="Notes">
@@ -400,8 +400,8 @@ export const MachinesPage: React.FC = () => {
 
           <div>
             <div className="flex items-baseline justify-between mb-1.5">
-              <span className="text-[12.5px] font-medium text-ink-secondary">Check types on this machine</span>
-              <span className="text-[11px] text-ink-muted tabular-nums">{form.activityIds.length} selected</span>
+              <span className="text-[14px] font-medium text-ink-secondary">Check types on this machine</span>
+              <span className="text-[12.5px] text-ink-muted tabular-nums">{form.activityIds.length} selected</span>
             </div>
             <MultiSelectList
               items={activityItems}
@@ -409,7 +409,7 @@ export const MachinesPage: React.FC = () => {
               onChange={(ids) => set('activityIds', ids)}
               emptyText={activitiesApi.loading ? 'Loading check types…' : 'No check types configured yet'}
             />
-            <span className="block text-[11px] text-ink-muted mt-1">
+            <span className="block text-[12.5px] text-ink-muted mt-1">
               The quality checks performed on this machine. Set how often each runs on the Schedules page.
             </span>
           </div>

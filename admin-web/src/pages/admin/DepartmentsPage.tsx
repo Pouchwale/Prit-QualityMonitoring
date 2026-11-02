@@ -123,7 +123,7 @@ export const DepartmentsPage: React.FC = () => {
           <>
             <Link
               to={NAV_PATH['department-config']}
-              className="inline-flex items-center gap-1.5 h-[36px] lg:h-[30px] px-3 lg:px-2.5 rounded-md text-[13px] lg:text-[12.5px] font-medium text-ink-secondary hover:bg-subtle hover:text-ink"
+              className="inline-flex items-center gap-1.5 h-[36px] lg:h-[30px] px-3 lg:px-2.5 rounded-md text-[14.5px] lg:text-[14px] font-medium text-ink-secondary hover:bg-subtle hover:text-ink"
             >
               <Tags className="w-3.5 h-3.5" aria-hidden />
               Item Code prefixes

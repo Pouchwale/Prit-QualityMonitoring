@@ -82,7 +82,7 @@ export const RevealPasswordModal: React.FC<Props> = ({ user, onClose }) => {
       {!result ? (
         <form id="reveal-password-form" onSubmit={reveal} className="space-y-3" autoComplete="off">
           <FormError message={error} />
-          <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-subtle border border-line text-[12px] text-ink-secondary">
+          <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-subtle border border-line text-[13.5px] text-ink-secondary">
             <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0 text-accent" aria-hidden />
             <span>Confirm it is you. This view is recorded in the audit log.</span>
           </div>
@@ -92,9 +92,9 @@ export const RevealPasswordModal: React.FC<Props> = ({ user, onClose }) => {
         </form>
       ) : result.available && result.password !== null ? (
         <div className="space-y-2">
-          <div className="text-[12.5px] font-medium text-ink-secondary">Password</div>
+          <div className="text-[14px] font-medium text-ink-secondary">Password</div>
           <div className="flex items-center gap-1.5">
-            <code className="flex-1 min-w-0 px-3 py-2 rounded-md border border-line-strong bg-subtle font-mono text-[14px] tracking-wide text-ink break-all" aria-live="polite">
+            <code className="flex-1 min-w-0 px-3 py-2 rounded-md border border-line-strong bg-subtle font-mono text-[15.5px] tracking-wide text-ink break-all" aria-live="polite">
               {visible ? result.password : '•'.repeat(Math.max(8, result.password.length))}
             </code>
             <Button
@@ -110,10 +110,10 @@ export const RevealPasswordModal: React.FC<Props> = ({ user, onClose }) => {
               {copied ? 'Copied' : 'Copy'}
             </Button>
           </div>
-          <p className="text-[11px] text-ink-muted">Share it only with {user?.name}. It is hidden again when you close this.</p>
+          <p className="text-[12.5px] text-ink-muted">Share it only with {user?.name}. It is hidden again when you close this.</p>
         </div>
       ) : (
-        <div className="px-3 py-2.5 rounded-md border border-exception-line bg-exception-bg text-[12.5px] text-ink-secondary space-y-1">
+        <div className="px-3 py-2.5 rounded-md border border-exception-line bg-exception-bg text-[14px] text-ink-secondary space-y-1">
           <div className="flex items-center gap-1.5 font-semibold text-exception">
             <AlertTriangle className="w-3.5 h-3.5" aria-hidden />
             Not available

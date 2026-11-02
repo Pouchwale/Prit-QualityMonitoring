@@ -240,8 +240,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <div className="flex items-center gap-2.5 min-w-0">
       <img src="/logo.png" alt="" className="w-8 h-8 rounded-lg ring-1 ring-line" />
       <div className="min-w-0">
-        <div className="text-[13.5px] font-semibold tracking-tight text-ink leading-none truncate">Quality Monitoring</div>
-        <div className="text-[11.5px] text-ink-muted mt-1 truncate">{portalLabel(user?.role)}</div>
+        <div className="text-[15px] font-semibold tracking-tight text-ink leading-none truncate">Quality Monitoring</div>
+        <div className="text-[13px] text-ink-muted mt-1 truncate">{portalLabel(user?.role)}</div>
       </div>
     </div>
   )
@@ -252,7 +252,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <nav className="flex-1 py-3 px-3 space-y-5 overflow-y-auto" aria-label="Main">
       {groups.map((group) => (
         <div key={group.title}>
-          <div className="px-2.5 pb-1.5 text-[10.5px] font-semibold text-ink-faint uppercase tracking-[0.08em]">{group.title}</div>
+          <div className="px-2.5 pb-1.5 text-[12px] font-semibold text-ink-faint uppercase tracking-[0.08em]">{group.title}</div>
           <div className="space-y-0.5">
             {group.items.map((item) => {
               const isActive = (item.matches ?? [item.id]).includes(currentTab as NavTab)
@@ -262,7 +262,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   to={NAV_PATH[item.id]}
                   onClick={() => onSelectTab(item.id)}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`group relative w-full flex items-center justify-between gap-2 h-10 lg:h-9 px-2.5 rounded-md text-[14px] lg:text-[13px] font-medium transition-colors ${
+                  className={`group relative w-full flex items-center justify-between gap-2 h-10 lg:h-9 px-2.5 rounded-md text-[15.5px] lg:text-[14.5px] font-medium transition-colors ${
                     isActive ? 'bg-accent-soft text-accent-strong' : 'text-ink-secondary hover:bg-subtle hover:text-ink'
                   }`}
                 >
@@ -274,7 +274,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <span className="truncate">{item.label ?? NAV_LABEL[item.id]}</span>
                   </span>
                   {item.badge !== undefined && (
-                    <span className={`min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums ring-1 ring-inset ${item.badgeColor}`}>
+                    <span className={`min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full text-[12.5px] font-semibold tabular-nums ring-1 ring-inset ${item.badgeColor}`}>
                       {item.badge}
                       {item.badgeLabel && <span className="sr-only"> {item.badgeLabel}</span>}
                     </span>
@@ -290,7 +290,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const footer = plantName && (
     <div className="p-3 border-t border-line">
-      <div className="flex items-center gap-2 px-2.5 py-2 rounded-md bg-subtle text-[12px] text-ink-secondary">
+      <div className="flex items-center gap-2 px-2.5 py-2 rounded-md bg-subtle text-[13.5px] text-ink-secondary">
         <Factory className="w-3.5 h-3.5 text-ink-faint shrink-0" aria-hidden />
         <span className="truncate font-medium">{plantName}</span>
       </div>
@@ -300,7 +300,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <>
       {/* Desktop: fixed sidebar */}
-      <aside className="hidden lg:flex w-[248px] bg-white border-r border-line flex-col shrink-0 select-none no-print">
+      <aside className="hidden lg:flex w-[248px] bg-chrome border-r border-line flex-col shrink-0 select-none no-print">
         <div className="h-14 px-4 border-b border-line flex items-center">{brand}</div>
         {nav}
         {footer}
@@ -309,8 +309,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Phone and tablet: slide-in panel over a dimmed backdrop */}
       {mobileOpen && (
         <div className="lg:hidden fixed inset-0 z-40 no-print outline-none" role="dialog" aria-modal="true" aria-label="Navigation" ref={panelRef} tabIndex={-1}>
-          <div className="absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]" onClick={onMobileClose} />
-          <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-white border-r border-line flex flex-col shadow-[var(--shadow-pop)] select-none">
+          <div className="absolute inset-0 bg-scrim/45 backdrop-blur-[2px]" onClick={onMobileClose} />
+          <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-chrome border-r border-line flex flex-col shadow-[var(--shadow-pop)] select-none">
             <div className="h-14 pl-4 pr-2 border-b border-line flex items-center justify-between">
               {brand}
               <button

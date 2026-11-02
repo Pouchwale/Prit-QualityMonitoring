@@ -9,7 +9,7 @@ export const LiveBadge: React.FC<{ state: LiveState }> = ({ state }) =>
   state.status === 'offline' ? (
     <span
       role="status"
-      className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full bg-missed-bg text-missed ring-1 ring-inset ring-missed-line text-[11.5px] font-medium whitespace-nowrap"
+      className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full bg-missed-bg text-missed ring-1 ring-inset ring-missed-line text-[13px] font-medium whitespace-nowrap"
       title="The server could not be reached. The page keeps trying and updates itself when it is back."
     >
       <WifiOff className="w-3.5 h-3.5" aria-hidden />
@@ -18,7 +18,7 @@ export const LiveBadge: React.FC<{ state: LiveState }> = ({ state }) =>
   ) : (
     <span
       role="status"
-      className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full bg-subtle text-ink-secondary ring-1 ring-inset ring-line text-[11.5px] font-medium whitespace-nowrap"
+      className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full bg-subtle text-ink-secondary ring-1 ring-inset ring-line text-[13px] font-medium whitespace-nowrap"
       title="Changes made anywhere, such as a worker's new shift, appear here within a few seconds."
     >
       <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-chart-completed)]" aria-hidden />

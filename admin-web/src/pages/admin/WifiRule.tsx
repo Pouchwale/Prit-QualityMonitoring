@@ -81,7 +81,7 @@ export const WifiRuleCard: React.FC = () => {
             description={canEdit ? 'Off: alerts are sent as before.' : 'You can view this rule; changing it needs the Company Wi-Fi edit permission.'}
           />
           {form.enabled && (
-            <p className="rounded-md border border-exception-line bg-exception-bg px-3 py-2 text-[12px] text-exception">
+            <p className="rounded-md border border-exception-line bg-exception-bg px-3 py-2 text-[13.5px] text-exception">
               A phone that cannot be verified gets no check alert: switched off, battery saver, an app older than 1.2.0, the iPhone or browser app with
               the app closed. Watch the Company Wi-Fi column on the Workers page after turning this on.
             </p>

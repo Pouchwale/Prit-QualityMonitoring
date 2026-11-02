@@ -220,7 +220,7 @@ const StepIcon: React.FC<{ status: Step['status'] }> = ({ status }) => {
       <Circle className="w-4 h-4 text-ink-faint" aria-label="Waiting" />
     )
   return (
-    <span key={status} className={`relative z-10 shrink-0 rounded-full bg-white ${status === 'done' || status === 'failed' ? 'step-tick' : 'animate-fade-in'}`}>
+    <span key={status} className={`relative z-10 shrink-0 rounded-full bg-surface ${status === 'done' || status === 'failed' ? 'step-tick' : 'animate-fade-in'}`}>
       {icon}
     </span>
   )
@@ -250,7 +250,7 @@ const JobProgress: React.FC<{ job: Job; only?: string[] }> = ({ job, only }) => 
   return (
     <div className="space-y-3">
       <div>
-        <div className="flex items-baseline justify-between text-[12.5px] mb-1.5">
+        <div className="flex items-baseline justify-between text-[14px] mb-1.5">
           <span className="font-medium text-ink truncate">{job.status === 'running' ? (job.message ?? 'Working…') : (job.message ?? '')}</span>
           <span className="tabular-nums text-ink-muted shrink-0 ml-2">
             {steps.length > 1 && (
@@ -281,7 +281,7 @@ const JobProgress: React.FC<{ job: Job; only?: string[] }> = ({ job, only }) => 
               <StepIcon status={s.status} />
               <div className="min-w-0 -mt-px">
                 <div
-                  className={`text-[13px] transition-colors duration-200 ${
+                  className={`text-[14.5px] transition-colors duration-200 ${
                     active ? 'text-accent-strong font-semibold' : s.status === 'pending' || s.status === 'skipped' ? 'text-ink-muted' : 'text-ink'
                   }`}
                 >
@@ -289,7 +289,7 @@ const JobProgress: React.FC<{ job: Job; only?: string[] }> = ({ job, only }) => 
                   {active && <span className="text-ink-muted font-normal">…</span>}
                 </div>
                 {s.detail && (
-                  <div key={s.detail} className="text-[12px] text-ink-muted break-words animate-fade-in">
+                  <div key={s.detail} className="text-[13.5px] text-ink-muted break-words animate-fade-in">
                     {s.detail}
                   </div>
                 )}
@@ -401,7 +401,7 @@ export const BackupRestorePage: React.FC = () => {
         {data && (
           <>
             {!data.tools.ok && (
-              <div className="flex items-start gap-2.5 px-4 py-3 rounded-lg border border-failed-line bg-missed-bg text-[13px] text-failed" role="alert">
+              <div className="flex items-start gap-2.5 px-4 py-3 rounded-lg border border-failed-line bg-missed-bg text-[14.5px] text-failed" role="alert">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
                 <div>
                   <div className="font-semibold">Backups cannot run on this server</div>
@@ -411,7 +411,7 @@ export const BackupRestorePage: React.FC = () => {
             )}
 
             {waitingRestore && !restore && (
-              <div className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-lg border border-due-line bg-due-bg text-[13px] text-ink">
+              <div className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-lg border border-due-line bg-due-bg text-[14.5px] text-ink">
                 <RotateCcw className="w-4 h-4 text-due shrink-0" aria-hidden />
                 <span className="flex-1 min-w-[200px]">
                   A restore of <span className="font-medium">{waitingRestore.file}</span> is waiting for a choice. Nothing has been changed yet.
@@ -582,8 +582,8 @@ export const BackupRestorePage: React.FC = () => {
                           </td>
                           <td data-label="Details" className="text-ink-secondary">
                             {h.file && <div className="break-all">{h.file}</div>}
-                            {h.summary && <div className="text-[12px] text-ink-muted">{h.summary}</div>}
-                            {h.error && <div className="text-[12px] text-failed">{h.error}</div>}
+                            {h.summary && <div className="text-[13.5px] text-ink-muted">{h.summary}</div>}
+                            {h.error && <div className="text-[13.5px] text-failed">{h.error}</div>}
                           </td>
                         </tr>
                       ))}
@@ -645,11 +645,11 @@ const BackupChoiceDialog: React.FC<{
           {on && <span className="w-2 h-2 rounded-full bg-accent" />}
         </span>
         <span className="min-w-0">
-          <span className="flex items-center gap-1.5 text-[13.5px] font-semibold text-ink">
+          <span className="flex items-center gap-1.5 text-[15px] font-semibold text-ink">
             {icon}
             {title}
           </span>
-          <span className="block mt-0.5 text-[12.5px] text-ink-secondary">{text}</span>
+          <span className="block mt-0.5 text-[14px] text-ink-secondary">{text}</span>
         </span>
       </button>
     )
@@ -691,30 +691,30 @@ const BackupChoiceDialog: React.FC<{
 
         {scope === 'PROJECT' && (
           <div className="rounded-lg border border-line p-3 space-y-2.5">
-            <label className="flex items-start gap-2 text-[13px] text-ink cursor-pointer">
+            <label className="flex items-start gap-2 text-[14.5px] text-ink cursor-pointer">
               <input type="checkbox" className="mt-0.5" checked={includeSecrets} onChange={(ev) => setIncludeSecrets(ev.target.checked)} />
               <span>
                 Include server settings and keys (backend\.env, backend\secrets)
-                <span className="block text-[12px] text-ink-muted">Needed to run the project on another computer without setting it up again.</span>
+                <span className="block text-[13.5px] text-ink-muted">Needed to run the project on another computer without setting it up again.</span>
               </span>
             </label>
             {includeSecrets && (
-              <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-exception-line bg-exception-bg text-[12px] text-exception" role="note">
+              <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-exception-line bg-exception-bg text-[13.5px] text-exception" role="note">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden />
                 The backup will contain the database and email passwords. Anyone who has the file can read them: keep it somewhere safe.
               </div>
             )}
-            <label className="flex items-start gap-2 text-[13px] text-ink cursor-pointer">
+            <label className="flex items-start gap-2 text-[14.5px] text-ink cursor-pointer">
               <input type="checkbox" className="mt-0.5" checked={includePackages} onChange={(ev) => setIncludePackages(ev.target.checked)} />
               <span>
                 Include installed packages (node_modules)
-                <span className="block text-[12px] text-ink-muted">Over 2 GB and tens of thousands of files. Not needed: server.bat installs them on the first run (internet needed).</span>
+                <span className="block text-[13.5px] text-ink-muted">Over 2 GB and tens of thousands of files. Not needed: server.bat installs them on the first run (internet needed).</span>
               </span>
             </label>
           </div>
         )}
 
-        <div className="rounded-lg bg-subtle px-3 py-2.5 text-[12.5px] text-ink-secondary" aria-live="polite">
+        <div className="rounded-lg bg-subtle px-3 py-2.5 text-[14px] text-ink-secondary" aria-live="polite">
           {estimate.loading && !e ? (
             <span className="inline-flex items-center gap-2">
               <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden /> Working out what goes in…
@@ -742,7 +742,7 @@ const BackupChoiceDialog: React.FC<{
             </div>
           ) : null}
         </div>
-        <p className="text-[12px] text-ink-muted">
+        <p className="text-[13.5px] text-ink-muted">
           The backup runs in the background and the app stays available. It is saved in the backup folder with today's date and time in its name, and can be downloaded
           from Backup history when it is done.
         </p>
@@ -800,7 +800,7 @@ const LocationCard: React.FC<{ overview: Overview; onSaved: () => void }> = ({ o
       <div className="p-4 space-y-3">
         {!editing ? (
           <div className="flex flex-wrap items-center gap-2">
-            <code className="px-2 py-1 rounded bg-subtle text-[12.5px] text-ink break-all">{overview.location}</code>
+            <code className="px-2 py-1 rounded bg-subtle text-[14px] text-ink break-all">{overview.location}</code>
             {isDefault && <Pill className="bg-accent-soft text-accent-strong ring-accent-line">Default</Pill>}
           </div>
         ) : (
@@ -830,7 +830,7 @@ const LocationCard: React.FC<{ overview: Overview; onSaved: () => void }> = ({ o
             </div>
           </form>
         )}
-        <p className="text-[12px] text-ink-muted">
+        <p className="text-[13.5px] text-ink-muted">
           Tip: keep a copy on another drive or computer (Download), so a disk failure on the server cannot take the backups with it. Passwords and keys
           (backend\.env, backend\secrets) are only in a Full project backup made with "Include server settings and keys": keep those files safe.
         </p>
@@ -952,11 +952,11 @@ const RestoreDialog: React.FC<{ backups: BackupFile[]; initialFile?: string; res
                   onClick={() => setSource(s)}
                   className={`text-left p-3 rounded-lg border transition-colors ${source === s ? 'border-accent bg-accent-soft' : 'border-line hover:border-line-strong'}`}
                 >
-                  <div className="flex items-center gap-2 text-[13px] font-semibold text-ink">
+                  <div className="flex items-center gap-2 text-[14.5px] font-semibold text-ink">
                     {s === 'list' ? <FileArchive className="w-4 h-4" /> : <Upload className="w-4 h-4" />}
                     {s === 'list' ? 'A backup on the server' : 'A file from this computer'}
                   </div>
-                  <div className="mt-0.5 text-[12px] text-ink-muted">{s === 'list' ? 'From the backup folder' : 'A .zip made by Backup & Restore'}</div>
+                  <div className="mt-0.5 text-[13.5px] text-ink-muted">{s === 'list' ? 'From the backup folder' : 'A .zip made by Backup & Restore'}</div>
                 </button>
               ))}
             </div>
@@ -968,8 +968,8 @@ const RestoreDialog: React.FC<{ backups: BackupFile[]; initialFile?: string; res
                       <label key={`${b.folder}/${b.name}`} className={`flex items-start gap-2.5 px-3 py-2 cursor-pointer ${file === b.name ? 'bg-accent-soft' : 'hover:bg-subtle'}`}>
                         <input type="radio" name="backup" className="mt-1" checked={file === b.name} onChange={() => setFile(b.name)} />
                         <span className="min-w-0">
-                          <span className="block text-[13px] font-medium text-ink break-all">{b.name}</span>
-                          <span className="block text-[12px] text-ink-muted">
+                          <span className="block text-[14.5px] font-medium text-ink break-all">{b.name}</span>
+                          <span className="block text-[13.5px] text-ink-muted">
                             {formatDateTime(b.createdAt)} · {b.summary} · {formatBytes(b.bytes)}
                             {b.kind === 'SAFETY_BACKUP' ? ' · Safety backup' : ''}
                           </span>
@@ -979,7 +979,7 @@ const RestoreDialog: React.FC<{ backups: BackupFile[]; initialFile?: string; res
                   </div>
                 </Field>
               ) : (
-                <p className="text-[13px] text-ink-muted">There are no backups in the backup folder. Choose a file from this computer instead.</p>
+                <p className="text-[14.5px] text-ink-muted">There are no backups in the backup folder. Choose a file from this computer instead.</p>
               )
             ) : (
               <Field label="Backup file (.zip)">
@@ -987,17 +987,17 @@ const RestoreDialog: React.FC<{ backups: BackupFile[]; initialFile?: string; res
                   type="file"
                   accept=".zip,application/zip"
                   onChange={(e) => setUpload(e.target.files?.[0] ?? null)}
-                  className="block w-full text-[13px] file:mr-3 file:h-8 file:px-3 file:rounded-md file:border file:border-line-strong file:bg-white file:text-[13px] file:font-medium"
+                  className="block w-full text-[14.5px] file:mr-3 file:h-8 file:px-3 file:rounded-md file:border file:border-line-strong file:bg-surface file:text-[14.5px] file:font-medium"
                 />
                 {uploadPct !== null && (
                   <div className="mt-2">
                     <ProgressBar percent={Math.round(uploadPct * 100)} state="running" label="Upload" />
-                    <div className="mt-1 text-[12px] text-ink-muted">Uploading… {Math.round(uploadPct * 100)}%</div>
+                    <div className="mt-1 text-[13.5px] text-ink-muted">Uploading… {Math.round(uploadPct * 100)}%</div>
                   </div>
                 )}
               </Field>
             )}
-            <p className="text-[12px] text-ink-muted">
+            <p className="text-[13.5px] text-ink-muted">
               The backup is checked first: every file in it is verified and its data compared with the current data. Nothing is changed until you choose how to restore.
             </p>
           </>
@@ -1007,33 +1007,33 @@ const RestoreDialog: React.FC<{ backups: BackupFile[]; initialFile?: string; res
 
         {stage === 'decide' && a && (
           <>
-            <div className="grid grid-cols-2 gap-2 text-[12.5px]">
+            <div className="grid grid-cols-2 gap-2 text-[14px]">
               <Fact label="Backup made" value={formatDateTime(a.backup.createdAt)} />
               <Fact label="Made by" value={a.backup.createdBy} />
               <Fact label="Records" value={n(a.totals.backupRows)} />
               <Fact label="Files" value={`${n(a.totals.backupFiles)} · ${formatBytes(a.files.reduce((x, f) => x + f.backupBytes, 0))}`} />
             </div>
             {(a.notes ?? []).map((t) => (
-              <div key={t} className="flex items-start gap-2 px-3 py-2 rounded-md border border-line bg-subtle text-[12.5px] text-ink-secondary" role="note">
+              <div key={t} className="flex items-start gap-2 px-3 py-2 rounded-md border border-line bg-subtle text-[14px] text-ink-secondary" role="note">
                 <FileArchive className="w-3.5 h-3.5 shrink-0 mt-0.5 text-ink-muted" aria-hidden />
                 {t}
               </div>
             ))}
             {a.warnings.map((w) => (
-              <div key={w} className="flex items-start gap-2 px-3 py-2 rounded-md border border-exception-line bg-exception-bg text-[12.5px] text-exception" role="note">
+              <div key={w} className="flex items-start gap-2 px-3 py-2 rounded-md border border-exception-line bg-exception-bg text-[14px] text-exception" role="note">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" aria-hidden />
                 {w}
               </div>
             ))}
 
-            <div className={`rounded-lg border px-3 py-2.5 text-[13px] ${a.duplicates ? 'border-due-line bg-due-bg' : 'border-line bg-subtle'}`}>
+            <div className={`rounded-lg border px-3 py-2.5 text-[14.5px] ${a.duplicates ? 'border-due-line bg-due-bg' : 'border-line bg-subtle'}`}>
               <div className="font-semibold text-ink">{a.duplicates ? 'Some of this data already exists' : 'None of this data exists yet'}</div>
               <div className="mt-0.5 text-ink-secondary">
                 Records: <b>{n(a.totals.newRows)}</b> new, <b>{n(a.totals.sameId)}</b> already exist ({n(a.totals.sameId - a.totals.different)} identical, {n(a.totals.different)} different).
                 Files: <b>{n(a.totals.newFiles)}</b> new, <b>{n(a.totals.existingFiles)}</b> already exist.
               </div>
               <details className="mt-1.5">
-                <summary className="cursor-pointer text-[12.5px] text-accent">Details by table and folder</summary>
+                <summary className="cursor-pointer text-[14px] text-accent">Details by table and folder</summary>
                 <div className="mt-2 overflow-x-auto">
                   <table className="data-table">
                     <thead>
@@ -1102,7 +1102,7 @@ const RestoreDialog: React.FC<{ backups: BackupFile[]; initialFile?: string; res
 
             {mode && (
               <div className="space-y-2">
-                <p className="text-[12.5px] text-ink-secondary">
+                <p className="text-[14px] text-ink-secondary">
                   Before anything changes, a <b>safety backup</b> of the current data is made automatically. During the restore the app is paused for everyone (usually under a
                   minute). If the restore fails, nothing is changed.
                 </p>
@@ -1111,7 +1111,7 @@ const RestoreDialog: React.FC<{ backups: BackupFile[]; initialFile?: string; res
                     <TextInput value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="RESTORE" autoComplete="off" className="font-mono uppercase" />
                   </Field>
                 ) : (
-                  <label className="flex items-start gap-2 text-[13px] text-ink cursor-pointer">
+                  <label className="flex items-start gap-2 text-[14.5px] text-ink cursor-pointer">
                     <input type="checkbox" className="mt-0.5" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />I understand what “{MODE_LABEL[mode]}” will do to the
                     current data.
                   </label>
@@ -1123,7 +1123,7 @@ const RestoreDialog: React.FC<{ backups: BackupFile[]; initialFile?: string; res
 
         {stage === 'restoring' && job && (
           <>
-            <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-due-line bg-due-bg text-[12.5px] text-ink" role="status">
+            <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-due-line bg-due-bg text-[14px] text-ink" role="status">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-due" aria-hidden />
               Restoring with “{job.mode ? MODE_LABEL[job.mode] : ''}”. The app is paused for everyone until this finishes. Please keep this window open.
             </div>
@@ -1141,7 +1141,7 @@ const RestoreDialog: React.FC<{ backups: BackupFile[]; initialFile?: string; res
 
 const Fact: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="rounded-md bg-subtle px-2.5 py-2 min-w-0">
-    <div className="text-[11.5px] text-ink-muted">{label}</div>
+    <div className="text-[13px] text-ink-muted">{label}</div>
     <div className="font-medium text-ink truncate" title={value}>
       {value}
     </div>
@@ -1171,11 +1171,11 @@ const ModeOption: React.FC<{ mode: RestoreMode; selected: RestoreMode | null; on
         {on && <span className={`w-2 h-2 rounded-full ${danger ? 'bg-failed' : 'bg-accent'}`} />}
       </span>
       <span className="min-w-0">
-        <span className={`flex items-center gap-1.5 text-[13.5px] font-semibold ${danger ? 'text-failed' : 'text-ink'}`}>
+        <span className={`flex items-center gap-1.5 text-[15px] font-semibold ${danger ? 'text-failed' : 'text-ink'}`}>
           {danger && <AlertTriangle className="w-3.5 h-3.5" aria-hidden />}
           {title}
         </span>
-        <span className="block mt-0.5 text-[12.5px] text-ink-secondary">{text}</span>
+        <span className="block mt-0.5 text-[14px] text-ink-secondary">{text}</span>
       </span>
     </button>
   )
@@ -1189,14 +1189,14 @@ const RestoreResult: React.FC<{ job: Job }> = ({ job }) => {
   return (
     <div className="space-y-3">
       <div
-        className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border text-[13px] ${ok ? 'border-success-line bg-success-bg' : cancelled ? 'border-line bg-subtle' : 'border-failed-line bg-missed-bg'}`}
+        className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg border text-[14.5px] ${ok ? 'border-success-line bg-success-bg' : cancelled ? 'border-line bg-subtle' : 'border-failed-line bg-missed-bg'}`}
         role={ok || cancelled ? 'status' : 'alert'}
       >
         {ok ? <CheckCircle2 className="w-4 h-4 text-success shrink-0 mt-0.5" /> : cancelled ? <Ban className="w-4 h-4 text-ink-muted shrink-0 mt-0.5" /> : <XCircle className="w-4 h-4 text-failed shrink-0 mt-0.5" />}
         <div>
           <div className="font-semibold text-ink">{ok ? 'Restore complete' : cancelled ? 'Restore cancelled' : 'Restore failed'}</div>
           <div className="text-ink-secondary">{ok || cancelled ? job.message : job.error}</div>
-          {r?.safetyBackup && <div className="mt-1 text-[12px] text-ink-muted">Safety backup of the data before the restore: {r.safetyBackup}</div>}
+          {r?.safetyBackup && <div className="mt-1 text-[13.5px] text-ink-muted">Safety backup of the data before the restore: {r.safetyBackup}</div>}
         </div>
       </div>
       <JobProgress job={job} only={job.mode ? APPLY_STEPS : CHECK_STEPS} />
@@ -1216,7 +1216,7 @@ const RestoreResult: React.FC<{ job: Job }> = ({ job }) => {
                 <tr key={t.table}>
                   <td>
                     {tableName(t.table)}
-                    {t.errors.length > 0 && <div className="text-[11.5px] text-failed">{t.errors[0]}</div>}
+                    {t.errors.length > 0 && <div className="text-[13px] text-failed">{t.errors[0]}</div>}
                   </td>
                   <td className="text-right tabular-nums">{n(t.added)}</td>
                   <td className="text-right tabular-nums">{n(t.updated)}</td>
@@ -1227,7 +1227,7 @@ const RestoreResult: React.FC<{ job: Job }> = ({ job }) => {
           </table>
         </div>
       )}
-      {ok && job.mode === 'FULL' && <p className="text-[12.5px] text-ink-muted">If your account was different in the backup, you will be asked to sign in again.</p>}
+      {ok && job.mode === 'FULL' && <p className="text-[14px] text-ink-muted">If your account was different in the backup, you will be asked to sign in again.</p>}
     </div>
   )
 }

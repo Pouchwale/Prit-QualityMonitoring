@@ -4,7 +4,7 @@ The single source of truth for how every admin page looks and behaves. The Dashb
 (`src/pages/admin/DashboardPage.tsx`) is the reference implementation.
 
 Direction: **light, minimal, data-first enterprise SaaS** (Swiss/minimal style). Calm surfaces, one
-blue for actions, colour only where it carries meaning. No gradients, neon, dark themes, heavy
+blue for actions, colour only where it carries meaning. No gradients, neon, heavy
 shadows, large rounded "cartoon" cards or decorative animation.
 
 ## 1. Tokens (`src/index.css` `@theme`)
@@ -23,6 +23,15 @@ shadows, large rounded "cartoon" cards or decorative animation.
 | Due / info | `text-due`, `bg-due-bg` | |
 | Chart marks | `var(--color-chart-completed|missed|exception|open|primary)` | ≥ 3:1 on white |
 | Overlay shadow | `shadow-[var(--shadow-pop)]` | menus, modals, tooltips |
+| Fill behind white text | `bg-accent-fill` (+ `-hover`), `bg-danger-fill` (+ `-hover`) | primary/danger buttons, "today" markers |
+| Dark chip / tooltip with white text | `bg-inverse`, `bg-inverse-secondary` | never `bg-ink` + `text-white` |
+| Photo / video backdrop | `bg-media` | |
+| Sidebar and header | `bg-chrome` | white in light; recedes to the canvas tone in dark |
+| Dialog / drawer backdrop | `bg-scrim/45` | never `bg-slate-900/45` |
+
+**Dark mode** (header switch, saved per browser, `lib/theme.ts`): `<html data-theme="dark">` swaps
+every token above in `index.css`; layouts never change. So: never use `bg-white` (use `bg-surface`)
+or raw hex/palette colours, or a page will stay light in dark mode. Print always uses light tokens.
 
 Rules: never hard-code new hex colours or Tailwind palette colours (`text-blue-700`,
 `bg-emerald-50`, `text-slate-400`…) in pages; use the tokens above. Status colours are for status
@@ -30,10 +39,10 @@ only.
 
 ## 2. Typography & density
 
-- Base 14px (desktop), 16px below `lg` (touch). Font Inter.
-- Page title 20px semibold (`PageHeader`). Card title 13.5px semibold (`CardHeader`).
-- Body/table text 12.5–13px. Captions / meta 11.5–12px `text-ink-muted`. Minimum 11px anywhere.
-- Numbers: `tabular-nums`. Big KPI numbers 26px semibold.
+- Base 15px (desktop), 16px below `lg` (touch). Font IBM Plex Sans (bundled via `@fontsource-variable/ibm-plex-sans`, works offline).
+- Page title 21px semibold (`PageHeader`). Card title 15px semibold (`CardHeader`).
+- Body/table text 14–14.5px. Captions / meta 13–13.5px `text-ink-muted`. Minimum 12px for anything people read.
+- Numbers: `tabular-nums`. Big KPI numbers 27px semibold.
 - Spacing scale 4/8: page sections `space-y-5`, grids `gap-4` (KPIs `gap-3`), card padding `p-4`.
 - Uppercase only for table headers and small group labels.
 

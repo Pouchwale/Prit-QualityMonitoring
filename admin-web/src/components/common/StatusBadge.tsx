@@ -152,7 +152,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       break
   }
 
-  const sizeClass = size === 'sm' ? 'text-[11px] h-5 px-1.5' : 'text-[12px] h-[22px] px-2'
+  const sizeClass = size === 'sm' ? 'text-[12.5px] h-5 px-1.5' : 'text-[13.5px] h-[22px] px-2'
 
   // Soft pill: tinted background, hairline ring, a dot and the label (never colour alone).
   return (
@@ -174,8 +174,8 @@ export const CheckStatusBadge: React.FC<{ status: QualityCheckStatus; size?: 'sm
     <StatusBadge status={status} size={size} className={className} />
   ) : (
     <span
-      className={`inline-flex items-center gap-1.5 font-medium rounded-full ring-1 ring-inset ring-line-strong bg-white text-ink-muted whitespace-nowrap leading-none ${
-        size === 'sm' ? 'text-[11px] h-5 px-1.5' : 'text-[12px] h-[22px] px-2'
+      className={`inline-flex items-center gap-1.5 font-medium rounded-full ring-1 ring-inset ring-line-strong bg-surface text-ink-muted whitespace-nowrap leading-none ${
+        size === 'sm' ? 'text-[12.5px] h-5 px-1.5' : 'text-[13.5px] h-[22px] px-2'
       } ${className ?? ''}`}
       title="Not finished yet"
     >

@@ -55,11 +55,11 @@ function slotTimes(start: string, end: string, interval: number) {
 /** Role / module pills: the label names the role; the tint only groups them (same look as Check Types). */
 const QUALITY_ROLE_BADGE: Record<WorkerQualityRole, string> = {
   IPQC: 'bg-accent-soft text-accent-strong ring-accent-line',
-  QC: 'bg-white text-ink ring-line-strong',
+  QC: 'bg-surface text-ink ring-line-strong',
   BOTH: 'bg-subtle text-ink-secondary ring-line'
 }
 
-const pill = 'inline-flex items-center gap-1 h-5 px-2 rounded-full ring-1 ring-inset text-[11px] font-semibold whitespace-nowrap'
+const pill = 'inline-flex items-center gap-1 h-5 px-2 rounded-full ring-1 ring-inset text-[12.5px] font-semibold whitespace-nowrap'
 
 const QUALITY_ROLE_LABEL: Record<WorkerQualityRole, string> = {
   IPQC: 'IPQC',
@@ -529,7 +529,7 @@ export const SchedulesPage: React.FC = () => {
                                   </span>
                                 )}
                               </div>
-                              <span className="block font-mono text-[11.5px] text-ink-muted">{s.workerEmployeeId}</span>
+                              <span className="block font-mono text-[13px] text-ink-muted">{s.workerEmployeeId}</span>
                             </div>
                           ) : (
                             <div>
@@ -537,7 +537,7 @@ export const SchedulesPage: React.FC = () => {
                                 <Cpu className="w-3.5 h-3.5 text-ink-muted" aria-hidden />
                                 {s.machineName ?? 'Machine schedule'}
                               </span>
-                              <span className="block text-[11.5px] text-ink-muted">Legacy machine target</span>
+                              <span className="block text-[13px] text-ink-muted">Legacy machine target</span>
                             </div>
                           )}
                         </td>
@@ -546,13 +546,13 @@ export const SchedulesPage: React.FC = () => {
                         </td>
                         <td>
                           <span className="font-medium text-ink whitespace-nowrap">{s.activityName}</span>
-                          {s.departmentName && <span className="block text-[11.5px] text-ink-muted whitespace-nowrap">{s.departmentName}</span>}
+                          {s.departmentName && <span className="block text-[13px] text-ink-muted whitespace-nowrap">{s.departmentName}</span>}
                         </td>
                         <td className="whitespace-nowrap">
                           {s.shiftName ? (
                             <div>
                               <span className="font-medium text-ink">{s.shiftName}</span>
-                              <span className="block font-mono text-[11.5px] text-ink-muted tabular-nums">
+                              <span className="block font-mono text-[13px] text-ink-muted tabular-nums">
                                 {formatClockRange(s.startTime || s.shiftStartTime, s.endTime || s.shiftEndTime)}
                               </span>
                             </div>
@@ -569,7 +569,7 @@ export const SchedulesPage: React.FC = () => {
                               {frequencyLabel(s.intervalMinutes)}
                             </span>
                             {s.mode === 'JOB' && (
-                              <span className={`${pill} font-medium bg-white text-ink-secondary ring-line-strong`} title="Job-based schedule">
+                              <span className={`${pill} font-medium bg-surface text-ink-secondary ring-line-strong`} title="Job-based schedule">
                                 <Briefcase className="w-3 h-3" aria-hidden />
                                 Job
                               </span>
@@ -585,7 +585,7 @@ export const SchedulesPage: React.FC = () => {
                           ) : (
                             <span className="text-ink-faint">—</span>
                           )}
-                          {s.lastSubmittedAt && <span className="block text-[11.5px] text-ink-muted">Last submitted {formatDateTime(s.lastSubmittedAt)}</span>}
+                          {s.lastSubmittedAt && <span className="block text-[13px] text-ink-muted">Last submitted {formatDateTime(s.lastSubmittedAt)}</span>}
                         </td>
                         <td>
                           <StatusBadge status={s.isActive ? 'ACTIVE' : 'Paused'} size="sm" />
@@ -748,7 +748,7 @@ export const SchedulesPage: React.FC = () => {
                   })}
                 </Select>
                 {activities.find((a) => a.id === form.activityId) && (
-                  <div className="mt-2 p-2.5 rounded-md bg-subtle/60 border border-line text-[12px]">
+                  <div className="mt-2 p-2.5 rounded-md bg-subtle/60 border border-line text-[13.5px]">
                     <span className="font-semibold text-ink block mb-1">
                       Parameters for this check ({activities.find((a) => a.id === form.activityId)!.parameters.filter((p) => p.isEnabled).length}):
                     </span>
@@ -758,12 +758,12 @@ export const SchedulesPage: React.FC = () => {
                         .map((p, idx) => (
                           <span
                             key={p.parameterId}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white ring-1 ring-inset ring-line text-ink text-[11px] font-medium"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface ring-1 ring-inset ring-line text-ink text-[12.5px] font-medium"
                           >
-                            <span className="text-[11px] text-accent font-semibold tabular-nums">{idx + 1}.</span>
+                            <span className="text-[12.5px] text-accent font-semibold tabular-nums">{idx + 1}.</span>
                             {p.name}
                             {p.type === 'NUMBER' && p.unit && (
-                              <span className="text-[11px] text-ink-muted">({p.unit})</span>
+                              <span className="text-[12.5px] text-ink-muted">({p.unit})</span>
                             )}
                           </span>
                         ))}
@@ -796,7 +796,7 @@ export const SchedulesPage: React.FC = () => {
                         className={`${inputClass} pr-9`}
                         aria-label="Interval in minutes"
                       />
-                      <span className="absolute right-2 top-2 text-[11px] text-ink-muted pointer-events-none">min</span>
+                      <span className="absolute right-2 top-2 text-[12.5px] text-ink-muted pointer-events-none">min</span>
                     </div>
                   )}
                 </div>
@@ -806,11 +806,11 @@ export const SchedulesPage: React.FC = () => {
             <div className="col-span-1 sm:col-span-2 rounded-md border border-line p-3 space-y-2.5 bg-subtle/60">
               <div className="flex flex-wrap items-center justify-between gap-1.5">
                 <div>
-                  <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-ink">
+                  <span className="flex items-center gap-1.5 text-[14px] font-semibold text-ink">
                     <CalendarRange className="w-3.5 h-3.5 text-ink-muted" aria-hidden />
                     Schedule Window (Start Time & End Time)
                   </span>
-                  <span className="text-[11px] text-ink-secondary">
+                  <span className="text-[12.5px] text-ink-secondary">
                     {selectedShift ? (
                       <>Directly synchronized from <strong>{selectedShift.name}</strong> ({formatClockRange(selectedShift.startTime, selectedShift.endTime)})</>
                     ) : (
@@ -819,7 +819,7 @@ export const SchedulesPage: React.FC = () => {
                   </span>
                 </div>
                 {selectedShift && (
-                  <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full text-[11px] font-semibold bg-success-bg text-success ring-1 ring-inset ring-success-line">
+                  <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full text-[12.5px] font-semibold bg-success-bg text-success ring-1 ring-inset ring-success-line">
                     Source: Shift Timings
                   </span>
                 )}
@@ -838,7 +838,7 @@ export const SchedulesPage: React.FC = () => {
           <Toggle checked={form.isActive} disabled={!canActivate} onChange={(v) => set('isActive', v)} label="Active" description={canActivate ? 'Inactive schedules do not generate notifications or checks.' : ACTIVATION_HINT} />
 
           {preview && (
-            <div className="rounded-md border border-accent-line bg-accent-soft px-3 py-2 space-y-1 text-[12px]" role="status">
+            <div className="rounded-md border border-accent-line bg-accent-soft px-3 py-2 space-y-1 text-[13.5px]" role="status">
               <div className="flex items-start gap-1.5 text-ink">
                 <CalendarClock className="w-3.5 h-3.5 shrink-0 mt-px text-accent" aria-hidden />
                 <span>

@@ -86,7 +86,7 @@ export const LeaveReportsPage: React.FC = () => {
       {totals.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {totals.map((t) => (
-            <StatCard key={t.id} label={`${t.name} used`} value={num(t.used)} icon={<span className="text-[10px] font-bold">{t.code}</span>} tone="accent" meta={t.pending ? `${num(t.pending)} pending` : 'none pending'} />
+            <StatCard key={t.id} label={`${t.name} used`} value={num(t.used)} icon={<span className="text-[11.5px] font-bold">{t.code}</span>} tone="accent" meta={t.pending ? `${num(t.pending)} pending` : 'none pending'} />
           ))}
         </div>
       )}
@@ -97,7 +97,7 @@ export const LeaveReportsPage: React.FC = () => {
             <IconButton label="Previous leave year" size="md" onClick={() => setYearOffset((n) => n - 1)}>
               <ChevronLeft className="w-4 h-4" />
             </IconButton>
-            <div className="min-w-[120px] text-center text-[13.5px] font-semibold text-ink">{data?.year.label ?? '…'}</div>
+            <div className="min-w-[120px] text-center text-[15px] font-semibold text-ink">{data?.year.label ?? '…'}</div>
             <IconButton label="Next leave year" size="md" onClick={() => setYearOffset((n) => n + 1)} disabled={yearOffset >= 1}>
               <ChevronRight className="w-4 h-4" />
             </IconButton>
@@ -118,7 +118,7 @@ export const LeaveReportsPage: React.FC = () => {
                     {types.map((t) => (
                       <th key={t.id} className="num" title={t.name}>
                         {t.code}{' '}
-                        <span className="block text-[10px] font-normal normal-case text-ink-muted">used / allocated</span>
+                        <span className="block text-[11.5px] font-normal normal-case text-ink-muted">used / allocated</span>
                       </th>
                     ))}
                   </tr>
@@ -128,7 +128,7 @@ export const LeaveReportsPage: React.FC = () => {
                     <tr key={r.workerId}>
                       <td>
                         <div className="font-semibold text-ink">{r.name}</div>
-                        <div className="text-[11.5px] text-ink-muted">
+                        <div className="text-[13px] text-ink-muted">
                           {r.employeeId}
                           {r.department ? ` · ${r.department}` : ''}
                         </div>
@@ -141,7 +141,7 @@ export const LeaveReportsPage: React.FC = () => {
                               <>
                                 <span className="font-semibold text-ink">{num(b.used)}</span>
                                 <span className="text-ink-muted"> / {num(b.allocated)}</span>
-                                <div className="text-[11px] text-ink-muted">
+                                <div className="text-[12.5px] text-ink-muted">
                                   {b.remaining === null ? 'no limit' : `${num(b.remaining)} left`}
                                   {b.pending ? ` · ${num(b.pending)} pending` : ''}
                                 </div>

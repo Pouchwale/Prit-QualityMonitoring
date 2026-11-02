@@ -51,7 +51,7 @@ const RUNNING: JobStatus[] = ['STARTING', 'ACTIVE', 'ENDING']
 // Job status pills: soft tint, dot and text (never colour alone). Running is green, the Start /
 // End check steps are "due" blue, finished and planned jobs stay neutral.
 const STATUS: Record<JobStatus, { label: string; cls: string; dot: string }> = {
-  PLANNED: { label: 'Planned', cls: 'bg-white text-ink-secondary ring-line-strong', dot: 'border border-ink-faint' },
+  PLANNED: { label: 'Planned', cls: 'bg-surface text-ink-secondary ring-line-strong', dot: 'border border-ink-faint' },
   STARTING: { label: 'Job Start check', cls: 'bg-due-bg text-due ring-due-line', dot: 'bg-due' },
   ACTIVE: { label: 'Running', cls: 'bg-success-bg text-success ring-success-line', dot: 'bg-[var(--color-chart-completed)]' },
   ENDING: { label: 'Job End check', cls: 'bg-due-bg text-due ring-due-line', dot: 'bg-due' },
@@ -75,7 +75,7 @@ const FILTERS: { key: string; label: string; statuses: JobStatus[] }[] = [
 ]
 
 const StatusPill: React.FC<{ status: JobStatus; forced?: boolean }> = ({ status, forced }) => (
-  <span className={`inline-flex items-center gap-1.5 h-5 px-1.5 rounded-full ring-1 ring-inset text-[11px] font-medium whitespace-nowrap leading-none ${STATUS[status].cls}`}>
+  <span className={`inline-flex items-center gap-1.5 h-5 px-1.5 rounded-full ring-1 ring-inset text-[12.5px] font-medium whitespace-nowrap leading-none ${STATUS[status].cls}`}>
     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${STATUS[status].dot}`} aria-hidden />
     {STATUS[status].label}
     {forced ? ' · force closed' : ''}
@@ -86,18 +86,18 @@ const StatusPill: React.FC<{ status: JobStatus; forced?: boolean }> = ({ status,
 const EdgeState: React.FC<{ state: JobRow['startCheck']; label?: string }> = ({ state, label }) =>
   state === 'NONE' ? (
     <span className="inline-flex items-center gap-1 text-ink-faint" title={label ? `${label}: none` : undefined}>
-      {label && <span className="text-[11px] text-ink-muted">{label}</span>}—
+      {label && <span className="text-[12.5px] text-ink-muted">{label}</span>}—
     </span>
   ) : state === 'DONE' ? (
     <span className="inline-flex items-center gap-1 text-success font-medium">
       <CheckCircle2 className="w-3.5 h-3.5" aria-hidden />
-      {label && <span className="text-[11px] text-ink-muted font-normal">{label}</span>}
+      {label && <span className="text-[12.5px] text-ink-muted font-normal">{label}</span>}
       Done
     </span>
   ) : (
     <span className="inline-flex items-center gap-1 text-due font-medium">
       <Clock3 className="w-3.5 h-3.5" aria-hidden />
-      {label && <span className="text-[11px] text-ink-muted font-normal">{label}</span>}
+      {label && <span className="text-[12.5px] text-ink-muted font-normal">{label}</span>}
       Pending
     </span>
   )
@@ -272,7 +272,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
         info="Plan and assign jobs, follow every running job (worker, Job Start / End check, pending, missed and overdue checks, handovers), open one job with all its records, hand it over, or force-close a stuck job. Nobody picks a job's department: it comes from the Item Code prefix set on Department Configuration."
         actions={
           <>
-            <IconButton label="Refresh" size="md" onClick={refreshAll} className="border border-line-strong bg-white">
+            <IconButton label="Refresh" size="md" onClick={refreshAll} className="border border-line-strong bg-surface">
               <RefreshCw className={`w-4 h-4 ${loading && data !== null ? 'animate-spin' : ''}`} />
             </IconButton>
             {canPlan && (
@@ -412,16 +412,16 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
                     )}
                     <td className="whitespace-nowrap">
                       <div className="font-mono font-semibold text-ink">{j.jobNo}</div>
-                      <div className="font-mono text-[11px] text-ink-muted">{j.itemCode ?? '—'}</div>
+                      <div className="font-mono text-[12.5px] text-ink-muted">{j.itemCode ?? '—'}</div>
                     </td>
                     <td className="whitespace-nowrap">
                       <div className="text-ink">{j.machineName}</div>
-                      <div className="text-[11.5px] text-ink-muted">{[j.machineCode, j.departmentName].filter(Boolean).join(' · ')}</div>
+                      <div className="text-[13px] text-ink-muted">{[j.machineCode, j.departmentName].filter(Boolean).join(' · ')}</div>
                     </td>
                     <td className="whitespace-nowrap">
                       <StatusPill status={j.status} forced={j.forceClosed} />
                       {/* Job Start / Job End check state under the status, instead of two more columns. */}
-                      <div className="mt-1 flex items-center gap-2.5 text-[11.5px]">
+                      <div className="mt-1 flex items-center gap-2.5 text-[13px]">
                         <EdgeState state={j.startCheck} label="Start" />
                         <EdgeState state={j.endCheck} label="End" />
                       </div>
@@ -429,11 +429,11 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
                     <td className="whitespace-nowrap">
                       {j.assignedWorkerName ?? <span className="text-ink-muted">Any worker</span>}
                       {/* When it started (and for how long), or when it is planned for. */}
-                      <div className="text-[11.5px] text-ink-muted tabular-nums">
+                      <div className="text-[13px] text-ink-muted tabular-nums">
                         {j.startedAt ? `${formatDateTime(j.startedAt)} · ${duration(j.durationMinutes ?? 0)}` : j.plannedFor ? `Planned ${formatDate(j.plannedFor)}` : 'Planned'}
                       </div>
                       {j.handovers > 0 && (
-                        <div className="flex items-center gap-1 text-[11.5px] text-ink-muted">
+                        <div className="flex items-center gap-1 text-[13px] text-ink-muted">
                           <ArrowLeftRight className="w-3 h-3" aria-hidden />
                           {j.handovers} handover{j.handovers === 1 ? '' : 's'}
                         </div>
@@ -473,7 +473,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
                 </Button>
               )}
               {canDeleteJobs && RUNNING.includes(job.status) && (
-                <span className="mr-auto self-center text-[11.5px] text-ink-muted">Force-close this job before deleting it.</span>
+                <span className="mr-auto self-center text-[13px] text-ink-muted">Force-close this job before deleting it.</span>
               )}
               {canManage && job.status === 'PLANNED' && (
                 <Button size="sm" variant="outline" icon={<Pencil className="w-3.5 h-3.5" />} onClick={() => openPlan(job)}>
@@ -528,15 +528,15 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
               <section>
                 <DrawerHeading icon={<ArrowLeftRight className="w-3.5 h-3.5" />} title="Handovers" count={current.handovers.length} />
                 {current.handovers.length === 0 ? (
-                  <p className="text-[12px] text-ink-muted">No handovers.</p>
+                  <p className="text-[13.5px] text-ink-muted">No handovers.</p>
                 ) : (
                   <ul className="divide-y divide-line border border-line rounded-lg">
                     {current.handovers.map((h) => (
-                      <li key={h.id} className="px-3 py-2.5 text-[12.5px]">
+                      <li key={h.id} className="px-3 py-2.5 text-[14px]">
                         <div className="font-semibold text-ink">
                           {h.fromName ?? '—'} <span className="text-ink-muted font-normal">→</span> {h.toName ?? '—'}
                         </div>
-                        <div className="text-[11.5px] text-ink-muted">
+                        <div className="text-[13px] text-ink-muted">
                           {formatDateTime(h.at)}
                           {h.shiftName ? ` · ${h.shiftName}` : ''} · by {h.byName ?? '—'} · {h.movedChecks} open check{h.movedChecks === 1 ? '' : 's'} moved
                         </div>
@@ -550,13 +550,13 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
               <section>
                 <DrawerHeading icon={<ListChecks className="w-3.5 h-3.5" />} title="Quality checks" count={current.checks.length} />
                 {current.checks.length === 0 ? (
-                  <p className="text-[12px] text-ink-muted">No checks yet.</p>
+                  <p className="text-[13.5px] text-ink-muted">No checks yet.</p>
                 ) : (
                   <ul className="divide-y divide-line border border-line rounded-lg">
                     {current.checks.map((c) => {
                       const open = ['PENDING', 'DUE', 'IN_PROGRESS'].includes(c.status)
                       return (
-                        <li key={c.id} className="px-3 py-2.5 text-[12.5px]">
+                        <li key={c.id} className="px-3 py-2.5 text-[14px]">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-ink">{KIND_LABEL[c.kind ?? 'SCHEDULED']}</span>
                             <span className="text-ink-muted truncate">{c.activityName}</span>
@@ -564,7 +564,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
                               {c.result ? (
                                 <StatusBadge status={c.result} size="sm" />
                               ) : (
-                                <span className="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-full ring-1 ring-inset ring-due-line bg-due-bg text-due text-[11px] font-medium">
+                                <span className="inline-flex items-center gap-1.5 h-5 px-1.5 rounded-full ring-1 ring-inset ring-due-line bg-due-bg text-due text-[12.5px] font-medium">
                                   <Clock3 className="w-3 h-3" aria-hidden />
                                   {c.status === 'PENDING' ? 'Upcoming' : 'Due'}
                                 </span>
@@ -576,7 +576,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
                               )}
                             </span>
                           </div>
-                          <div className="text-[11.5px] text-ink-muted">
+                          <div className="text-[13px] text-ink-muted">
                             {open ? `Due ${formatDateTime(c.scheduledAt)}` : formatDateTime(c.submittedAt ?? c.scheduledAt)} · {c.submittedByName ?? c.workerName ?? '—'}
                           </div>
                           {c.values.length > 0 ? (
@@ -584,7 +584,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
                               {c.values.map((v, i) => (
                                 <span
                                   key={i}
-                                  className={`px-1.5 py-0.5 rounded-md text-[11.5px] ring-1 ring-inset ${v.result === 'FAIL' ? 'ring-missed-line bg-missed-bg text-missed' : 'ring-line bg-subtle text-ink-secondary'}`}
+                                  className={`px-1.5 py-0.5 rounded-md text-[13px] ring-1 ring-inset ${v.result === 'FAIL' ? 'ring-missed-line bg-missed-bg text-missed' : 'ring-line bg-subtle text-ink-secondary'}`}
                                   title={v.result === 'FAIL' ? 'Outside limits' : undefined}
                                 >
                                   {v.parameterName}:{' '}
@@ -757,7 +757,7 @@ export const JobsPage: React.FC<{ onViewCheck: (id: string) => void; tabs?: Reac
 /** A job's check counts as compact pills: done, pending, overdue, missed, exception (zeros left out). */
 const CheckCounts: React.FC<{ counts: JobRow['counts'] }> = ({ counts }) => {
   const pending = counts.due + counts.pending
-  const pill = 'inline-flex items-center h-5 px-1.5 rounded-full ring-1 ring-inset text-[11px] font-medium tabular-nums whitespace-nowrap'
+  const pill = 'inline-flex items-center h-5 px-1.5 rounded-full ring-1 ring-inset text-[12.5px] font-medium tabular-nums whitespace-nowrap'
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       <span className={`${pill} bg-success-bg text-success ring-success-line`}>{counts.completed} done</span>
@@ -771,18 +771,18 @@ const CheckCounts: React.FC<{ counts: JobRow['counts'] }> = ({ counts }) => {
 
 /** One fact in the job drawer's summary grid. */
 const DrawerFact: React.FC<{ label: string; value: React.ReactNode; detail?: string; wide?: boolean }> = ({ label, value, detail, wide }) => (
-  <div className={`bg-white px-3 py-2.5 min-w-0 ${wide ? 'col-span-2' : ''}`}>
-    <dt className="text-[11.5px] text-ink-muted">{label}</dt>
-    <dd className="mt-0.5 text-[13px] font-medium text-ink break-words">{value}</dd>
-    {detail && <dd className="text-[11.5px] text-ink-muted">{detail}</dd>}
+  <div className={`bg-surface px-3 py-2.5 min-w-0 ${wide ? 'col-span-2' : ''}`}>
+    <dt className="text-[13px] text-ink-muted">{label}</dt>
+    <dd className="mt-0.5 text-[14.5px] font-medium text-ink break-words">{value}</dd>
+    {detail && <dd className="text-[13px] text-ink-muted">{detail}</dd>}
   </div>
 )
 
 /** Small section heading inside the job drawer, with the number of records. */
 const DrawerHeading: React.FC<{ icon: React.ReactNode; title: string; count: number }> = ({ icon, title, count }) => (
-  <h3 className="flex items-center gap-1.5 mb-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
+  <h3 className="flex items-center gap-1.5 mb-2 text-[12.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted">
     <span aria-hidden>{icon}</span>
     {title}
-    <span className="ml-0.5 min-w-5 h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-subtle text-ink-secondary text-[11px] tabular-nums normal-case tracking-normal">{count}</span>
+    <span className="ml-0.5 min-w-5 h-[18px] px-1 inline-flex items-center justify-center rounded-full bg-subtle text-ink-secondary text-[12.5px] tabular-nums normal-case tracking-normal">{count}</span>
   </h3>
 )

@@ -153,7 +153,7 @@ export const RolesPermissionsPage: React.FC = () => {
                   count: t.value === 'USER' ? accounts.filter((a) => a.overrides > 0).length : t.value === 'ADMIN' || t.value === 'MANAGER' ? counts[t.value] : undefined
                 }))}
               />
-              <p className="text-[12px] text-ink-muted">Super Admin: always every permission, and the only one who activates or deactivates records</p>
+              <p className="text-[13.5px] text-ink-muted">Super Admin: always every permission, and the only one who activates or deactivates records</p>
             </div>
 
             {tab === 'HISTORY' ? (
@@ -223,11 +223,11 @@ const MatrixCards: React.FC<MatrixProps> = ({ modules, value, saved, onChange, d
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[13px] font-semibold text-ink">{m.label}</span>
+                <span className="text-[14.5px] font-semibold text-ink">{m.label}</span>
                 {changed && <Pill className="bg-accent-soft text-accent-strong ring-accent-line">Changed</Pill>}
                 {rowNote?.(m)}
               </div>
-              <p className="text-[11.5px] text-ink-muted leading-snug">{m.description}</p>
+              <p className="text-[13px] text-ink-muted leading-snug">{m.description}</p>
             </div>
             {rowEnd?.(m)}
           </div>
@@ -235,7 +235,7 @@ const MatrixCards: React.FC<MatrixProps> = ({ modules, value, saved, onChange, d
             {m.actions.map((a) => (
               <label
                 key={a}
-                className={`h-9 px-2.5 inline-flex items-center gap-1.5 rounded-md border text-[12.5px] cursor-pointer ${set[a] ? 'border-accent-line bg-accent-soft text-accent-strong' : 'border-line bg-white text-ink-secondary'}`}
+                className={`h-9 px-2.5 inline-flex items-center gap-1.5 rounded-md border text-[14px] cursor-pointer ${set[a] ? 'border-accent-line bg-accent-soft text-accent-strong' : 'border-line bg-surface text-ink-secondary'}`}
               >
                 <input
                   type="checkbox"
@@ -265,7 +265,7 @@ const columnsFor = (modules: ModuleInfo[]) => ACTIONS.filter((a) => modules.some
 
 /** Activating / deactivating: shown, never a tick box (the Super Admin's alone, lib/activation.ts on the server). */
 const ActivationLock: React.FC = () => (
-  <span className="inline-flex items-center gap-1 text-[11px] font-medium text-ink-muted whitespace-nowrap" title="Only the Super Admin can activate or deactivate these records. This cannot be granted.">
+  <span className="inline-flex items-center gap-1 text-[12.5px] font-medium text-ink-muted whitespace-nowrap" title="Only the Super Admin can activate or deactivate these records. This cannot be granted.">
     <Lock className="w-3 h-3" aria-hidden />
     Super Admin only
   </span>
@@ -302,11 +302,11 @@ const MatrixTable: React.FC<MatrixProps> = ({ modules, value, saved, onChange, d
                   </span>
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[13px] font-semibold text-ink">{m.label}</span>
+                      <span className="text-[14.5px] font-semibold text-ink">{m.label}</span>
                       {changed && <Pill className="bg-accent-soft text-accent-strong ring-accent-line">Changed</Pill>}
                       {rowNote?.(m)}
                     </div>
-                    <p className="text-[11.5px] text-ink-muted leading-snug max-w-[420px]">{m.description}</p>
+                    <p className="text-[13px] text-ink-muted leading-snug max-w-[420px]">{m.description}</p>
                   </div>
                 </div>
               </td>
@@ -348,7 +348,7 @@ const MatrixTable: React.FC<MatrixProps> = ({ modules, value, saved, onChange, d
 
 /** The changes about to be saved, for the confirmation. */
 const ChangeList: React.FC<{ items: { label: string; from: string; to: string }[] }> = ({ items }) => (
-  <ul className="mt-2 max-h-[260px] overflow-y-auto space-y-1 text-[12.5px]">
+  <ul className="mt-2 max-h-[260px] overflow-y-auto space-y-1 text-[14px]">
     {items.map((c) => (
       <li key={c.label} className="rounded-md bg-subtle px-2.5 py-1.5">
         <span className="font-semibold text-ink">{c.label}</span>
@@ -373,8 +373,8 @@ function useLeaveWarning(dirty: boolean) {
 }
 
 const SaveBar: React.FC<{ dirty: number; summary: string; saving: boolean; onUndo: () => void; onSave: () => void }> = ({ dirty, summary, saving, onUndo, onSave }) => (
-  <div className="sticky bottom-0 px-4 py-3 border-t border-line bg-white/95 backdrop-blur flex flex-wrap items-center justify-between gap-2">
-    <span className={`text-[12px] ${dirty ? 'font-medium text-accent-strong' : 'text-ink-muted'}`} aria-live="polite">
+  <div className="sticky bottom-0 px-4 py-3 border-t border-line bg-surface/95 backdrop-blur flex flex-wrap items-center justify-between gap-2">
+    <span className={`text-[13.5px] ${dirty ? 'font-medium text-accent-strong' : 'text-ink-muted'}`} aria-live="polite">
       {dirty ? `${dirty} unsaved ${dirty === 1 ? 'change' : 'changes'}` : summary}
     </span>
     <div className="flex gap-2">
@@ -392,7 +392,7 @@ const SaveBar: React.FC<{ dirty: number; summary: string; saving: boolean; onUnd
 
 const SetAll: React.FC<{ className: string; onSet: (level: 'none' | 'view' | 'all') => void; disabled: boolean }> = ({ className, onSet, disabled }) => (
   <div role="group" aria-label="Set every module" className={`${className} flex-wrap items-center gap-1`}>
-    <span className="text-[11.5px] text-ink-muted mr-1">Set all</span>
+    <span className="text-[13px] text-ink-muted mr-1">Set all</span>
     <Button size="sm" variant="ghost" onClick={() => onSet('none')} disabled={disabled}>
       No access
     </Button>
@@ -521,8 +521,8 @@ const UserPermissions: React.FC<{
               >
                 <UserAvatar name={u.name} muted={!u.isActive} />
                 <span className="min-w-0 flex-1">
-                  <span className={`block text-[13px] font-semibold truncate ${u.isActive ? 'text-ink' : 'text-ink-muted'}`}>{u.name}</span>
-                  <span className="block text-[11.5px] text-ink-muted truncate">
+                  <span className={`block text-[14.5px] font-semibold truncate ${u.isActive ? 'text-ink' : 'text-ink-muted'}`}>{u.name}</span>
+                  <span className="block text-[13px] text-ink-muted truncate">
                     <span className="font-mono">{u.employeeId}</span>
                     {u.overrides > 0 ? ` · ${u.overrides} own` : ' · role permissions'}
                     {!u.isActive ? ' · disabled' : ''}
@@ -607,7 +607,7 @@ const UserMatrix: React.FC<{ userId: string; modules: ModuleInfo[]; onSaved: () 
               ownAfter(m.key) ? (
                 <Pill className="bg-due-bg text-due ring-due-line">Own permissions</Pill>
               ) : (
-                <span className="text-[11px] text-ink-muted">· from role</span>
+                <span className="text-[12.5px] text-ink-muted">· from role</span>
               )
             }
             rowEnd={(m) =>
@@ -707,9 +707,9 @@ const PermissionHistory: React.FC = () => {
                     <td className="whitespace-nowrap">{r.userName ?? '—'}</td>
                     <td>
                       <span className={refused ? 'text-missed font-medium' : 'text-ink font-medium'}>{HISTORY_LABEL[r.action] ?? r.action}</span>
-                      {target && <div className="text-[11.5px] text-ink-muted">{target}</div>}
+                      {target && <div className="text-[13px] text-ink-muted">{target}</div>}
                     </td>
-                    <td className="text-[12px] text-ink-secondary">
+                    <td className="text-[13.5px] text-ink-secondary">
                       {historyDetail(r).map((line) => (
                         <div key={line}>{line}</div>
                       ))}

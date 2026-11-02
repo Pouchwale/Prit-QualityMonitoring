@@ -23,7 +23,7 @@ const STYLE: Record<DeliveryStatus, { label: string; className: string; icon: Re
 export const DeliveryStatusPill: React.FC<{ status: DeliveryStatus | string }> = ({ status }) => {
   const s = STYLE[(status === 'SUCCESS' ? 'SENT' : status) as DeliveryStatus] ?? STYLE.PENDING
   return (
-    <span className={`inline-flex items-center gap-1 h-5 px-2 rounded-full ring-1 ring-inset text-[11px] font-semibold whitespace-nowrap ${s.className}`} title={s.title}>
+    <span className={`inline-flex items-center gap-1 h-5 px-2 rounded-full ring-1 ring-inset text-[12.5px] font-semibold whitespace-nowrap ${s.className}`} title={s.title}>
       {s.icon}
       {s.label}
     </span>

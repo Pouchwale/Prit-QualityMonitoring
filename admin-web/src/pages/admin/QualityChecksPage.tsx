@@ -168,7 +168,7 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
         info="Every scheduled check for the selected period, with submitted values and live evidence."
         actions={
           <>
-            <IconButton label="Refresh" size="md" onClick={() => reload()} className="border border-line-strong bg-white">
+            <IconButton label="Refresh" size="md" onClick={() => reload()} className="border border-line-strong bg-surface">
               <RefreshCw className={`w-4 h-4 ${loading && data !== null ? 'animate-spin' : ''}`} />
             </IconButton>
             {canExport && (
@@ -207,7 +207,7 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
       >
         {/* Search by PO No. or Item Code, on the filter panel with the other filters. */}
         <div className="w-full sm:w-72">
-          <span className="block text-[11px] font-medium text-ink-muted mb-1">PO No. / Item Code</span>
+          <span className="block text-[12.5px] font-medium text-ink-muted mb-1">PO No. / Item Code</span>
           <SearchInput value={search} onChange={setSearch} label="Search by PO No. or Item Code" placeholder="Search PO No. or Item Code…" className="sm:w-72" />
         </div>
       </FilterBar>
@@ -306,7 +306,7 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
                       )}
                       <td className="whitespace-nowrap tabular-nums">
                         <div className="font-medium text-ink">{multiDay ? formatDateTime(c.scheduledAt) : formatTime(c.scheduledAt)}</div>
-                        <div className="text-[11.5px] text-ink-muted">
+                        <div className="text-[13px] text-ink-muted">
                           {c.submittedAt ? `Submitted ${multiDay ? formatDateTime(c.submittedAt) : formatTime(c.submittedAt)}` : 'Not submitted'}
                         </div>
                       </td>
@@ -317,17 +317,17 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
                             {c.activityName}
                           </button>
                         </div>
-                        <div className="font-mono text-[11px] text-ink-muted">{c.code}</div>
+                        <div className="font-mono text-[12.5px] text-ink-muted">{c.code}</div>
                       </td>
                       <td className="whitespace-nowrap">
                         <div className={c.submittedByName || c.workerName ? 'font-medium text-ink' : 'text-ink-muted italic'}>{workerLabel(c)}</div>
-                        {c.workerEmployeeId && <div className="font-mono text-[11px] text-ink-muted">{c.workerEmployeeId}</div>}
+                        {c.workerEmployeeId && <div className="font-mono text-[12.5px] text-ink-muted">{c.workerEmployeeId}</div>}
                       </td>
                       <td className="whitespace-nowrap">
                         {c.jobNo || c.itemCode ? (
                           <>
                             <div className="font-mono font-medium text-ink">{c.jobNo ?? '—'}</div>
-                            <div className="font-mono text-[11px] text-ink-muted">{c.itemCode ?? '—'}</div>
+                            <div className="font-mono text-[12.5px] text-ink-muted">{c.itemCode ?? '—'}</div>
                           </>
                         ) : (
                           <span className="text-ink-faint">—</span>
@@ -335,13 +335,13 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
                       </td>
                       <td className="whitespace-nowrap">
                         <div className="text-ink-secondary">{c.departmentName ?? '—'}</div>
-                        {c.machineName && <div className="text-[11.5px] text-ink-muted">{c.machineName}</div>}
+                        {c.machineName && <div className="text-[13px] text-ink-muted">{c.machineName}</div>}
                       </td>
                       <td className="whitespace-nowrap">
                         <CheckStatusBadge status={c.status} size="sm" />
                         {/* The Result is normally the same as the status; only shown when it differs. */}
                         {c.result && c.result !== c.status && (
-                          <div className="mt-1 flex items-center gap-1 text-[11px] text-ink-muted">
+                          <div className="mt-1 flex items-center gap-1 text-[12.5px] text-ink-muted">
                             Result <StatusBadge status={c.result} size="sm" showDot={false} />
                           </div>
                         )}
@@ -401,7 +401,7 @@ export const QualityChecksPage: React.FC<{ onViewCheck: (id: string) => void; ta
 /** IPQC / QC tag in front of the check type: accent for IPQC, neutral for QC, always with its text. */
 const ModulePill: React.FC<{ module: 'IPQC' | 'QC' }> = ({ module }) => (
   <span
-    className={`inline-flex items-center h-[18px] px-1.5 rounded text-[10.5px] font-semibold tracking-wide ring-1 ring-inset ${
+    className={`inline-flex items-center h-[18px] px-1.5 rounded text-[12px] font-semibold tracking-wide ring-1 ring-inset ${
       module === 'QC' ? 'bg-subtle text-ink-secondary ring-line-strong' : 'bg-accent-soft text-accent-strong ring-accent-line'
     }`}
   >

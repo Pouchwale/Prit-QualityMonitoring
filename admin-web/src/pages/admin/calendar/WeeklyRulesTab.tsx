@@ -107,7 +107,7 @@ export const WeeklyRulesTab: React.FC = () => {
                       <tr key={rule.id}>
                         <td className="whitespace-nowrap">
                           <span className="inline-flex items-center gap-2 font-semibold text-ink">
-                            <span className="w-7 h-7 rounded-md bg-subtle ring-1 ring-inset ring-line text-[11px] font-semibold text-ink-secondary flex items-center justify-center" aria-hidden>
+                            <span className="w-7 h-7 rounded-md bg-subtle ring-1 ring-inset ring-line text-[12.5px] font-semibold text-ink-secondary flex items-center justify-center" aria-hidden>
                               {day.slice(0, 3)}
                             </span>
                             {day}
@@ -116,7 +116,7 @@ export const WeeklyRulesTab: React.FC = () => {
                         <td className="whitespace-nowrap tabular-nums">{fullDate(rule.effectiveFrom)}</td>
                         <td className="whitespace-nowrap tabular-nums">{rule.effectiveTo ? fullDate(rule.effectiveTo) : <span className="text-ink-muted">No end date</span>}</td>
                         <td className="whitespace-nowrap">
-                          <span className={`inline-flex items-center gap-1.5 h-5 px-1.5 rounded-full ring-1 ring-inset text-[11px] font-medium ${STATUS_STYLE[status].className}`}>
+                          <span className={`inline-flex items-center gap-1.5 h-5 px-1.5 rounded-full ring-1 ring-inset text-[12.5px] font-medium ${STATUS_STYLE[status].className}`}>
                             <span className={`w-1.5 h-1.5 rounded-full ${STATUS_STYLE[status].dot}`} aria-hidden />
                             {STATUS_STYLE[status].label}
                           </span>
@@ -148,8 +148,8 @@ export const WeeklyRulesTab: React.FC = () => {
         </Card>
       </DataState>
 
-      <div className="flex items-start gap-3 px-4 py-3 rounded-[10px] border border-line bg-subtle/60 text-[12.5px] text-ink-secondary">
-        <span className="w-7 h-7 shrink-0 rounded-md bg-white ring-1 ring-inset ring-line text-ink-muted flex items-center justify-center" aria-hidden>
+      <div className="flex items-start gap-3 px-4 py-3 rounded-[10px] border border-line bg-subtle/60 text-[14px] text-ink-secondary">
+        <span className="w-7 h-7 shrink-0 rounded-md bg-surface ring-1 ring-inset ring-line text-ink-muted flex items-center justify-center" aria-hidden>
           <Lock className="w-3.5 h-3.5" />
         </span>
         <div>
@@ -322,7 +322,7 @@ const EndRuleModal: React.FC<{ rule: WeeklyRule; earliest: string; onClose: () =
           <DateInput value={to} min={minEnd} disabled={openEnded} onChange={(e) => setTo(e.target.value)} required={!openEnded} />
         </Field>
         {rule.effectiveTo && (
-          <label className="flex items-center gap-2 text-[12.5px] text-ink">
+          <label className="flex items-center gap-2 text-[14px] text-ink">
             <input type="checkbox" checked={openEnded} onChange={(e) => setOpenEnded(e.target.checked)} className="h-3.5 w-3.5 accent-accent" />
             Remove the end date (keep the rule going)
           </label>

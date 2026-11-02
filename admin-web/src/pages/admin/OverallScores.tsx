@@ -62,15 +62,15 @@ export const OverallScores: React.FC = () => {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="font-semibold text-ink truncate">{r.name}</div>
-                      {sub && <div className="text-[11.5px] text-ink-muted truncate">{sub}</div>}
-                      <div className="mt-0.5 text-[11.5px] text-ink-muted">{r.since ? `Since ${formatDateKey(r.since)}` : 'No checks yet'}</div>
+                      {sub && <div className="text-[13px] text-ink-muted truncate">{sub}</div>}
+                      <div className="mt-0.5 text-[13px] text-ink-muted">{r.since ? `Since ${formatDateKey(r.since)}` : 'No checks yet'}</div>
                     </div>
                     {o.score === null ? (
-                      <span className="shrink-0 rounded-lg bg-subtle px-3 py-2 text-[13px] text-ink-faint">—</span>
+                      <span className="shrink-0 rounded-lg bg-subtle px-3 py-2 text-[14.5px] text-ink-faint">—</span>
                     ) : (
                       <span className={`shrink-0 rounded-lg ring-1 ring-inset px-3 py-1.5 text-center leading-tight ${tone(o.score)}`}>
-                        <span className="block text-[20px] font-bold tabular-nums">{o.score}%</span>
-                        <span className="block text-[10.5px] tabular-nums opacity-85">
+                        <span className="block text-[21px] font-bold tabular-nums">{o.score}%</span>
+                        <span className="block text-[12px] tabular-nums opacity-85">
                           {o.done}/{o.assigned} done
                         </span>
                       </span>
@@ -87,8 +87,8 @@ export const OverallScores: React.FC = () => {
                           { label: 'Open', value: o.pending, cls: 'text-ink-muted' }
                         ].map((f) => (
                           <div key={f.label} className="rounded-md bg-subtle py-1.5 flex flex-col-reverse">
-                            <dt className="text-[10.5px] text-ink-muted">{f.label}</dt>
-                            <dd className={`text-[15px] font-semibold tabular-nums ${f.cls}`}>{f.value}</dd>
+                            <dt className="text-[12px] text-ink-muted">{f.label}</dt>
+                            <dd className={`text-[16.5px] font-semibold tabular-nums ${f.cls}`}>{f.value}</dd>
                           </div>
                         ))}
                       </dl>

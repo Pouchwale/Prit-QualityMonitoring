@@ -11,7 +11,7 @@ export const scoreText = (score: number) => `${score}%`
 /** Negative scores in red, zero in green: "0%" means every assigned check was done. */
 export const ScorePill: React.FC<{ score: number }> = ({ score }) => (
   <span
-    className={`inline-flex items-center gap-1 h-5 px-1.5 rounded-full text-[11.5px] font-semibold tabular-nums ring-1 ring-inset whitespace-nowrap ${
+    className={`inline-flex items-center gap-1 h-5 px-1.5 rounded-full text-[13px] font-semibold tabular-nums ring-1 ring-inset whitespace-nowrap ${
       score < 0 ? 'bg-missed-bg text-missed ring-missed-line' : 'bg-success-bg text-success ring-success-line'
     }`}
   >

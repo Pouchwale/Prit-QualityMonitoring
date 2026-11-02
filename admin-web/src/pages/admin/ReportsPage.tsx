@@ -441,7 +441,7 @@ export const ReportsPage: React.FC = () => {
                   reload()
                   if (traced) trace.reload()
                 }}
-                className="border border-line-strong bg-white"
+                className="border border-line-strong bg-surface"
               >
                 <RefreshCw className={`w-4 h-4 ${loading && data !== null ? 'animate-spin' : ''}`} />
               </IconButton>
@@ -508,7 +508,7 @@ export const ReportsPage: React.FC = () => {
               }}
             >
               <label className="min-w-0">
-                <span className="block text-[11px] font-medium text-ink-muted mb-1">From Date</span>
+                <span className="block text-[12.5px] font-medium text-ink-muted mb-1">From Date</span>
                 <DateInput
                   value={draft.from}
                   onChange={(e) => setDraft((d) => ({ ...d, from: e.target.value }))}
@@ -517,7 +517,7 @@ export const ReportsPage: React.FC = () => {
                 />
               </label>
               <label className="min-w-0">
-                <span className="block text-[11px] font-medium text-ink-muted mb-1">To Date</span>
+                <span className="block text-[12.5px] font-medium text-ink-muted mb-1">To Date</span>
                 <DateInput
                   value={draft.to}
                   onChange={(e) => setDraft((d) => ({ ...d, to: e.target.value }))}
@@ -543,7 +543,7 @@ export const ReportsPage: React.FC = () => {
                 options={PRESETS.map((p) => ({ value: p.label, label: p.label }))}
               />
 
-              <div className="col-span-2 order-first sm:order-none sm:ml-auto flex items-center gap-1.5 sm:h-8 text-[12.5px] text-ink-secondary">
+              <div className="col-span-2 order-first sm:order-none sm:ml-auto flex items-center gap-1.5 sm:h-8 text-[14px] text-ink-secondary">
                 <CalendarDays className="w-3.5 h-3.5 text-ink-muted" aria-hidden />
                 <span>
                   Showing <span className="font-semibold text-ink">{period}</span>
@@ -551,11 +551,11 @@ export const ReportsPage: React.FC = () => {
               </div>
             </form>
             {draftError ? (
-              <p className="mt-2 text-[11.5px] font-medium text-missed" role="alert">
+              <p className="mt-2 text-[13px] font-medium text-missed" role="alert">
                 {draftError}
               </p>
             ) : (
-              draftChanged && <p className="mt-2 text-[11.5px] text-ink-muted">Click Apply Filter to update the report for these dates.</p>
+              draftChanged && <p className="mt-2 text-[13px] text-ink-muted">Click Apply Filter to update the report for these dates.</p>
             )}
           </section>
 
@@ -571,7 +571,7 @@ export const ReportsPage: React.FC = () => {
           {/* Print-only report heading */}
           <div className="hidden print:block border-b border-ink pb-2">
             <h1 className="text-lg font-bold">Quality Report: {period}</h1>
-            <p className="text-xs">
+            <p className="text-[13px]">
               Period: {period}
               {filters.itemCode ? ` · Item Code: ${filters.itemCode}` : ''}
               {filters.jobNo ? ` · PO No.: ${filters.jobNo}` : ''}
@@ -651,7 +651,7 @@ export const ReportsPage: React.FC = () => {
                       const v = totals[s.key as 'completed' | 'exceptions' | 'missed' | 'open']
                       const share = totals.scheduled ? Math.round((v / totals.scheduled) * 100) : 0
                       return (
-                        <li key={s.key} className="flex items-center gap-2.5 text-[12.5px]">
+                        <li key={s.key} className="flex items-center gap-2.5 text-[14px]">
                           <span className="w-2.5 h-2.5 rounded-[3px] shrink-0" style={{ backgroundColor: s.color }} aria-hidden />
                           <span className="flex-1 text-ink-secondary">{s.label}</span>
                           <span className="font-semibold text-ink tabular-nums">{v}</span>
@@ -675,7 +675,7 @@ export const ReportsPage: React.FC = () => {
               </>
             )}
             {traced && trace.error && (
-              <p className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-missed-line bg-missed-bg text-[12.5px] text-missed" role="alert">
+              <p className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-missed-line bg-missed-bg text-[14px] text-missed" role="alert">
                 <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden />
                 Could not load the traceability sections: {trace.error}
               </p>
@@ -687,7 +687,7 @@ export const ReportsPage: React.FC = () => {
             {traced || checks.length <= MAX_RECORDS_ON_SCREEN ? (
               <DetailedRecords checks={checks} />
             ) : (
-              <div className="card flex items-start gap-2.5 px-4 py-3 text-[12.5px] text-ink-secondary no-print" role="status">
+              <div className="card flex items-start gap-2.5 px-4 py-3 text-[14px] text-ink-secondary no-print" role="status">
                 <ClipboardList className="w-4 h-4 mt-px shrink-0 text-ink-muted" aria-hidden />
                 <span>
                   {checks.length} checks in this period. Choose an Item Code, PO No. or Worker to see every record here
@@ -717,7 +717,7 @@ const ViewTab: React.FC<{ active: boolean; onClick: () => void; icon: React.Reac
     role="tab"
     aria-selected={active}
     onClick={onClick}
-    className={`relative inline-flex items-center gap-1.5 h-10 lg:h-9 px-3 text-[13px] font-medium whitespace-nowrap transition-colors ${
+    className={`relative inline-flex items-center gap-1.5 h-10 lg:h-9 px-3 text-[14.5px] font-medium whitespace-nowrap transition-colors ${
       active ? 'text-accent-strong' : 'text-ink-muted hover:text-ink'
     }`}
   >
@@ -752,7 +752,7 @@ const BreakdownTable: React.FC<{ icon: React.ReactNode; title: string; nameHeade
                 <tr key={r.key}>
                   <td className="whitespace-nowrap">
                     <div className="font-medium text-ink">{r.name}</div>
-                    {r.detail && <div className="text-[11.5px] text-ink-muted font-mono">{r.detail}</div>}
+                    {r.detail && <div className="text-[13px] text-ink-muted font-mono">{r.detail}</div>}
                   </td>
                   <td className="num">{r.scheduled}</td>
                   <td className="num text-success">{r.completed}</td>

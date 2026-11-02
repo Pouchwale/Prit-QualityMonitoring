@@ -35,9 +35,9 @@ export const Drawer: React.FC<DrawerProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/45 backdrop-blur-[2px] animate-fade-in">
+    <div className="fixed inset-0 z-50 flex justify-end bg-scrim/45 backdrop-blur-[2px] animate-fade-in">
       <div
-        className={`outline-none bg-white h-full w-full ${widthClasses[width]} shadow-[var(--shadow-pop)] border-l border-line flex flex-col animate-slide-in-right`}
+        className={`outline-none bg-surface h-full w-full ${widthClasses[width]} shadow-[var(--shadow-pop)] border-l border-line flex flex-col animate-slide-in-right`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -46,10 +46,10 @@ export const Drawer: React.FC<DrawerProps> = ({
         tabIndex={-1}
       >
         {/* Header */}
-        <div className="pl-4 pr-2 sm:pl-5 sm:pr-3 py-3 sm:py-3.5 border-b border-line flex items-start justify-between gap-2 bg-white">
+        <div className="pl-4 pr-2 sm:pl-5 sm:pr-3 py-3 sm:py-3.5 border-b border-line flex items-start justify-between gap-2 bg-surface">
           <div className="min-w-0 pt-1.5 sm:pt-0">
-            <h2 id={titleId} className="text-[15px] font-semibold text-ink tracking-tight">{title}</h2>
-            {subtitle && <p id={subtitleId} className="text-xs text-ink-muted mt-0.5">{subtitle}</p>}
+            <h2 id={titleId} className="text-[16.5px] font-semibold text-ink tracking-tight">{title}</h2>
+            {subtitle && <p id={subtitleId} className="text-[13px] text-ink-muted mt-0.5">{subtitle}</p>}
           </div>
           <button
             onClick={onClose}

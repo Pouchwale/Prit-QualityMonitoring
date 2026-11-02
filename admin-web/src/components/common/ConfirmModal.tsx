@@ -50,7 +50,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         </>
       }
     >
-      <div className="text-xs text-ink-secondary">{message}</div>
+      <div className="text-[13px] text-ink-secondary">{message}</div>
     </Modal>
   )
 }

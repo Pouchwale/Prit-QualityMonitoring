@@ -25,7 +25,7 @@ export const MonitoringTabs: React.FC<{ current: MonitoringTab }> = ({ current }
             key={tab}
             to={NAV_PATH[tab]}
             aria-current={active ? 'page' : undefined}
-            className={`relative inline-flex items-center h-10 lg:h-9 px-3 text-[13px] font-medium whitespace-nowrap transition-colors ${
+            className={`relative inline-flex items-center h-10 lg:h-9 px-3 text-[14.5px] font-medium whitespace-nowrap transition-colors ${
               active ? 'text-accent-strong' : 'text-ink-muted hover:text-ink'
             }`}
           >

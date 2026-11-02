@@ -24,13 +24,13 @@ export const LeaveTabs: React.FC<{ current: LeaveTab; pending?: { leave: number;
             key={tab}
             to={NAV_PATH[tab]}
             aria-current={active ? 'page' : undefined}
-            className={`relative inline-flex items-center gap-1.5 h-10 lg:h-9 px-3 text-[13px] font-medium whitespace-nowrap transition-colors ${
+            className={`relative inline-flex items-center gap-1.5 h-10 lg:h-9 px-3 text-[14.5px] font-medium whitespace-nowrap transition-colors ${
               active ? 'text-accent-strong' : 'text-ink-muted hover:text-ink'
             }`}
           >
             {LEAVE_TAB_LABEL[tab]}
             {n ? (
-              <span className="min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums ring-1 ring-inset bg-due-bg text-due ring-due-line">
+              <span className="min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full text-[12.5px] font-semibold tabular-nums ring-1 ring-inset bg-due-bg text-due ring-due-line">
                 {n}
                 <span className="sr-only"> pending</span>
               </span>

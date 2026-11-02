@@ -134,15 +134,15 @@ const BreakFields: React.FC<{ form: FormState; setForm: React.Dispatch<React.Set
   const problem = form.breakMode === 'set' ? breakProblem(form) : null
   return (
     <fieldset className={`rounded-md border p-3 space-y-3 ${form.breakMode === null ? 'border-due-line bg-due-bg' : 'border-line'}`}>
-      <legend className="px-1 text-[12.5px] font-semibold text-ink">
+      <legend className="px-1 text-[14px] font-semibold text-ink">
         Break time <span className="text-failed">*</span>
       </legend>
-      <p className="text-[12px] text-ink-muted -mt-1">Every worker on this shift gets this break. Moving a worker to another shift gives them that shift's break.</p>
+      <p className="text-[13.5px] text-ink-muted -mt-1">Every worker on this shift gets this break. Moving a worker to another shift gives them that shift's break.</p>
       <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Break time">
         {(['set', 'none'] as const).map((m) => (
           <label
             key={m}
-            className={`inline-flex items-center gap-2 h-8 px-3 rounded-md border cursor-pointer text-[13px] bg-white ${form.breakMode === m ? 'border-accent text-ink' : 'border-line text-ink-secondary hover:border-line-strong'}`}
+            className={`inline-flex items-center gap-2 h-8 px-3 rounded-md border cursor-pointer text-[14.5px] bg-surface ${form.breakMode === m ? 'border-accent text-ink' : 'border-line text-ink-secondary hover:border-line-strong'}`}
           >
             <input type="radio" name="break-mode" checked={form.breakMode === m} onChange={() => choose(m)} />
             {m === 'set' ? 'Set a break time' : 'No break'}
@@ -163,11 +163,11 @@ const BreakFields: React.FC<{ form: FormState; setForm: React.Dispatch<React.Set
             <input type="number" min={1} max={240} step={1} value={form.breakMinutes} onChange={(e) => setLength(e.target.value)} className={`${inputClass} sm:max-w-[10rem]`} />
           </Field>
           {problem ? (
-            <p className="text-[12px] text-failed" role="alert">
+            <p className="text-[13.5px] text-failed" role="alert">
               {problem}
             </p>
           ) : (
-            <p className="text-[12px] text-ink-muted">
+            <p className="text-[13.5px] text-ink-muted">
               During the break the shift's workers get no check notifications and no check is marked Missed; checks due then are due at the end of the break.
             </p>
           )}
@@ -356,7 +356,7 @@ export const ShiftsPage: React.FC = () => {
                           <span className="tabular-nums text-ink">{formatClockRange(s.startTime, s.endTime)}</span>
                           {isOvernight(s) && (
                             <span
-                              className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-due-bg text-due ring-1 ring-inset ring-due-line text-[11px] font-medium"
+                              className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-due-bg text-due ring-1 ring-inset ring-due-line text-[12.5px] font-medium"
                               title="Ends the next day"
                             >
                               <Moon className="w-3 h-3" aria-hidden />
@@ -446,7 +446,7 @@ export const ShiftsPage: React.FC = () => {
             </Field>
           </div>
           {formValid && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 rounded-md border border-line bg-subtle text-[12px] text-ink-secondary" aria-live="polite">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 rounded-md border border-line bg-subtle text-[13.5px] text-ink-secondary" aria-live="polite">
               <span className="inline-flex items-center gap-1.5">
                 {isOvernight(form) ? <Moon className="w-3.5 h-3.5 text-due" aria-hidden /> : <Clock3 className="w-3.5 h-3.5 text-ink-muted" aria-hidden />}
                 <span>
@@ -472,7 +472,7 @@ export const ShiftsPage: React.FC = () => {
             />
           </Field>
           <Toggle checked={form.isActive} disabled={!canActivate} onChange={(v) => set('isActive', v)} label="Active" description={canActivate ? 'Inactive shifts generate no scheduled checks.' : ACTIVATION_HINT} />
-          {editing !== 'new' && <p className="text-[11px] text-ink-muted">Changing shift times replaces upcoming checks for this shift; completed history is kept.</p>}
+          {editing !== 'new' && <p className="text-[12.5px] text-ink-muted">Changing shift times replaces upcoming checks for this shift; completed history is kept.</p>}
         </form>
       </Modal>
 

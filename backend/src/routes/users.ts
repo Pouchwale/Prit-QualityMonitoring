@@ -8,6 +8,7 @@ import { HttpError, badRequest, notFound } from '../lib/http'
 import { audit, snapshot } from '../lib/audit'
 import { passwordColumns, verifyPassword, type AuthUser } from '../lib/auth'
 import { decryptPassword } from '../lib/passwordVault'
+import { renderCredentialsPdf } from '../services/credentialsPdf'
 import { clearUserModules, isAdminRole, requireAnyView, requireModule, type Role } from '../lib/permissions'
 import { invalidateCheckGeneration } from '../services/checkGenerator'
 import { sendTestNotification } from '../services/notifications'
@@ -349,6 +350,35 @@ usersRouter.post('/:id/password/reveal', async (req, res) => {
   const password = decryptPassword(user.passwordEncrypted)
   await audit(req, 'VIEW_PASSWORD', 'User', id, { newValue: { user: `${user.name} (${user.employeeId})`, available: password !== null } })
   res.json({ available: password !== null, password })
+})
+
+/**
+ * A PDF of every account's employee ID and viewable password. Super Admin only, with the same
+ * confirmation as viewing one password, and one audit entry (without any password). Accounts whose
+ * password was set before passwords could be viewed are listed as "not available".
+ */
+usersRouter.post('/passwords/export', async (req, res) => {
+  if (req.user!.role !== 'SUPER_ADMIN') throw new HttpError(403, "Only the Super Admin can export users' passwords")
+  const { confirmPassword } = z.object({ confirmPassword: z.string().min(1, 'Enter your password to confirm') }).parse(req.body)
+
+  const [me] = await db.select({ passwordHash: users.passwordHash }).from(users).where(eq(users.id, req.user!.id))
+  if (!me || !(await verifyPassword(confirmPassword, me.passwordHash))) {
+    await audit(req, 'EXPORT_PASSWORDS_DENIED', 'User', null, { newValue: { reason: 'wrong confirmation password' } })
+    throw new HttpError(400, 'Your password is wrong')
+  }
+
+  const rows = await db
+    .select({ employeeId: users.employeeId, name: users.name, role: users.role, active: users.isActive, passwordEncrypted: users.passwordEncrypted })
+    .from(users)
+    .orderBy(asc(users.role), asc(users.name))
+  const entries = rows.map((r) => ({ employeeId: r.employeeId, name: r.name, role: r.role, active: r.active, password: decryptPassword(r.passwordEncrypted) }))
+  await audit(req, 'EXPORT_PASSWORDS', 'User', null, { newValue: { users: entries.length, available: entries.filter((e) => e.password !== null).length } })
+
+  const pdf = await renderCredentialsPdf(entries, req.user!.name)
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `attachment; filename="user-credentials-${new Date().toISOString().slice(0, 10)}.pdf"`)
+  res.setHeader('Cache-Control', 'no-store')
+  res.send(pdf)
 })
 
 /** Users are never hard-deleted so check history keeps the worker's name. */

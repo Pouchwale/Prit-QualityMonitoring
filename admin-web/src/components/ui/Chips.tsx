@@ -11,14 +11,14 @@ const ROLE_BADGE: Record<Role, string> = {
   WORKER: 'bg-subtle text-ink-secondary ring-line',
   MANAGER: 'bg-due-bg text-due ring-due-line',
   ADMIN: 'bg-accent-soft text-accent-strong ring-accent-line',
-  SUPER_ADMIN: 'bg-ink text-white ring-ink'
+  SUPER_ADMIN: 'bg-inverse text-white ring-inverse'
 }
 
 /** A small rounded label (role, quality role, "You"). Colours come from the caller's classes. */
 export const Pill: React.FC<{ className?: string; title?: string; children: React.ReactNode }> = ({ className = '', title, children }) => (
   <span
     title={title}
-    className={`inline-flex items-center gap-1 h-5 px-1.5 rounded-full ring-1 ring-inset text-[11px] font-medium leading-none whitespace-nowrap ${className}`}
+    className={`inline-flex items-center gap-1 h-5 px-1.5 rounded-full ring-1 ring-inset text-[12.5px] font-medium leading-none whitespace-nowrap ${className}`}
   >
     {children}
   </span>
@@ -38,7 +38,7 @@ const initialsOf = (name: string) =>
 export const UserAvatar: React.FC<{ name: string; muted?: boolean; size?: 'sm' | 'lg' }> = ({ name, muted = false, size = 'sm' }) => (
   <span
     className={`shrink-0 rounded-full ring-1 flex items-center justify-center font-semibold ${
-      size === 'lg' ? 'w-14 h-14 text-[17px]' : 'w-8 h-8 text-[11.5px]'
+      size === 'lg' ? 'w-14 h-14 text-[18px]' : 'w-8 h-8 text-[13px]'
     } ${muted ? 'bg-subtle text-ink-muted ring-line' : 'bg-accent-soft text-accent-strong ring-accent-line'}`}
     aria-hidden
   >
@@ -56,7 +56,7 @@ export const matchesStatus = (tab: StatusTab, isActive: boolean) => tab === 'ALL
 /** A short code (department code, Item Code prefix, shift code) in a monospace chip. */
 export const CodeChip: React.FC<{ children: React.ReactNode; tone?: 'neutral' | 'accent'; className?: string }> = ({ children, tone = 'neutral', className = '' }) => (
   <span
-    className={`inline-flex items-center h-5 px-1.5 rounded font-mono text-[11.5px] font-medium leading-none whitespace-nowrap ring-1 ring-inset ${
+    className={`inline-flex items-center h-5 px-1.5 rounded font-mono text-[13px] font-medium leading-none whitespace-nowrap ring-1 ring-inset ${
       tone === 'accent' ? 'bg-accent-soft text-accent-strong ring-accent-line' : 'bg-subtle text-ink-secondary ring-line'
     } ${className}`}
   >

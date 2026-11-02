@@ -1,17 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { AlertCircle, Clock3, Eye, EyeOff, Info, Lock, LockKeyhole, Server, ShieldCheck, UserRound } from 'lucide-react'
+import { AlertCircle, ArrowRight, Clock3, Eye, EyeOff, Info, Lock, LockKeyhole, Server, ShieldCheck, UserRound } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { API_URL, ApiError, errorText } from '../lib/api'
 import { sessionEnded } from '../lib/routes'
 import { Button } from '../components/common/Button'
 import { TextInput } from '../components/common/Form'
+import { ThemeSwitch } from '../components/common/ThemeSwitch'
 
 /**
  * The sign-in screen (design-system/MASTER.md). Presentation only: signing in is `useAuth().login`
  * exactly as before, and every message shown comes from the server or the session state.
  *
- * Layout: a light brand panel (logo, name, one line) beside the form on wide screens; on smaller
- * screens it shrinks to a header above the form.
+ * Layout (desktop): the brand side on the canvas tone, its statement framed by printer's crop marks,
+ * beside the form on the card surface. Phones and tablets: the brand
+ * shrinks to a header above the form. The dark-mode switch sits top right in both.
  */
 
 type Notice = { tone: 'error' | 'locked' | 'info'; title: string; message?: string }
@@ -75,24 +77,26 @@ export const LoginPage: React.FC = () => {
   const onPasswordKey = (e: React.KeyboardEvent<HTMLInputElement>) => setCapsLock(e.getModifierState?.('CapsLock') ?? false)
 
   return (
-    <div className="min-h-dvh grid lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] bg-surface">
+    <div className="min-h-dvh grid lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] bg-surface">
       <BrandPanel />
 
-      <main className="flex flex-col min-h-dvh lg:min-h-0">
-        {/* Small screens: the brand as a header above the form */}
-        <header className="lg:hidden flex items-center gap-3 px-5 pt-6 sm:px-8">
-          <img src="/logo.png" alt="" className="w-10 h-10 rounded-xl ring-1 ring-line bg-white" />
-          <div>
-            <div className="text-[15px] font-semibold text-ink leading-tight">Quality Monitoring</div>
-            <div className="text-[12px] text-ink-muted">Admin Panel</div>
+      <main className="relative flex flex-col min-h-dvh">
+        <header className="flex items-center justify-between gap-3 px-5 pt-5 sm:px-8 lg:px-10 lg:pt-6">
+          <div className="flex items-center gap-3 lg:invisible">
+            <img src="/logo.png" alt="" className="w-9 h-9 rounded-[10px] ring-1 ring-line" />
+            <div>
+              <div className="text-[16px] font-semibold text-ink leading-tight">Quality Monitoring</div>
+              <div className="text-[13.5px] text-ink-muted leading-tight">Admin Panel</div>
+            </div>
           </div>
+          <ThemeSwitch />
         </header>
 
         <div className="flex-1 flex items-center justify-center px-5 py-10 sm:px-8">
           <div className="w-full max-w-[380px] animate-enter">
-            <div className="mb-7">
-              <h1 className="text-[26px] font-semibold text-ink tracking-tight leading-tight">Welcome back</h1>
-              <p className="mt-1.5 text-[14px] text-ink-muted">Sign in to monitor checks, jobs and reports.</p>
+            <div className="mb-8">
+              <h1 className="text-[29px] font-semibold text-ink tracking-[-0.02em] leading-[1.15]">Welcome back</h1>
+              <p className="mt-2 text-[16px] text-ink-muted">Sign in to monitor checks, jobs and reports.</p>
             </div>
 
             {notice && <NoticeBox notice={notice} />}
@@ -158,30 +162,40 @@ export const LoginPage: React.FC = () => {
                 </button>
               </LoginField>
 
-              <Button type="submit" variant="primary" size="lg" className="w-full !h-11 !text-[14px]" loading={loading} aria-live="polite">
+              <Button
+                type="submit"
+                variant="primary"
+                size="lg"
+                className="w-full !h-11 !text-[15.5px] mt-1 active:scale-[0.99]"
+                loading={loading}
+                iconRight={<ArrowRight className="w-4 h-4" aria-hidden />}
+                aria-live="polite"
+              >
                 {loading ? 'Signing in…' : 'Sign in'}
               </Button>
             </form>
-
-            <div className="mt-8 pt-5 border-t border-line flex flex-col gap-2 text-[12px] text-ink-muted">
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-ink-faint shrink-0" aria-hidden />
-                For administrators and quality managers. Forgot your password? Ask your Super Admin.
-              </span>
-              <span className="flex items-center gap-1.5 font-mono text-[11px] [overflow-wrap:anywhere]">
-                <Server className="w-3.5 h-3.5 text-ink-faint shrink-0" aria-hidden />
-                {API_URL}
-              </span>
-            </div>
           </div>
         </div>
+
+        <footer className="px-5 pb-6 sm:px-8">
+          <div className="max-w-[380px] mx-auto pt-5 border-t border-line flex flex-col gap-2 text-[13.5px] text-ink-muted">
+            <span className="flex items-start gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 mt-[2px] text-ink-faint shrink-0" aria-hidden />
+              For administrators and quality managers. Forgot your password? Ask your Super Admin.
+            </span>
+            <span className="flex items-center gap-2 font-mono text-[12.5px] [overflow-wrap:anywhere]" title="Server this panel signs in to">
+              <Server className="w-3.5 h-3.5 text-ink-faint shrink-0" aria-hidden />
+              {API_URL}
+            </span>
+          </div>
+        </footer>
       </main>
     </div>
   )
 }
 
 /** Taller fields than the rest of the console: the first screen people see, often on shared PCs. */
-const loginInput = '!h-11 !text-[15px] lg:!text-[14px] pl-9'
+const loginInput = '!h-11 !text-[16.5px] lg:!text-[15.5px] pl-9'
 
 /** A label above its field, with the field's error (or hint) under it, linked by id. */
 const LoginField: React.FC<{ id: string; label: string; error: string | null; hint?: string | null; children: React.ReactNode }> = ({
@@ -192,17 +206,17 @@ const LoginField: React.FC<{ id: string; label: string; error: string | null; hi
   children
 }) => (
   <div>
-    <label htmlFor={id} className="block text-[13px] font-medium text-ink-secondary mb-1.5">
+    <label htmlFor={id} className="block text-[14.5px] font-medium text-ink-secondary mb-1.5">
       {label}
     </label>
     <div className="relative">{children}</div>
     {error ? (
-      <p id={`${id}-error`} className="mt-1.5 flex items-center gap-1.5 text-[12.5px] text-missed" role="alert">
+      <p id={`${id}-error`} className="mt-1.5 flex items-center gap-1.5 text-[14px] text-missed" role="alert">
         <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden />
         {error}
       </p>
     ) : hint ? (
-      <p id={`${id}-hint`} className="mt-1.5 flex items-center gap-1.5 text-[12.5px] text-exception">
+      <p id={`${id}-hint`} className="mt-1.5 flex items-center gap-1.5 text-[14px] text-exception">
         <Info className="w-3.5 h-3.5 shrink-0" aria-hidden />
         {hint}
       </p>
@@ -223,28 +237,42 @@ const NoticeBox: React.FC<{ notice: Notice }> = ({ notice }) => {
     <div id="login-notice" className={`mb-5 flex items-start gap-2.5 rounded-lg border px-3.5 py-3 animate-enter ${s.box}`} role={notice.tone === 'info' ? 'status' : 'alert'}>
       <s.Icon className={`w-4 h-4 mt-0.5 shrink-0 ${s.icon}`} aria-hidden />
       <div className="min-w-0">
-        <div className="text-[13px] font-semibold text-ink">{notice.title}</div>
-        {notice.message && <div className="text-[12.5px] text-ink-secondary mt-0.5">{notice.message}</div>}
+        <div className="text-[14.5px] font-semibold text-ink">{notice.title}</div>
+        {notice.message && <div className="text-[14px] text-ink-secondary mt-0.5">{notice.message}</div>}
       </div>
     </div>
   )
 }
 
 /**
- * The left panel on wide screens: the logo, the product name and one short line, on a light
- * surface. Nothing else, so the form stays the focus.
+ * The brand side on wide screens: logo and name at the top, then the product statement framed by
+ * printer's crop marks (index.css "Sign-in page print motif").
+ * No pattern or gradient, so the form stays the focus.
  */
 const BrandPanel: React.FC = () => (
-  <aside className="hidden lg:flex relative overflow-hidden flex-col items-start justify-center bg-accent-soft border-r border-accent-line px-14 xl:px-20">
-    {/* A faint dot pattern in the brand blue, fading towards the form side. */}
-    <div
-      className="pointer-events-none absolute inset-0 bg-[radial-gradient(var(--color-accent-line)_1.2px,transparent_1.2px)] [background-size:22px_22px] [mask-image:linear-gradient(to_right,black,transparent_90%)]"
-      aria-hidden
-    />
-    <div className="relative max-w-[420px] animate-enter">
-      <img src="/logo.png" alt="" className="w-16 h-16 rounded-2xl ring-4 ring-white shadow-[var(--shadow-pop)]" />
-      <h2 className="mt-7 text-[32px] font-semibold text-ink tracking-tight leading-tight">Quality Monitoring</h2>
-      <p className="mt-2 text-[15px] text-ink-secondary">Quality checks for every machine, shift and job.</p>
+  <aside className="hidden lg:flex flex-col bg-canvas border-r border-line px-12 xl:px-16 py-6">
+    <div className="h-10 flex items-center gap-3 animate-enter">
+      <img src="/logo.png" alt="" className="w-9 h-9 rounded-[10px] ring-1 ring-line" />
+      <div>
+        <div className="text-[16px] font-semibold text-ink leading-tight">Quality Monitoring</div>
+        <div className="text-[13.5px] text-ink-muted leading-tight">Admin Panel</div>
+      </div>
+    </div>
+
+    <div className="flex-1 flex items-center py-12">
+      <div className="relative w-full max-w-[520px] px-9 py-10">
+        <span className="crop-mark crop-mark-tl" aria-hidden />
+        <span className="crop-mark crop-mark-tr" aria-hidden />
+        <span className="crop-mark crop-mark-bl" aria-hidden />
+        <span className="crop-mark crop-mark-br" aria-hidden />
+
+        <h2 className="text-[40px] xl:text-[46px] font-semibold text-ink tracking-[-0.03em] leading-[1.06] max-w-[15ch] animate-enter [animation-delay:60ms]">
+          Quality checks for every machine, shift and job.
+        </h2>
+        <p className="mt-5 text-[17px] leading-relaxed text-ink-secondary max-w-[40ch] animate-enter [animation-delay:120ms]">
+          Periodic checks, exceptions and reports for the whole plant, in one place.
+        </p>
+      </div>
     </div>
   </aside>
 )

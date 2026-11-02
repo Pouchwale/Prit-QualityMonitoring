@@ -120,7 +120,7 @@ export const ReportEmailFailurePopup: React.FC = () => {
         </div>
       }
     >
-      <div className="space-y-3 text-[13px]">
+      <div className="space-y-3 text-[14.5px]">
         <div className="flex items-start gap-2.5 rounded-lg border border-missed-line bg-missed-bg px-3 py-2.5 text-missed">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
           <span className="font-medium">An automated report email was not accepted by the mail server.</span>
@@ -137,45 +137,45 @@ export const ReportEmailFailurePopup: React.FC = () => {
           <dt className="text-ink-muted">Status now</dt>
           <dd className="flex flex-wrap items-center gap-2">
             <DeliveryStatusPill status={alert.email.status} />
-            <span className="text-[12px] text-ink-secondary">{alert.email.retryStatus}</span>
+            <span className="text-[13.5px] text-ink-secondary">{alert.email.retryStatus}</span>
           </dd>
         </dl>
 
         {details && (
           <div className="rounded-lg border border-line bg-panel p-3 space-y-2.5" aria-label="Failure details">
             <div>
-              <div className="text-[11.5px] text-ink-muted">Email</div>
+              <div className="text-[13px] text-ink-muted">Email</div>
               <div className="text-ink">{alert.email.subject}</div>
-              <div className="text-[11.5px] text-ink-muted mt-0.5">
+              <div className="text-[13px] text-ink-muted mt-0.5">
                 Log ID <span className="font-mono">{alert.logId}</span> · {alert.email.attempts} attempt{alert.email.attempts === 1 ? '' : 's'}
                 {alert.email.nextRetryAt ? ` · next retry ${formatDateTime(alert.email.nextRetryAt)}` : ''}
                 {alert.email.recoveredAt ? ` · sent ${formatDateTime(alert.email.recoveredAt)}` : ''}
               </div>
             </div>
             <div>
-              <div className="text-[11.5px] text-ink-muted mb-1">Each recipient</div>
+              <div className="text-[13px] text-ink-muted mb-1">Each recipient</div>
               <ul className="space-y-1">
                 {(alert.email.recipientStatus.length ? alert.email.recipientStatus : alert.email.recipients.map((email) => ({ email, status: alert.email.status, error: null }))).map((r) => (
                   <li key={r.email} className="flex flex-wrap items-start gap-2">
                     <DeliveryStatusPill status={r.status} />
                     <span className="text-ink break-all">{r.email}</span>
-                    {r.error && <span className="basis-full text-[11.5px] text-missed break-words">{r.error}</span>}
+                    {r.error && <span className="basis-full text-[13px] text-missed break-words">{r.error}</span>}
                   </li>
                 ))}
               </ul>
             </div>
-            <div className="text-[12px]">
+            <div className="text-[13.5px]">
               <span className="text-ink-muted">Alert email: </span>
               <span className={alert.alertEmailStatus === 'SENT' ? 'text-success' : 'text-missed'}>
                 {alert.alertEmailStatus ? ALERT_EMAIL_TEXT[alert.alertEmailStatus] : 'Not sent yet'}
                 {alert.alertEmailTo && alert.alertEmailStatus !== 'NOT_CONFIGURED' ? ` (${alert.alertEmailTo})` : ''}
               </span>
-              {alert.alertEmailError && alert.alertEmailStatus === 'FAILED' && <div className="text-[11.5px] text-missed break-words">{alert.alertEmailError}</div>}
+              {alert.alertEmailError && alert.alertEmailStatus === 'FAILED' && <div className="text-[13px] text-missed break-words">{alert.alertEmailError}</div>}
             </div>
             <Link
               to={`${NAV_PATH.reports}?tab=sharing`}
               onClick={() => setHidden((h) => new Set(h).add(alert.id))}
-              className="inline-block text-[12px] font-medium text-accent-strong hover:underline"
+              className="inline-block text-[13.5px] font-medium text-accent-strong hover:underline"
             >
               Open the Delivery log
             </Link>

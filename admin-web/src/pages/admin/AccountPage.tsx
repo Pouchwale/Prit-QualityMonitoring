@@ -75,13 +75,13 @@ export const AccountPage: React.FC = () => {
         <Card className="overflow-hidden">
           <div className="px-4 pt-5 pb-4 flex flex-col items-center text-center border-b border-line">
             <UserAvatar name={user.name} size="lg" />
-            <h2 className="mt-3 text-[15px] font-semibold text-ink leading-tight">{user.name}</h2>
-            {user.designation && <p className="text-[12px] text-ink-muted mt-0.5">{user.designation}</p>}
+            <h2 className="mt-3 text-[16.5px] font-semibold text-ink leading-tight">{user.name}</h2>
+            {user.designation && <p className="text-[13.5px] text-ink-muted mt-0.5">{user.designation}</p>}
             <div className="mt-2.5">
               <RoleBadge role={user.role} />
             </div>
           </div>
-          <dl className="px-4 py-3 space-y-2.5 text-[12.5px]">
+          <dl className="px-4 py-3 space-y-2.5 text-[14px]">
             <ProfileRow icon={<Hash className="w-3.5 h-3.5" />} label="Employee ID">
               <span className="font-mono">{user.employeeId}</span>
             </ProfileRow>
@@ -95,7 +95,7 @@ export const AccountPage: React.FC = () => {
               <ProfileRow icon={<Clock3 className="w-3.5 h-3.5" />} label="Shift">
                 {user.shiftName}
                 {user.shiftStartTime && user.shiftEndTime && (
-                  <span className="block text-[11.5px] text-ink-muted tabular-nums">{formatClockRange(user.shiftStartTime, user.shiftEndTime)}</span>
+                  <span className="block text-[13px] text-ink-muted tabular-nums">{formatClockRange(user.shiftStartTime, user.shiftEndTime)}</span>
                 )}
               </ProfileRow>
             )}
@@ -115,7 +115,7 @@ export const AccountPage: React.FC = () => {
               {isAdmin ? (
                 <div className="flex items-start gap-3">
                   <AccessBadge access="manage" />
-                  <p className="text-[12.5px] text-ink-secondary">
+                  <p className="text-[14px] text-ink-secondary">
                     {isSuperAdmin
                       ? 'You can view and manage every module and every account, and you decide what Managers can use.'
                       : 'You can view and manage every module, and the Manager and Worker accounts. Only the Super Admin decides what Managers can use.'}
@@ -123,7 +123,7 @@ export const AccountPage: React.FC = () => {
                 </div>
               ) : (
                 <>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-[12px] text-ink-muted">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 text-[13.5px] text-ink-muted">
                     <span>
                       <span className="font-semibold text-ink tabular-nums">{summary.manage}</span> manage
                     </span>
@@ -138,8 +138,8 @@ export const AccountPage: React.FC = () => {
                     {(modules.data ?? []).map((m) => {
                       const access = user.permissions[m.key]
                       return (
-                        <li key={m.key} className={`flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-line ${access === 'none' ? 'bg-subtle' : 'bg-white'}`}>
-                          <span className={`text-[12.5px] font-medium truncate ${access === 'none' ? 'text-ink-muted' : 'text-ink'}`}>{m.label}</span>
+                        <li key={m.key} className={`flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-line ${access === 'none' ? 'bg-subtle' : 'bg-surface'}`}>
+                          <span className={`text-[14px] font-medium truncate ${access === 'none' ? 'text-ink-muted' : 'text-ink'}`}>{m.label}</span>
                           <AccessBadge access={access} viewOnly={m.viewOnly} />
                         </li>
                       )
@@ -175,7 +175,7 @@ export const AccountPage: React.FC = () => {
                   </Button>
                 </form>
               ) : (
-                <p className="flex items-start gap-2 text-[12.5px] text-ink-secondary">
+                <p className="flex items-start gap-2 text-[14px] text-ink-secondary">
                   <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden />
                   Only the Super Admin can change passwords. Ask them if you need a new one.
                 </p>
@@ -206,7 +206,7 @@ export const AccessBadge: React.FC<{ access: 'none' | 'view' | 'manage'; viewOnl
         ? 'bg-success-bg text-success ring-success-line'
         : access === 'view'
           ? 'bg-due-bg text-due ring-due-line'
-          : 'bg-white text-ink-muted ring-line'
+          : 'bg-surface text-ink-muted ring-line'
     }
   >
     {access === 'manage' ? <Check className="w-3 h-3" aria-hidden /> : access === 'view' ? <Eye className="w-3 h-3" aria-hidden /> : <Minus className="w-3 h-3" aria-hidden />}

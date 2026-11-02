@@ -23,8 +23,8 @@ export const DataState: React.FC<DataStateProps> = ({ loading, error, onRetry, e
         <span className="mx-auto mb-3 w-10 h-10 rounded-full bg-missed-bg text-missed flex items-center justify-center" aria-hidden>
           <AlertCircle className="w-5 h-5" />
         </span>
-        <div className="text-sm font-semibold text-ink">Could not load data</div>
-        <div className="text-[12.5px] text-ink-muted mt-1 max-w-md mx-auto">{error}</div>
+        <div className="text-[14.5px] font-semibold text-ink">Could not load data</div>
+        <div className="text-[14px] text-ink-muted mt-1 max-w-md mx-auto">{error}</div>
         {onRetry && (
           <Button size="sm" variant="outline" className="mt-4" onClick={onRetry}>
             Try again
@@ -38,7 +38,7 @@ export const DataState: React.FC<DataStateProps> = ({ loading, error, onRetry, e
       // Skeleton rows keep the page's shape while it loads, instead of a jumping spinner box.
       <div className={`${frame} p-4 space-y-3`} role="status" aria-live="polite" aria-busy="true">
         <span className="sr-only">Loading…</span>
-        <div className="flex items-center gap-2 text-[12px] text-ink-muted" aria-hidden>
+        <div className="flex items-center gap-2 text-[13.5px] text-ink-muted" aria-hidden>
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
           Loading
         </div>
@@ -54,7 +54,7 @@ export const DataState: React.FC<DataStateProps> = ({ loading, error, onRetry, e
         <span className="mx-auto mb-3 w-10 h-10 rounded-full bg-subtle text-ink-faint flex items-center justify-center" aria-hidden>
           <Inbox className="w-5 h-5" />
         </span>
-        <div className="text-[13px] font-medium text-ink-secondary">{emptyText}</div>
+        <div className="text-[14.5px] font-medium text-ink-secondary">{emptyText}</div>
       </div>
     )
   }
@@ -66,7 +66,7 @@ export const DataState: React.FC<DataStateProps> = ({ loading, error, onRetry, e
  * returns), so counts and totals worked out from the rows are not exact.
  */
 export const TruncatedNotice: React.FC<{ shown: number; total: number; noun?: string }> = ({ shown, total, noun = 'checks' }) => (
-  <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-exception-line bg-exception-bg text-[12.5px] text-ink" role="status">
+  <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-exception-line bg-exception-bg text-[14px] text-ink" role="status">
     <AlertCircle className="w-4 h-4 shrink-0 text-exception" />
     <span>
       Showing the first {shown.toLocaleString('en-IN')} of {total.toLocaleString('en-IN')} {noun} — narrow the date range or filters for exact totals.

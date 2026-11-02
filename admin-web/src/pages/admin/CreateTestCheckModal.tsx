@@ -143,7 +143,7 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
 
       {/* A fieldset, not a <label>: a label would give its name to the first button. */}
       <fieldset>
-        <legend className="block text-[13px] lg:text-[12.5px] font-medium text-ink-secondary mb-1.5">
+        <legend className="block text-[14.5px] lg:text-[14px] font-medium text-ink-secondary mb-1.5">
           Start
           <span className="text-missed" aria-hidden>
             {' '}
@@ -167,18 +167,18 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
                 aria-checked={active}
                 onClick={() => setStatus(option.value)}
                 className={`flex items-start gap-2.5 text-left px-3 py-2.5 rounded-lg border transition-colors ${
-                  active ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-line-strong bg-white hover:bg-subtle'
+                  active ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-line-strong bg-surface hover:bg-subtle'
                 }`}
               >
                 <span
-                  className={`mt-px w-7 h-7 shrink-0 rounded-md flex items-center justify-center ${active ? 'bg-white text-accent ring-1 ring-accent-line' : 'bg-subtle text-ink-secondary'}`}
+                  className={`mt-px w-7 h-7 shrink-0 rounded-md flex items-center justify-center ${active ? 'bg-surface text-accent ring-1 ring-accent-line' : 'bg-subtle text-ink-secondary'}`}
                   aria-hidden
                 >
                   {option.icon}
                 </span>
                 <span className="min-w-0">
-                  <span className={`block text-[13px] lg:text-[12.5px] font-semibold ${active ? 'text-accent-strong' : 'text-ink'}`}>{option.title}</span>
-                  <span className="block text-[11.5px] text-ink-muted mt-0.5">{option.text}</span>
+                  <span className={`block text-[14.5px] lg:text-[14px] font-semibold ${active ? 'text-accent-strong' : 'text-ink'}`}>{option.title}</span>
+                  <span className="block text-[13px] text-ink-muted mt-0.5">{option.text}</span>
                 </span>
               </button>
             )
@@ -265,7 +265,7 @@ export const CreateTestCheckModal: React.FC<Props> = ({ isOpen, onClose, onCreat
       </div>
 
       {startValid && (
-        <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg border border-line bg-subtle text-[12px] text-ink-secondary" role="status">
+        <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg border border-line bg-subtle text-[13.5px] text-ink-secondary" role="status">
           <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden />
           <span>
             {status === 'DUE' ? 'Opens now' : `Opens at ${formatDateTime(start.toISOString())}`}, then marked{' '}

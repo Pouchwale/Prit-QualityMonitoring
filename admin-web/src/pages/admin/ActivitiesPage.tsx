@@ -158,13 +158,13 @@ const formFromActivity = (a: Activity): ActivityForm => ({
 })
 
 /** A small neutral chip, e.g. a check type code. */
-const chip = 'inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[11px] text-ink-secondary whitespace-nowrap'
+const chip = 'inline-flex items-center h-5 px-1.5 rounded bg-subtle ring-1 ring-inset ring-line text-[12.5px] text-ink-secondary whitespace-nowrap'
 
 /** IPQC (in-process) or QC (finished goods): the label says which, the tint only groups them. */
 const ModulePill: React.FC<{ module: QualityModule }> = ({ module }) => (
   <span
-    className={`inline-flex items-center h-5 px-2 rounded-full text-[11px] font-semibold tracking-wide ring-1 ring-inset whitespace-nowrap ${
-      module === 'QC' ? 'bg-white text-ink ring-line-strong' : 'bg-accent-soft text-accent-strong ring-accent-line'
+    className={`inline-flex items-center h-5 px-2 rounded-full text-[12.5px] font-semibold tracking-wide ring-1 ring-inset whitespace-nowrap ${
+      module === 'QC' ? 'bg-surface text-ink ring-line-strong' : 'bg-accent-soft text-accent-strong ring-accent-line'
     }`}
     title={module === 'QC' ? 'QC (Finished / Pouch Quality)' : 'IPQC (In-Process Quality)'}
   >
@@ -174,7 +174,7 @@ const ModulePill: React.FC<{ module: QualityModule }> = ({ module }) => (
 
 /** How checks are created: from shift schedules or per job. */
 const ModePill: React.FC<{ mode: 'SHIFT' | 'JOB' }> = ({ mode }) => (
-  <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full bg-subtle text-ink-secondary ring-1 ring-inset ring-line text-[11px] font-medium whitespace-nowrap">
+  <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full bg-subtle text-ink-secondary ring-1 ring-inset ring-line text-[12.5px] font-medium whitespace-nowrap">
     {mode === 'JOB' ? <Briefcase className="w-3 h-3" aria-hidden /> : <Clock3 className="w-3 h-3" aria-hidden />}
     {mode === 'JOB' ? 'Job' : 'Shift'}
   </span>
@@ -196,20 +196,20 @@ const Section: React.FC<{ step: number; title: string; description?: string; ico
   icon,
   children
 }) => (
-  <section className="rounded-lg border border-line bg-white" aria-labelledby={`check-type-step-${step}`}>
+  <section className="rounded-lg border border-line bg-surface" aria-labelledby={`check-type-step-${step}`}>
     <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-line bg-subtle/50 rounded-t-lg">
       <span
-        className="w-6 h-6 shrink-0 rounded-full bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line text-[11.5px] font-semibold tabular-nums flex items-center justify-center"
+        className="w-6 h-6 shrink-0 rounded-full bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line text-[13px] font-semibold tabular-nums flex items-center justify-center"
         aria-hidden
       >
         {step}
       </span>
       <div className="min-w-0 flex-1">
-        <h4 id={`check-type-step-${step}`} className="text-[13px] font-semibold text-ink leading-tight">
+        <h4 id={`check-type-step-${step}`} className="text-[14.5px] font-semibold text-ink leading-tight">
           <span className="sr-only">Step {step}: </span>
           {title}
         </h4>
-        {description && <p className="text-[11.5px] text-ink-muted leading-snug">{description}</p>}
+        {description && <p className="text-[13px] text-ink-muted leading-snug">{description}</p>}
       </div>
       {icon && (
         <span className="text-ink-faint shrink-0" aria-hidden>
@@ -223,7 +223,7 @@ const Section: React.FC<{ step: number; title: string; description?: string; ico
 
 /** A short explanation under a group of fields. */
 const Hint: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="flex items-start gap-1.5 text-[11.5px] text-ink-muted leading-snug">
+  <p className="flex items-start gap-1.5 text-[13px] text-ink-muted leading-snug">
     <Info className="w-3.5 h-3.5 mt-px shrink-0 text-ink-faint" aria-hidden />
     <span>{children}</span>
   </p>
@@ -492,7 +492,7 @@ export const ActivitiesPage: React.FC = () => {
                               {a.code}
                             </span>
                           </div>
-                          {a.description && <span className="block text-[11.5px] text-ink-muted truncate max-w-xs">{a.description}</span>}
+                          {a.description && <span className="block text-[13px] text-ink-muted truncate max-w-xs">{a.description}</span>}
                         </td>
                         <td>
                           <ModulePill module={a.module ?? 'IPQC'} />
@@ -509,7 +509,7 @@ export const ActivitiesPage: React.FC = () => {
                             )}
                           </span>
                           {shown.length > 0 && (
-                            <span className="block text-[11.5px] text-ink-muted max-w-[220px] truncate" title={shown.map((p) => p.name).join(', ')}>
+                            <span className="block text-[13px] text-ink-muted max-w-[220px] truncate" title={shown.map((p) => p.name).join(', ')}>
                               {shown.map((p) => p.name).join(', ')}
                             </span>
                           )}
@@ -522,7 +522,7 @@ export const ActivitiesPage: React.FC = () => {
                               {a.requireVideo && <EvidenceIcon icon={<Video className="w-3.5 h-3.5" />} label="Overall video required" />}
                             </div>
                           ) : (
-                            <span className="text-[12px] text-ink-muted">None required</span>
+                            <span className="text-[13.5px] text-ink-muted">None required</span>
                           )}
                         </td>
                         <td className="num whitespace-nowrap">
@@ -704,8 +704,8 @@ export const ActivitiesPage: React.FC = () => {
                     {o.icon}
                   </span>
                   <span>
-                    <span className="block text-[12.5px] font-semibold text-ink">{o.label}</span>
-                    <span className="block text-[11px] text-ink-muted">{o.hint}</span>
+                    <span className="block text-[14px] font-semibold text-ink">{o.label}</span>
+                    <span className="block text-[12.5px] text-ink-muted">{o.hint}</span>
                   </span>
                 </label>
               ))}
@@ -715,7 +715,7 @@ export const ActivitiesPage: React.FC = () => {
                 <Field label="Grace (minutes)" hint="A scheduled job check counts as Missed this long after it is due.">
                   <TextInput type="number" min={5} max={240} value={form.graceMinutes} onChange={(e) => update('graceMinutes', e.target.value)} className="w-28 font-mono" />
                 </Field>
-                <p className="text-[11.5px] text-ink-muted pb-2 max-w-md">
+                <p className="text-[13px] text-ink-muted pb-2 max-w-md">
                   Set <span className="font-semibold">When checked</span> on each parameter below. The worker starts the job with the Job start parameters, gets
                   a notification when interval parameters are due (only those), and ends the job with the Job end parameters.
                 </p>
@@ -724,9 +724,9 @@ export const ActivitiesPage: React.FC = () => {
           </Section>
 
           <Section step={4} title="Parameters on this form" description="Workers see them in this order" icon={<ListChecks className="w-4 h-4" />}>
-            <div className="border border-line rounded-md divide-y divide-line bg-white overflow-hidden">
+            <div className="border border-line rounded-md divide-y divide-line bg-surface overflow-hidden">
               {form.parameters.length === 0 ? (
-                <div className="px-3 py-4 text-center text-[12px] text-ink-muted">No parameters yet. Add them below.</div>
+                <div className="px-3 py-4 text-center text-[13.5px] text-ink-muted">No parameters yet. Add them below.</div>
               ) : (
                 form.parameters.map((fp, index) => {
                   const info = parameterInfo.get(fp.parameterId)
@@ -736,7 +736,7 @@ export const ActivitiesPage: React.FC = () => {
                       className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-2 py-2 ${fp.isEnabled ? '' : 'bg-subtle/70'}`}
                     >
                       <div className="flex items-center gap-0.5">
-                        <span className="w-5 text-right font-mono text-[11px] text-ink-faint">{index + 1}</span>
+                        <span className="w-5 text-right font-mono text-[12.5px] text-ink-faint">{index + 1}</span>
                         <button
                           type="button"
                           title="Move up"
@@ -760,13 +760,13 @@ export const ActivitiesPage: React.FC = () => {
                       </div>
 
                       <div className="flex-1 min-w-[160px]">
-                        <span className={`text-[12.5px] font-medium ${fp.isEnabled ? 'text-ink' : 'text-ink-muted'}`}>{info?.name ?? 'Unknown parameter'}</span>
-                        <span className="ml-1.5 text-[11px] text-ink-muted">
+                        <span className={`text-[14px] font-medium ${fp.isEnabled ? 'text-ink' : 'text-ink-muted'}`}>{info?.name ?? 'Unknown parameter'}</span>
+                        <span className="ml-1.5 text-[12.5px] text-ink-muted">
                           {info ? PARAMETER_TYPE_LABEL[info.type] : ''}
                           {info?.unit ? ` · ${info.unit}` : ''}
                         </span>
                         {info && !info.isActive && (
-                          <span className="ml-1.5 px-1.5 py-px rounded-full ring-1 ring-inset ring-exception-line bg-exception-bg text-exception text-[11px] font-medium">
+                          <span className="ml-1.5 px-1.5 py-px rounded-full ring-1 ring-inset ring-exception-line bg-exception-bg text-exception text-[12.5px] font-medium">
                             Disabled globally
                           </span>
                         )}
@@ -800,7 +800,7 @@ export const ActivitiesPage: React.FC = () => {
                         )}
                         {form.monitoring === 'JOB' && (
                           <span className="inline-flex items-center gap-1.5">
-                            <span className="text-[11px] font-semibold text-ink-secondary">When checked</span>
+                            <span className="text-[12.5px] font-semibold text-ink-secondary">When checked</span>
                             <select
                               aria-label={`When checked: ${info?.name ?? 'parameter'}`}
                               value={frequencyChoice(fp)}
@@ -820,7 +820,7 @@ export const ActivitiesPage: React.FC = () => {
                             </select>
                             {frequencyChoice(fp) === 'CUSTOM' && (
                               <span className="inline-flex items-center gap-1">
-                                <span className="text-[11px] text-ink-muted">every</span>
+                                <span className="text-[12.5px] text-ink-muted">every</span>
                                 <input
                                   type="number"
                                   min={5}
@@ -828,9 +828,9 @@ export const ActivitiesPage: React.FC = () => {
                                   aria-label={`Interval in minutes: ${info?.name ?? 'parameter'}`}
                                   value={fp.intervalMinutes}
                                   onChange={(e) => updateParameter(index, { intervalMinutes: Number(e.target.value) })}
-                                  className="h-[40px] w-[96px] lg:h-8 lg:w-[84px] rounded-md border border-line-strong bg-white px-2 text-center font-mono text-[16px] lg:text-[13px] tabular-nums text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
+                                  className="h-[40px] w-[96px] lg:h-8 lg:w-[84px] rounded-md border border-line-strong bg-surface px-2 text-center font-mono text-[17px] lg:text-[14.5px] tabular-nums text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
                                 />
-                                <span className="text-[11px] text-ink-muted">min</span>
+                                <span className="text-[12.5px] text-ink-muted">min</span>
                               </span>
                             )}
                           </span>
@@ -886,7 +886,7 @@ export const ActivitiesPage: React.FC = () => {
               onChange={(ids) => update('machineIds', ids)}
               emptyText={machines === null ? 'Loading machines…' : 'No machines configured yet'}
             />
-            <p className="text-[11.5px] text-ink-muted tabular-nums">{form.machineIds.length} selected</p>
+            <p className="text-[13px] text-ink-muted tabular-nums">{form.machineIds.length} selected</p>
           </Section>
 
           {/* Allows Enter to submit */}

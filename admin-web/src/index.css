@@ -6,7 +6,9 @@
  * Exception, Due). Every text colour here meets WCAG AA (4.5:1) on white and on the canvas.
  */
 @theme {
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* IBM Plex Sans, bundled with the panel (@fontsource-variable, main.tsx) so it works offline: open,
+     distinct letter shapes (1 l I, 0 O) that stay readable at table sizes. */
+  --font-sans: 'IBM Plex Sans Variable', 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 
   /* Surfaces */
   --color-canvas: #F5F7FA;
@@ -28,6 +30,25 @@
   --color-accent-strong: #1D4ED8;
   --color-accent-soft: #EEF4FF;
   --color-accent-line: #C9D9FD;
+  /* Solid fills behind white text (primary/danger buttons, "today" markers). Same values as accent
+     and failed/missed in light mode; kept deep in dark mode so white text stays readable. */
+  --color-accent-fill: #2563EB;
+  --color-accent-fill-hover: #1D4ED8;
+  --color-danger-fill: #DC2626;
+  --color-danger-fill-hover: #B91C1C;
+
+  /* Dark chips and tooltips with white text, and the backdrop behind photos and videos */
+  --color-inverse: #0F172A;
+  --color-inverse-secondary: #3D4A5C;
+  --color-media: #0F172A;
+
+  /* App chrome (sidebar, header) and the dimmed backdrop behind dialogs and drawers */
+  --color-chrome: #FFFFFF;
+  --color-scrim: #0F172A;
+
+  /* Table header strip and row hover */
+  --color-table-head: #F8FAFC;
+  --color-row-hover: #F8FAFD;
 
   /* Status (text on white or on the matching -bg passes 4.5:1) */
   --color-success: #047857;
@@ -59,7 +80,7 @@
   --color-chart-grid: #EDF0F4;
 
   /* Type: the smallest caption size (badges, chart axes) */
-  --text-2xs: 11px;
+  --text-2xs: 12px;
   --text-2xs--line-height: 1.35;
 
   /* Motion: one short entrance for first-screen content (turned off by reduced motion) */
@@ -128,16 +149,15 @@
     background-color: var(--color-canvas);
     color: var(--color-ink);
     font-family: var(--font-sans);
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.5;
-    font-feature-settings: 'cv11', 'ss01';
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
   /*
    * Phones and tablets: a 16px root so rem-based text and spacing scale up for reading and
-   * tapping. Desktop (lg, 1024px+) uses 14px.
+   * tapping. Desktop (lg, 1024px+) uses 15px.
    */
   @media screen and (max-width: 1023.98px) {
     html {
@@ -216,16 +236,16 @@
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    font-size: 12.5px;
+    font-size: 14px;
     text-align: left;
   }
   .data-table thead th {
     position: sticky;
     top: 0;
     z-index: 2;
-    background-color: #F8FAFC;
+    background-color: var(--color-table-head);
     color: var(--color-ink-muted);
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -246,12 +266,128 @@
     transition: background-color 120ms ease;
   }
   .data-table tbody tr:hover td {
-    background-color: #F8FAFD;
+    background-color: var(--color-row-hover);
   }
   .data-table .num {
     text-align: right;
     font-variant-numeric: tabular-nums;
   }
+}
+
+/*
+ * Dark mode (admin panel only). The toggle in the header sets <html data-theme="dark"> and saves the
+ * choice (lib/theme.ts); index.html applies it before the first paint. Only token values change, so
+ * every page keeps its layout.
+ *
+ * Direction: neutral graphite, not navy. The chrome (sidebar, header) recedes to the canvas tone and
+ * content cards sit one step lighter, edged by hairlines instead of shadows. Accent and status colours
+ * are softened tonal variants, not inverted or neon. Every text colour meets WCAG AA (4.5:1) on canvas,
+ * surface, subtle and its own -bg; chart marks are 3:1 or more on cards. Screen only: printed sheets
+ * always use the light tokens.
+ */
+@media screen {
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+
+    --color-canvas: #0C0D10;
+    --color-chrome: #0F1013;
+    --color-surface: #16181C;
+    --color-subtle: #1E2126;
+    --color-panel: #131519;
+    --color-line: #25282E;
+    --color-line-strong: #363A42;
+    --color-scrim: #000000;
+
+    --color-ink: #ECEDEF;
+    --color-ink-secondary: #C5C8CE;
+    --color-ink-muted: #9DA2AB;
+    --color-ink-faint: #8A909A;
+
+    --color-accent: #7BA4F7;
+    --color-accent-strong: #A9C3FA;
+    --color-accent-soft: #18213A;
+    --color-accent-line: #2B3C62;
+
+    --color-success: #5CC593;
+    --color-success-bg: #13241C;
+    --color-success-line: #224232;
+
+    --color-due: #6DB9E6;
+    --color-due-bg: #11212D;
+    --color-due-line: #1F3C52;
+
+    --color-missed: #EF7B7D;
+    --color-missed-bg: #2B1718;
+    --color-missed-line: #4E2729;
+
+    --color-exception: #E2B25A;
+    --color-exception-bg: #271F11;
+    --color-exception-line: #4A3B1E;
+
+    --color-failed: #EF7B7D;
+    --color-failed-bg: #2B1718;
+    --color-failed-line: #5A2C2E;
+
+    /* Muted, harmonious marks: sage, ochre, brick and a neutral grey */
+    --color-chart-completed: #3FA97B;
+    --color-chart-missed: #C44D4B;
+    --color-chart-exception: #D59F3D;
+    --color-chart-open: #6E7480;
+    --color-chart-primary: #5B8DEF;
+    --color-chart-grid: #22252B;
+
+    --color-accent-fill: #2563EB;
+    --color-accent-fill-hover: #3069EC;
+    --color-danger-fill: #D13B3B;
+    --color-danger-fill-hover: #B83232;
+
+    --color-inverse: #2A2D34;
+    --color-inverse-secondary: #3A3E46;
+    --color-media: #060708;
+
+    --color-table-head: #191B20;
+    --color-row-hover: #1B1E23;
+
+    /* Cards: a faint top highlight and a tight dark shadow. Overlays: a hairline edge so menus and
+       tooltips stay distinct from the cards beneath them. */
+    --shadow-card: inset 0 1px 0 rgb(255 255 255 / 0.035), 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-pop: 0 0 0 1px rgb(255 255 255 / 0.07), 0 16px 40px -12px rgb(0 0 0 / 0.75), 0 4px 12px -4px rgb(0 0 0 / 0.5);
+  }
+
+  :root[data-theme='dark'] ::selection {
+    background-color: #2B3C62;
+    color: #FFFFFF;
+  }
+
+  /* Quiet scrollbars: no track, a thumb that only firms up under the pointer */
+  :root[data-theme='dark'] ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  :root[data-theme='dark'] ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+  }
+  :root[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
+    background: #4A4F59;
+  }
+}
+
+/* Focus-ring gaps (ring-offset) default to white; in dark mode they take the card colour. Kept in the
+   base layer so an explicit ring-offset-* utility still wins. */
+@layer base {
+  @media screen {
+    :root[data-theme='dark'] *,
+    :root[data-theme='dark'] *::before,
+    :root[data-theme='dark'] *::after {
+      --tw-ring-offset-color: var(--color-surface);
+    }
+  }
+}
+
+/* Switching themes cross-fades the whole page once (View Transitions; lib/theme.ts skips it for reduced motion). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 220ms;
+  animation-timing-function: ease-out;
 }
 
 /*
@@ -301,7 +437,7 @@
     margin-right: 10px;
     padding-top: 1px;
     text-align: left;
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 600;
     line-height: 1.35;
     letter-spacing: 0.03em;
@@ -486,4 +622,41 @@
 @keyframes step-tick {
   from { opacity: 0; transform: scale(0.4); }
   to { opacity: 1; transform: scale(1); }
+}
+
+/*
+ * Sign-in page print motif (pages/LoginPage.tsx): printer's crop marks around the product statement,
+ * the trim marks found on every press sheet.
+ */
+@layer components {
+  .crop-mark {
+    position: absolute;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+  }
+  .crop-mark::before,
+  .crop-mark::after {
+    content: '';
+    position: absolute;
+    background-color: var(--color-ink-faint);
+    opacity: 0.7;
+  }
+  /* Top-left as drawn; the other corners are mirror images around the corner point. */
+  .crop-mark::before {
+    right: 7px;
+    top: 0;
+    width: 14px;
+    height: 1px;
+  }
+  .crop-mark::after {
+    bottom: 7px;
+    left: 0;
+    width: 1px;
+    height: 14px;
+  }
+  .crop-mark-tl { left: 0; top: 0; }
+  .crop-mark-tr { right: 0; top: 0; transform: scaleX(-1); }
+  .crop-mark-bl { left: 0; bottom: 0; transform: scaleY(-1); }
+  .crop-mark-br { right: 0; bottom: 0; transform: scale(-1); }
 }

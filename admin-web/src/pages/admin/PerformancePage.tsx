@@ -32,7 +32,7 @@ const RANKING_ROWS = 8
 /** Green for 0%, amber down to −20%, red below: the same bands as the weekly scores. */
 const scoreTone = (score: number) => (score === 0 ? 'text-success' : score >= -20 ? 'text-exception' : 'text-missed')
 
-const filterLabel = 'block text-[11px] font-medium text-ink-muted mb-1'
+const filterLabel = 'block text-[12.5px] font-medium text-ink-muted mb-1'
 /** A filter that is set stands out, as in the shared FilterBar. */
 const activeClass = (on: boolean) => (on ? 'border-accent bg-accent-soft/40' : '')
 
@@ -110,14 +110,14 @@ export const PerformancePage: React.FC = () => {
         }
         info={`Checks whose time has ended, per worker: completed, exceptions and missed, with the share not done as the score. ${SCORE_INFO}`}
         actions={
-          <IconButton label="Refresh" size="md" onClick={() => reload()} className="border border-line-strong bg-white">
+          <IconButton label="Refresh" size="md" onClick={() => reload()} className="border border-line-strong bg-surface">
             <RefreshCw className={`w-4 h-4 ${loading && data !== null ? 'animate-spin' : ''}`} />
           </IconButton>
         }
       />
 
       {scope?.restricted ? (
-        <div className="card flex items-start gap-2 px-3 py-2.5 text-[12.5px] text-ink-secondary" role="status">
+        <div className="card flex items-start gap-2 px-3 py-2.5 text-[14px] text-ink-secondary" role="status">
           <Users className="w-3.5 h-3.5 mt-0.5 text-ink-muted shrink-0" aria-hidden />
           {scope.missingDepartment ? (
             <span>Your account has no department yet, so no workers are shown. Ask an Admin to set your department.</span>
@@ -131,8 +131,8 @@ export const PerformancePage: React.FC = () => {
 
       {/* 1. Period summary: everything down to the Workers table follows the filters. */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-        <h2 className="text-[15px] font-semibold text-ink">Period summary</h2>
-        <p className="inline-flex items-center gap-1.5 text-[12px] text-ink-muted">
+        <h2 className="text-[16.5px] font-semibold text-ink">Period summary</h2>
+        <p className="inline-flex items-center gap-1.5 text-[13.5px] text-ink-muted">
           <Filter className="w-3 h-3" aria-hidden />
           The filters apply to this section · {period}
         </p>
@@ -291,8 +291,8 @@ export const PerformancePage: React.FC = () => {
               <div className="w-full min-w-0 flex-1 space-y-3">
                 <div>
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-[12px] font-medium text-ink-secondary">Completion</span>
-                    <span className="text-[20px] font-semibold text-ink tabular-nums">{totals.completionRate}%</span>
+                    <span className="text-[13.5px] font-medium text-ink-secondary">Completion</span>
+                    <span className="text-[21px] font-semibold text-ink tabular-nums">{totals.completionRate}%</span>
                   </div>
                   <ProgressBar
                     className="mt-1.5"
@@ -300,7 +300,7 @@ export const PerformancePage: React.FC = () => {
                     label="Completion rate"
                     tone={totals.completionRate >= 90 ? 'success' : totals.completionRate >= 70 ? 'accent' : 'missed'}
                   />
-                  <p className="mt-1 text-[11.5px] text-ink-muted tabular-nums">
+                  <p className="mt-1 text-[13px] text-ink-muted tabular-nums">
                     {totals.completed + totals.exceptions} of {totals.assigned} assigned checks done
                   </p>
                 </div>
@@ -309,13 +309,13 @@ export const PerformancePage: React.FC = () => {
                     const v = s.key === 'exceptions' ? totals.exceptions : totals[s.key as 'completed' | 'missed' | 'open']
                     const all = totals.assigned + totals.open
                     return (
-                      <li key={s.key} className="flex items-center gap-2.5 py-2 text-[12.5px]">
+                      <li key={s.key} className="flex items-center gap-2.5 py-2 text-[14px]">
                         <span className="w-2.5 h-2.5 rounded-[3px] shrink-0" style={{ backgroundColor: s.color }} aria-hidden />
                         <span className="flex-1 text-ink-secondary">
                           {s.label}
                           {s.key === 'open' && <span className="text-ink-muted"> · not counted yet</span>}
                         </span>
-                        <span className="w-10 text-right text-[11.5px] text-ink-muted tabular-nums">{all ? `${Math.round((v / all) * 100)}%` : '—'}</span>
+                        <span className="w-10 text-right text-[13px] text-ink-muted tabular-nums">{all ? `${Math.round((v / all) * 100)}%` : '—'}</span>
                         <span className="w-8 text-right font-semibold text-ink tabular-nums">{v}</span>
                       </li>
                     )
@@ -352,10 +352,10 @@ export const PerformancePage: React.FC = () => {
           Shown with Worker Performance view, like the rest of the page (the server checks the same). */}
       <section aria-labelledby="overall-score-heading" className="space-y-3 pt-5 border-t border-line">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-          <h2 id="overall-score-heading" className="text-[15px] font-semibold text-ink">
+          <h2 id="overall-score-heading" className="text-[16.5px] font-semibold text-ink">
             Overall score
           </h2>
-          <p className="text-[12px] text-ink-muted">From each worker's first check up to today</p>
+          <p className="text-[13.5px] text-ink-muted">From each worker's first check up to today</p>
         </div>
         <OverallScores />
       </section>
@@ -363,10 +363,10 @@ export const PerformancePage: React.FC = () => {
       {/* 3. Weekly scores: everyone's day-wise scores, with its own week (not the filters above). */}
       <section aria-labelledby="weekly-scores-heading" className="space-y-3 pt-5 border-t border-line">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-          <h2 id="weekly-scores-heading" className="text-[15px] font-semibold text-ink">
+          <h2 id="weekly-scores-heading" className="text-[16.5px] font-semibold text-ink">
             Weekly scores
           </h2>
-          <p className="inline-flex items-center gap-1.5 text-[12px] text-ink-muted">
+          <p className="inline-flex items-center gap-1.5 text-[13.5px] text-ink-muted">
             <CalendarDays className="w-3 h-3" aria-hidden />
             Sunday to Saturday · choose the week with the arrows
           </p>

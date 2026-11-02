@@ -69,18 +69,18 @@ const ToastItem: React.FC<{ toast: ToastMessage; onDismiss: (id: string) => void
   }
 
   const borderStyles = {
-    success: 'border-line bg-white text-ink border-l-[3px] border-l-[var(--color-chart-completed)]',
-    warning: 'border-line bg-white text-ink border-l-[3px] border-l-[var(--color-chart-exception)]',
-    error: 'border-line bg-white text-ink border-l-[3px] border-l-[var(--color-chart-missed)]',
-    info: 'border-line bg-white text-ink border-l-[3px] border-l-[var(--color-chart-primary)]'
+    success: 'border-line bg-surface text-ink border-l-[3px] border-l-[var(--color-chart-completed)]',
+    warning: 'border-line bg-surface text-ink border-l-[3px] border-l-[var(--color-chart-exception)]',
+    error: 'border-line bg-surface text-ink border-l-[3px] border-l-[var(--color-chart-missed)]',
+    info: 'border-line bg-surface text-ink border-l-[3px] border-l-[var(--color-chart-primary)]'
   }
 
   return (
-    <div className={`animate-toast-in pointer-events-auto flex items-start gap-2.5 p-3 rounded-lg border shadow-[var(--shadow-pop)] text-[12.5px] ${borderStyles[toast.type]}`}>
+    <div className={`animate-toast-in pointer-events-auto flex items-start gap-2.5 p-3 rounded-lg border shadow-[var(--shadow-pop)] text-[14px] ${borderStyles[toast.type]}`}>
       {icons[toast.type]}
       <div className="flex-1 min-w-0 [overflow-wrap:anywhere]">
         <div className="font-semibold">{toast.title}</div>
-        {toast.message && <div className="text-[12px] text-ink-muted mt-0.5">{toast.message}</div>}
+        {toast.message && <div className="text-[13.5px] text-ink-muted mt-0.5">{toast.message}</div>}
       </div>
       <button
         onClick={() => onDismiss(toast.id)}

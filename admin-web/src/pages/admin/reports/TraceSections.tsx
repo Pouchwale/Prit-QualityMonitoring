@@ -31,7 +31,7 @@ const Section: React.FC<{ title: string; icon: React.ReactNode; subtitle?: strin
       info={note}
       actions={
         count !== undefined ? (
-          <span className="h-5 min-w-5 px-1.5 inline-flex items-center justify-center rounded-full bg-subtle text-ink-secondary ring-1 ring-inset ring-line text-[11px] font-semibold tabular-nums">
+          <span className="h-5 min-w-5 px-1.5 inline-flex items-center justify-center rounded-full bg-subtle text-ink-secondary ring-1 ring-inset ring-line text-[12.5px] font-semibold tabular-nums">
             {count}
           </span>
         ) : undefined
@@ -74,8 +74,8 @@ export const TraceSummary: React.FC<{ trace: TraceReport; scope: string }> = ({ 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-px bg-line">
         {tiles.map((t) => (
           <div key={t.label} className="bg-surface px-4 py-2.5">
-            <div className="text-[12px] font-medium text-ink-secondary">{t.label}</div>
-            <div className={`mt-0.5 text-[20px] leading-tight font-semibold tabular-nums ${t.value ? (t.tone ?? 'text-ink') : 'text-ink-faint'}`}>{t.value}</div>
+            <div className="text-[13.5px] font-medium text-ink-secondary">{t.label}</div>
+            <div className={`mt-0.5 text-[21px] leading-tight font-semibold tabular-nums ${t.value ? (t.tone ?? 'text-ink') : 'text-ink-faint'}`}>{t.value}</div>
           </div>
         ))}
       </div>
@@ -141,7 +141,7 @@ export const TraceGroupTable: React.FC<{ kind: 'item' | 'job'; rows: TraceGroup[
                   <td className="text-ink-secondary">{list(r.machines)}</td>
                   <td className="whitespace-nowrap tabular-nums text-ink-secondary">
                     {formatDateTime(r.firstAt)}
-                    <div className="text-[11.5px] text-ink-muted">{formatDateTime(r.lastAt)}</div>
+                    <div className="text-[13px] text-ink-muted">{formatDateTime(r.lastAt)}</div>
                   </td>
                 </tr>
               ))}
@@ -175,10 +175,10 @@ export const TraceWorkers: React.FC<{ workers: TraceWorker[]; onPickItem?: (valu
       <div className="divide-y divide-line">
         {workers.map((w) => (
           <div key={w.workerId ?? w.name} className="py-3">
-            <div className="px-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[12.5px]">
+            <div className="px-4 flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[14px]">
               <span className="font-semibold text-ink">{w.name}</span>
-              {w.employeeId && <span className="font-mono text-[11.5px] text-ink-muted">{w.employeeId}</span>}
-              <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px]">
+              {w.employeeId && <span className="font-mono text-[13px] text-ink-muted">{w.employeeId}</span>}
+              <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-[13.5px]">
                 <Figure label="checks" value={w.checks} />
                 <Figure label="completed" value={w.completed} tone="text-success" />
                 <Figure label="missed" value={w.missed} tone="text-missed" />
@@ -187,7 +187,7 @@ export const TraceWorkers: React.FC<{ workers: TraceWorker[]; onPickItem?: (valu
                   <Figure label="changes" value={w.changes} /> <span className="text-ink-muted">({w.corrections} corrections)</span>
                 </span>
               </span>
-              <span className="text-[12px] text-ink-muted">Machines: {list(w.machines)}</span>
+              <span className="text-[13.5px] text-ink-muted">Machines: {list(w.machines)}</span>
             </div>
             <div className="overflow-x-auto mt-2">
               <table className="data-table">
@@ -232,7 +232,7 @@ export const TraceWorkers: React.FC<{ workers: TraceWorker[]; onPickItem?: (valu
   </Section>
 )
 
-const pill = 'inline-flex items-center h-5 px-2 rounded-full ring-1 ring-inset text-[11px] font-medium whitespace-nowrap'
+const pill = 'inline-flex items-center h-5 px-2 rounded-full ring-1 ring-inset text-[12.5px] font-medium whitespace-nowrap'
 const changeType = (ch: TraceChange) =>
   ch.correction ? (
     <span className={`${pill} bg-success-bg text-success ring-success-line`}>Correction</span>
@@ -278,7 +278,7 @@ export const TraceChanges: React.FC<{ changes: TraceChange[] }> = ({ changes }) 
                     {ch.unit ? ` ${ch.unit}` : ''} → <span className="font-semibold">{readingText(ch.to)}</span>
                     {ch.unit ? ` ${ch.unit}` : ''}
                   </span>
-                  <div className="text-[11.5px] text-ink-muted">
+                  <div className="text-[13px] text-ink-muted">
                     {ch.fromResult} → {ch.toResult}
                   </div>
                 </td>
@@ -286,12 +286,12 @@ export const TraceChanges: React.FC<{ changes: TraceChange[] }> = ({ changes }) 
                 <td className="whitespace-nowrap">{ch.machineName}</td>
                 <td className="whitespace-nowrap font-mono">
                   <div>{ch.itemCode || NONE}</div>
-                  <div className="text-[11.5px] text-ink-muted">{ch.jobNo || NONE}</div>
+                  <div className="text-[13px] text-ink-muted">{ch.jobNo || NONE}</div>
                 </td>
                 <td className="whitespace-nowrap">
                   {ch.byName}
-                  {ch.byEmployeeId && <span className="text-[11.5px] text-ink-muted font-mono"> · {ch.byEmployeeId}</span>}
-                  <div className="text-[11.5px] text-ink-muted">
+                  {ch.byEmployeeId && <span className="text-[13px] text-ink-muted font-mono"> · {ch.byEmployeeId}</span>}
+                  <div className="text-[13px] text-ink-muted">
                     Previous: {ch.previousByName}, {formatDateTime(ch.previousAt)}
                   </div>
                 </td>
@@ -339,7 +339,7 @@ export const DetailedRecords: React.FC<{ checks: QualityCheck[]; onViewCheck?: (
                 <tr key={c.id} className="[&>td]:align-top">
                   <td className="whitespace-nowrap tabular-nums">
                     {formatDateTime(c.submittedAt ?? c.scheduledAt)}
-                    <div className="text-[11.5px] text-ink-muted font-mono">
+                    <div className="text-[13px] text-ink-muted font-mono">
                       {onViewCheck ? (
                         <button type="button" className="hover:underline hover:text-accent" onClick={() => onViewCheck(c.id)}>
                           {c.code}
@@ -351,27 +351,27 @@ export const DetailedRecords: React.FC<{ checks: QualityCheck[]; onViewCheck?: (
                   </td>
                   <td className="whitespace-nowrap">
                     {c.machineName}
-                    <div className="text-[11.5px] text-ink-muted font-mono">{c.machineCode}</div>
+                    <div className="text-[13px] text-ink-muted font-mono">{c.machineCode}</div>
                   </td>
                   <td className="whitespace-nowrap font-mono">
                     <div>{itemCodeOf(c) || NONE}</div>
-                    <div className="text-[11.5px] text-ink-muted">{jobNoOf(c) || NONE}</div>
+                    <div className="text-[13px] text-ink-muted">{jobNoOf(c) || NONE}</div>
                   </td>
                   <td className="text-ink-secondary">
                     {c.activityName}
-                    <div className="text-[11.5px] text-ink-muted">{c.shiftName ?? ''}</div>
+                    <div className="text-[13px] text-ink-muted">{c.shiftName ?? ''}</div>
                   </td>
                   <td className="whitespace-nowrap">
                     {doer.name}
-                    {doer.employeeId && <div className="text-[11.5px] text-ink-muted font-mono">{doer.employeeId}</div>}
+                    {doer.employeeId && <div className="text-[13px] text-ink-muted font-mono">{doer.employeeId}</div>}
                   </td>
                   <td className="whitespace-nowrap">
                     {c.result ? (
                       <StatusBadge status={c.result} size="sm" />
                     ) : (
-                      <span className="inline-flex items-center h-5 px-1.5 rounded-full ring-1 ring-inset ring-line-strong bg-surface text-ink-muted text-[11px] font-medium">Open</span>
+                      <span className="inline-flex items-center h-5 px-1.5 rounded-full ring-1 ring-inset ring-line-strong bg-surface text-ink-muted text-[12.5px] font-medium">Open</span>
                     )}
-                    {c.submissionType && <div className="text-[11.5px] text-ink-muted mt-0.5">{c.submissionType === 'MANUAL' ? 'Manual' : 'Notification'}</div>}
+                    {c.submissionType && <div className="text-[13px] text-ink-muted mt-0.5">{c.submissionType === 'MANUAL' ? 'Manual' : 'Notification'}</div>}
                   </td>
                   <td className="min-w-[240px]">
                     {c.values.length > 0 && (
@@ -379,7 +379,7 @@ export const DetailedRecords: React.FC<{ checks: QualityCheck[]; onViewCheck?: (
                         {c.values.map((v) => (
                           <span
                             key={`${v.parameterId ?? v.parameterName}`}
-                            className={`inline-flex items-baseline gap-1 px-1.5 py-0.5 rounded-md ring-1 ring-inset text-[11.5px] ${readingTone(v)}`}
+                            className={`inline-flex items-baseline gap-1 px-1.5 py-0.5 rounded-md ring-1 ring-inset text-[13px] ${readingTone(v)}`}
                             title={v.rule ?? undefined}
                           >
                             <span className="text-ink-secondary">{v.parameterName}:</span>
@@ -391,7 +391,7 @@ export const DetailedRecords: React.FC<{ checks: QualityCheck[]; onViewCheck?: (
                       </div>
                     )}
                     {c.exception && (
-                      <div className="mt-1 text-[12px] text-exception">
+                      <div className="mt-1 text-[13.5px] text-exception">
                         <span className="font-semibold">Exception:</span> {[c.exception.reason, c.exception.reading, c.exception.remark].filter(Boolean).join(' — ')}
                         <span className="text-ink-muted">
                           {' '}
@@ -401,7 +401,7 @@ export const DetailedRecords: React.FC<{ checks: QualityCheck[]; onViewCheck?: (
                         </span>
                       </div>
                     )}
-                    {c.result === 'MISSED' && <div className="mt-1 text-[12px] text-missed">Missed: not submitted before {formatDateTime(c.windowEndsAt)}</div>}
+                    {c.result === 'MISSED' && <div className="mt-1 text-[13.5px] text-missed">Missed: not submitted before {formatDateTime(c.windowEndsAt)}</div>}
                     {c.result === 'COMPLETED' && c.values.length === 0 && <span className="text-ink-muted">No readings on this check type</span>}
                     {!c.result && <span className="text-ink-muted">Not submitted yet</span>}
                   </td>

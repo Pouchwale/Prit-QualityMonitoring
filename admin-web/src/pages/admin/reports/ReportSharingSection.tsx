@@ -479,7 +479,7 @@ export const ReportSharingSection: React.FC = () => {
       </div>
 
       {loadingSettings && (
-        <p className="flex items-center gap-2 text-[12px] text-ink-muted" role="status">
+        <p className="flex items-center gap-2 text-[13.5px] text-ink-muted" role="status">
           <RefreshCw className="w-3.5 h-3.5 animate-spin" aria-hidden />
           Loading settings…
         </p>
@@ -500,8 +500,8 @@ export const ReportSharingSection: React.FC = () => {
               {/* Toggle Enable/Disable */}
               <label className="flex items-center justify-between gap-3 rounded-lg border border-line bg-subtle/60 px-3 py-2.5 cursor-pointer">
                 <span className="min-w-0">
-                  <span className="block text-[12.5px] font-semibold text-ink">Enable automated report dispatch</span>
-                  <span className="block text-[11.5px] text-ink-muted">Send inspection reports automatically at the configured frequency</span>
+                  <span className="block text-[14px] font-semibold text-ink">Enable automated report dispatch</span>
+                  <span className="block text-[13px] text-ink-muted">Send inspection reports automatically at the configured frequency</span>
                 </span>
                 <span className="relative inline-flex items-center shrink-0">
                   <input
@@ -515,7 +515,7 @@ export const ReportSharingSection: React.FC = () => {
                   />
                   <span
                     aria-hidden
-                    className="w-10 h-[22px] rounded-full bg-line-strong transition-colors peer-checked:bg-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:w-4 after:h-4 after:rounded-full after:bg-white after:shadow-[var(--shadow-card)] after:transition-transform peer-checked:after:translate-x-[18px]"
+                    className="w-10 h-[22px] rounded-full bg-line-strong transition-colors peer-checked:bg-accent-fill peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2 after:content-[''] after:absolute after:top-[3px] after:left-[3px] after:w-4 after:h-4 after:rounded-full after:bg-surface after:shadow-[var(--shadow-card)] after:transition-transform peer-checked:after:translate-x-[18px]"
                   />
                 </span>
               </label>
@@ -536,7 +536,7 @@ export const ReportSharingSection: React.FC = () => {
                   {/* Sub-inputs when Custom Interval is selected */}
                   {frequencySelection === 'custom_interval' && (
                     <div className="mt-2.5 p-2.5 rounded-lg border border-line bg-subtle/60 space-y-2">
-                      <div className="flex items-center justify-between gap-2 text-[11.5px]">
+                      <div className="flex items-center justify-between gap-2 text-[13px]">
                         <span className="font-semibold text-ink-secondary">Custom interval</span>
                         <span className="font-semibold text-accent-strong">
                           Every {customIntervalValue} {customIntervalUnit}
@@ -570,7 +570,7 @@ export const ReportSharingSection: React.FC = () => {
                           ))}
                         </div>
                       </div>
-                      <p className="text-[11.5px] text-ink-muted">
+                      <p className="text-[13px] text-ink-muted">
                         Reports will automatically run and dispatch every {customIntervalValue} {customIntervalUnit}.
                       </p>
                     </div>
@@ -579,7 +579,7 @@ export const ReportSharingSection: React.FC = () => {
                   {/* Sub-inputs when Daily at Specific Time is selected */}
                   {frequencySelection === 'daily_at' && (
                     <div className="mt-2.5 p-2.5 rounded-lg border border-line bg-subtle/60 space-y-2">
-                      <div className="flex items-center justify-between gap-2 text-[11.5px]">
+                      <div className="flex items-center justify-between gap-2 text-[13px]">
                         <span className="font-semibold text-ink-secondary">Daily dispatch time</span>
                         <span className="font-semibold text-accent-strong">At {scheduledTime} daily</span>
                       </div>
@@ -605,7 +605,7 @@ export const ReportSharingSection: React.FC = () => {
                           ))}
                         </div>
                       </div>
-                      <p className="text-[11.5px] text-ink-muted">Reports will be generated once per day at {scheduledTime} covering the completed day.</p>
+                      <p className="text-[13px] text-ink-muted">Reports will be generated once per day at {scheduledTime} covering the completed day.</p>
                     </div>
                   )}
 
@@ -613,7 +613,7 @@ export const ReportSharingSection: React.FC = () => {
                   {frequencySelection === 'daily_report' && (
                     <div className="mt-2.5 p-2.5 rounded-lg border border-line bg-subtle/60 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[11.5px] font-semibold text-ink-secondary">Send at</span>
+                        <span className="text-[13px] font-semibold text-ink-secondary">Send at</span>
                         <input
                           type="time"
                           aria-label="Daily report time"
@@ -622,7 +622,7 @@ export const ReportSharingSection: React.FC = () => {
                           className={`${inputClass} !w-auto`}
                         />
                       </div>
-                      <p className="text-[11.5px] text-ink-muted">
+                      <p className="text-[13px] text-ink-muted">
                         Every day at {dailyReportTime}, each worker's checks of the previous day: assigned, completed, exceptions, missed and performance %,
                         with the workers who missed checks listed first, and the previous day's Quality Inspection Report attached as a PDF
                         ({percentage}% sample). While this is chosen, the sampled inspection reports are not sent on a schedule (Manual send still works).
@@ -632,7 +632,7 @@ export const ReportSharingSection: React.FC = () => {
                           <Button size="sm" variant="outline" onClick={resendDaily} loading={resendingDaily} icon={<Send className="w-3.5 h-3.5" />}>
                             Resend today's report
                           </Button>
-                          <span className="text-[11px] text-ink-muted">Uses the saved recipients and mail settings.</span>
+                          <span className="text-[12.5px] text-ink-muted">Uses the saved recipients and mail settings.</span>
                         </div>
                       )}
                     </div>
@@ -641,7 +641,7 @@ export const ReportSharingSection: React.FC = () => {
 
                 {/* Percentage */}
                 <div className="min-w-0">
-                  <span className="block text-[13px] lg:text-[12.5px] font-medium text-ink-secondary mb-1.5">Check report percentage</span>
+                  <span className="block text-[14.5px] lg:text-[14px] font-medium text-ink-secondary mb-1.5">Check report percentage</span>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="inline-flex items-center gap-1.5">
                       <input
@@ -653,7 +653,7 @@ export const ReportSharingSection: React.FC = () => {
                         onChange={(e) => setPercentage(Math.min(100, Math.max(1, Number(e.target.value))))}
                         className={`${inputClass} w-20 text-center font-semibold`}
                       />
-                      <span className="text-[12.5px] font-semibold text-ink-secondary">%</span>
+                      <span className="text-[14px] font-semibold text-ink-secondary">%</span>
                     </span>
                     <div className="flex flex-wrap gap-1" role="group" aria-label="Percentage presets">
                       {PERCENTAGE_PRESETS.map((pct) => (
@@ -663,7 +663,7 @@ export const ReportSharingSection: React.FC = () => {
                       ))}
                     </div>
                   </div>
-                  <p className="text-[11px] text-ink-muted mt-1">e.g. 20% of 100 checks = 20 randomly sampled</p>
+                  <p className="text-[12.5px] text-ink-muted mt-1">e.g. 20% of 100 checks = 20 randomly sampled</p>
                 </div>
               </div>
             </div>
@@ -688,7 +688,7 @@ export const ReportSharingSection: React.FC = () => {
               {recipients.length > 0 ? (
                 <EmailChips emails={recipients} onRemove={removeRecipient} />
               ) : (
-                <div className="flex items-start gap-2 rounded-lg border border-missed-line bg-missed-bg px-3 py-2 text-[12px] font-medium text-missed" role="status">
+                <div className="flex items-start gap-2 rounded-lg border border-missed-line bg-missed-bg px-3 py-2 text-[13.5px] font-medium text-missed" role="status">
                   <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" aria-hidden />
                   No recipients added. Automated reports will not be sent until at least one email is added.
                 </div>
@@ -730,13 +730,13 @@ export const ReportSharingSection: React.FC = () => {
                     <Server className="w-4 h-4" />
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-[13.5px] font-semibold text-ink leading-tight">SMTP server</span>
-                    <span className="block text-[12px] text-ink-muted truncate">
+                    <span className="block text-[15px] font-semibold text-ink leading-tight">SMTP server</span>
+                    <span className="block text-[13.5px] text-ink-muted truncate">
                       {smtpHost ? `${smtpHost}:${smtpPort}${smtpUser ? ` · ${smtpUser}` : ''}` : 'Email dispatch settings · not set'}
                     </span>
                   </span>
                 </span>
-                <span className="inline-flex items-center gap-1 text-[12px] font-medium text-accent-strong shrink-0">
+                <span className="inline-flex items-center gap-1 text-[13.5px] font-medium text-accent-strong shrink-0">
                   {smtpOpen ? 'Hide' : 'Configure'}
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform ${smtpOpen ? 'rotate-180' : ''}`} aria-hidden />
                 </span>
@@ -794,13 +794,13 @@ export const ReportSharingSection: React.FC = () => {
           <div className="flex flex-wrap items-center justify-end gap-3">
             {canManage ? (
               <>
-                <span className="text-[11.5px] text-ink-muted">Saves schedule, recipients and SMTP</span>
+                <span className="text-[13px] text-ink-muted">Saves schedule, recipients and SMTP</span>
                 <Button size="sm" variant="primary" onClick={handleSaveSettings} loading={savingSettings} icon={<CheckCircle2 className="w-3.5 h-3.5" />}>
                   Save schedule settings
                 </Button>
               </>
             ) : (
-              <p className="flex items-center gap-1.5 text-[12px] text-ink-muted">
+              <p className="flex items-center gap-1.5 text-[13.5px] text-ink-muted">
                 <Lock className="w-3.5 h-3.5" aria-hidden />
                 Only an Admin can change the schedule and email settings.
               </p>
@@ -847,7 +847,7 @@ export const ReportSharingSection: React.FC = () => {
               </div>
               {/* Quick Presets */}
               <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Quick periods">
-                <span className="text-[11.5px] text-ink-muted font-medium mr-1">Quick select</span>
+                <span className="text-[13px] text-ink-muted font-medium mr-1">Quick select</span>
                 <Chip onClick={() => setQuickPeriod('today')}>Today</Chip>
                 <Chip onClick={() => setQuickPeriod('yesterday')}>Yesterday</Chip>
                 <Chip onClick={() => setQuickPeriod('7days')}>Last 7 days</Chip>
@@ -858,8 +858,8 @@ export const ReportSharingSection: React.FC = () => {
             {/* Sampling Percentage & Preview Trigger */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-[13px] lg:text-[12.5px] font-medium text-ink-secondary">Random sample percentage</span>
-                <span className="text-[12.5px] font-semibold text-accent-strong tabular-nums">{manualPercentage}%</span>
+                <span className="text-[14.5px] lg:text-[14px] font-medium text-ink-secondary">Random sample percentage</span>
+                <span className="text-[14px] font-semibold text-accent-strong tabular-nums">{manualPercentage}%</span>
               </div>
               <div className="flex items-center gap-3">
                 <input
@@ -884,20 +884,20 @@ export const ReportSharingSection: React.FC = () => {
             {/* Sample Preview Card */}
             {previewSample && (
               <div className="rounded-lg border border-line bg-subtle/60 p-3 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[14px]">
                   <span className="font-semibold text-ink">
                     Sampled {previewSample.sampleCount} of {previewSample.eligibleTotal} eligible check(s) ({previewSample.percentage}%)
                   </span>
-                  <span className="text-[11.5px] text-ink-muted">Randomly chosen</span>
+                  <span className="text-[13px] text-ink-muted">Randomly chosen</span>
                 </div>
 
                 {/* Sampled checks mini list */}
                 {previewSample.checks.length > 0 ? (
                   <ul className="max-h-44 overflow-y-auto space-y-1 pr-1">
                     {previewSample.checks.map((chk) => (
-                      <li key={chk.id} className="flex items-center justify-between gap-2 rounded-md border border-line bg-surface px-2.5 py-1.5 text-[12px]">
+                      <li key={chk.id} className="flex items-center justify-between gap-2 rounded-md border border-line bg-surface px-2.5 py-1.5 text-[13.5px]">
                         <span className="min-w-0 truncate">
-                          <span className="font-semibold text-ink font-mono text-[11.5px]">{chk.code}</span>
+                          <span className="font-semibold text-ink font-mono text-[13px]">{chk.code}</span>
                           <span className="text-ink-muted"> · {chk.itemCode || chk.machineName} · {chk.workerName}</span>
                         </span>
                         <span className="flex items-center gap-2 shrink-0">
@@ -906,7 +906,7 @@ export const ReportSharingSection: React.FC = () => {
                           ) : (
                             <span className={`${pillBase} bg-success-bg text-success ring-success-line`}>Pass</span>
                           )}
-                          <span className="inline-flex items-center gap-1 text-[11.5px] text-ink-muted tabular-nums" title={`${chk.photoCount} photos, ${chk.videoCount} videos`}>
+                          <span className="inline-flex items-center gap-1 text-[13px] text-ink-muted tabular-nums" title={`${chk.photoCount} photos, ${chk.videoCount} videos`}>
                             <ImageIcon className="w-3 h-3" aria-hidden />
                             {chk.photoCount}
                             {chk.videoCount ? (
@@ -921,7 +921,7 @@ export const ReportSharingSection: React.FC = () => {
                     ))}
                   </ul>
                 ) : (
-                  <div className="rounded-md border border-exception-line bg-exception-bg px-2.5 py-2 text-[12px] text-exception" role="status">
+                  <div className="rounded-md border border-exception-line bg-exception-bg px-2.5 py-2 text-[13.5px] text-exception" role="status">
                     No checks found matching this date interval. Try expanding the date range.
                   </div>
                 )}
@@ -930,7 +930,7 @@ export const ReportSharingSection: React.FC = () => {
 
             {/* Manual Recipients */}
             <div className="space-y-2">
-              <span className="block text-[13px] lg:text-[12.5px] font-medium text-ink-secondary">Recipients for this send</span>
+              <span className="block text-[14.5px] lg:text-[14px] font-medium text-ink-secondary">Recipients for this send</span>
               <EmailAdder
                 value={manualRecipientInput}
                 onChange={setManualRecipientInput}
@@ -964,7 +964,7 @@ export const ReportSharingSection: React.FC = () => {
                 Send report now
               </Button>
             ) : (
-              <span className="flex items-center gap-1.5 text-[12px] text-ink-muted">
+              <span className="flex items-center gap-1.5 text-[13.5px] text-ink-muted">
                 <Lock className="w-3.5 h-3.5" aria-hidden />
                 Only an Admin can send reports.
               </span>
@@ -1008,7 +1008,7 @@ export const ReportSharingSection: React.FC = () => {
                     <tr key={log.id}>
                       <td className="whitespace-nowrap">
                         <div className="font-medium text-ink tabular-nums">{formatDateTime(new Date(log.sentAt))}</div>
-                        <div className="text-[11.5px] text-ink-muted">{log.sentByName || (isAuto ? 'System Scheduler' : 'Admin')}</div>
+                        <div className="text-[13px] text-ink-muted">{log.sentByName || (isAuto ? 'System Scheduler' : 'Admin')}</div>
                       </td>
                       <td className="whitespace-nowrap">
                         <div className="flex items-center gap-1.5">
@@ -1020,15 +1020,15 @@ export const ReportSharingSection: React.FC = () => {
                           )}
                         </div>
                         {log.status !== 'SENT' && log.errorMessage && (
-                          <div className="mt-0.5 max-w-[240px] truncate text-[11.5px] text-missed" title={log.errorMessage}>
+                          <div className="mt-0.5 max-w-[240px] truncate text-[13px] text-missed" title={log.errorMessage}>
                             {log.errorMessage}
                           </div>
                         )}
                         {log.status === 'RETRYING' && log.nextRetryAt && (
-                          <div className="text-[11.5px] text-ink-muted">Retry at {formatDateTime(new Date(log.nextRetryAt))}</div>
+                          <div className="text-[13px] text-ink-muted">Retry at {formatDateTime(new Date(log.nextRetryAt))}</div>
                         )}
                         {log.status === 'SENT' && log.recoveredAt && (
-                          <div className="text-[11.5px] text-ink-muted">After {(log.attempts ?? 2) - 1} retr{(log.attempts ?? 2) - 1 === 1 ? 'y' : 'ies'}, {formatDateTime(new Date(log.recoveredAt))}</div>
+                          <div className="text-[13px] text-ink-muted">After {(log.attempts ?? 2) - 1} retr{(log.attempts ?? 2) - 1 === 1 ? 'y' : 'ies'}, {formatDateTime(new Date(log.recoveredAt))}</div>
                         )}
                       </td>
                       <td className="whitespace-nowrap">
@@ -1048,12 +1048,12 @@ export const ReportSharingSection: React.FC = () => {
                           ))}
                         </ul>
                         {people.length > 1 && log.status !== 'SENT' && (
-                          <div className="text-[11.5px] text-ink-muted">{sentCount} of {people.length} sent</div>
+                          <div className="text-[13px] text-ink-muted">{sentCount} of {people.length} sent</div>
                         )}
                       </td>
                       <td className="num">
                         <div className="font-semibold text-ink">{log.checksCount}</div>
-                        <div className="text-[11.5px] text-ink-muted">{log.percentage ? `${log.percentage}% sample` : '—'}</div>
+                        <div className="text-[13px] text-ink-muted">{log.percentage ? `${log.percentage}% sample` : '—'}</div>
                       </td>
                       <td className="whitespace-nowrap text-ink-secondary">
                         <span className="inline-flex items-center gap-1">
@@ -1092,7 +1092,7 @@ export const ReportSharingSection: React.FC = () => {
   )
 }
 
-const pillBase = 'inline-flex items-center h-5 px-2 rounded-full ring-1 ring-inset text-[11px] font-semibold whitespace-nowrap'
+const pillBase = 'inline-flex items-center h-5 px-2 rounded-full ring-1 ring-inset text-[12.5px] font-semibold whitespace-nowrap'
 
 const OnOffPill: React.FC<{ on: boolean }> = ({ on }) => (
   <span className={`${pillBase} gap-1.5 ${on ? 'bg-success-bg text-success ring-success-line' : 'bg-subtle text-ink-muted ring-line'}`}>
@@ -1109,14 +1109,14 @@ const SummaryTile: React.FC<{ icon: React.ReactNode; label: string; value: strin
         <span className="w-7 h-7 shrink-0 rounded-md bg-accent-soft text-accent flex items-center justify-center" aria-hidden>
           {icon}
         </span>
-        <span className="text-[12.5px] font-medium text-ink-secondary truncate">{label}</span>
+        <span className="text-[14px] font-medium text-ink-secondary truncate">{label}</span>
       </span>
       {badge}
     </div>
-    <div className="mt-2.5 text-[16px] font-semibold text-ink leading-tight truncate" title={value}>
+    <div className="mt-2.5 text-[17px] font-semibold text-ink leading-tight truncate" title={value}>
       {value}
     </div>
-    <div className="mt-1 text-[12px] text-ink-muted truncate" title={meta}>
+    <div className="mt-1 text-[13.5px] text-ink-muted truncate" title={meta}>
       {meta}
     </div>
   </div>
@@ -1128,7 +1128,7 @@ const Chip: React.FC<{ on?: boolean; onClick: () => void; children: React.ReactN
     type="button"
     onClick={onClick}
     aria-pressed={on === undefined ? undefined : on}
-    className={`h-9 lg:h-6 px-2 rounded-md ring-1 ring-inset text-[11.5px] font-medium tabular-nums whitespace-nowrap transition-colors ${
+    className={`h-9 lg:h-6 px-2 rounded-md ring-1 ring-inset text-[13px] font-medium tabular-nums whitespace-nowrap transition-colors ${
       on ? 'bg-accent-soft text-accent-strong ring-accent-line' : 'bg-surface text-ink-secondary ring-line hover:bg-subtle hover:text-ink'
     }`}
   >
@@ -1164,7 +1164,7 @@ const EmailAdder: React.FC<{ value: string; onChange: (v: string) => void; onAdd
 const EmailChips: React.FC<{ emails: string[]; onRemove: (index: number) => void }> = ({ emails, onRemove }) => (
   <ul className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
     {emails.map((email, idx) => (
-      <li key={idx} className="inline-flex items-center gap-1 pl-2.5 pr-0.5 h-7 rounded-full text-[12px] bg-subtle ring-1 ring-inset ring-line text-ink max-w-full min-w-0">
+      <li key={idx} className="inline-flex items-center gap-1 pl-2.5 pr-0.5 h-7 rounded-full text-[13.5px] bg-subtle ring-1 ring-inset ring-line text-ink max-w-full min-w-0">
         <Mail className="w-3 h-3 shrink-0 text-ink-muted" aria-hidden />
         <span className="min-w-0 truncate" title={email}>
           {email}

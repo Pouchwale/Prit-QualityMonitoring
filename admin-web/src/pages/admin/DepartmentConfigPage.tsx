@@ -191,7 +191,7 @@ export const DepartmentConfigPage: React.FC = () => {
                   {filtered.map((m) => (
                     <tr key={m.id}>
                       <td className="whitespace-nowrap">
-                        <CodeChip tone={m.isActive ? 'accent' : 'neutral'} className="!text-[12.5px] !h-6 !px-2 font-semibold">
+                        <CodeChip tone={m.isActive ? 'accent' : 'neutral'} className="!text-[14px] !h-6 !px-2 font-semibold">
                           {m.prefix}
                         </CodeChip>
                       </td>
@@ -199,7 +199,7 @@ export const DepartmentConfigPage: React.FC = () => {
                         <div className="inline-flex items-center gap-1.5">
                           <span className="font-medium text-ink">{m.departmentName}</span>
                           {!m.departmentActive && (
-                            <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-exception-bg text-exception ring-1 ring-inset ring-exception-line text-[11px] font-medium">
+                            <span className="inline-flex items-center gap-1 h-5 px-1.5 rounded-full bg-exception-bg text-exception ring-1 ring-inset ring-exception-line text-[12.5px] font-medium">
                               <AlertTriangle className="w-3 h-3" aria-hidden />
                               Department inactive
                             </span>
@@ -207,7 +207,7 @@ export const DepartmentConfigPage: React.FC = () => {
                         </div>
                       </td>
                       <td className="whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1.5 font-mono text-[12px] text-ink-muted">
+                        <span className="inline-flex items-center gap-1.5 font-mono text-[13.5px] text-ink-muted">
                           {m.prefix}12345
                           <ArrowRight className="w-3 h-3 text-ink-faint" aria-label="maps to" />
                           <span className="font-sans text-ink-secondary">{m.departmentName}</span>
@@ -219,7 +219,7 @@ export const DepartmentConfigPage: React.FC = () => {
                       <td className={`num ${m.jobCount > 0 ? 'text-ink font-medium' : 'text-ink-faint'}`}>{m.jobCount}</td>
                       <td className="whitespace-nowrap">
                         <div className="text-ink-secondary tabular-nums">{formatDateTime(m.updatedAt)}</div>
-                        {m.updatedByName && <div className="text-[11.5px] text-ink-muted">{m.updatedByName}</div>}
+                        {m.updatedByName && <div className="text-[13px] text-ink-muted">{m.updatedByName}</div>}
                       </td>
                       {canWrite && (
                         <td className="text-right whitespace-nowrap" data-label="">
@@ -254,7 +254,7 @@ export const DepartmentConfigPage: React.FC = () => {
             </div>
           )}
 
-          <div className="flex items-start gap-2 px-4 py-3 border-t border-line bg-subtle/60 text-[12px] text-ink-muted">
+          <div className="flex items-start gap-2 px-4 py-3 border-t border-line bg-subtle/60 text-[13.5px] text-ink-muted">
             <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-faint" aria-hidden />
             <p>
               Matching ignores upper and lower case. Prefixes cannot overlap (RM and RMLA cannot both exist), so an Item Code matches at most one

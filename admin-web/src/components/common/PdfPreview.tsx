@@ -64,21 +64,21 @@ export const PdfPreview: React.FC<{
 
   if (!path) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/45 backdrop-blur-[2px] animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-scrim/45 backdrop-blur-[2px] animate-fade-in">
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="animate-scale-in w-full max-w-6xl h-[94vh] sm:h-[90vh] bg-white rounded-lg shadow-[var(--shadow-pop)] border border-line flex flex-col overflow-hidden outline-none"
+        className="animate-scale-in w-full max-w-6xl h-[94vh] sm:h-[90vh] bg-surface rounded-lg shadow-[var(--shadow-pop)] border border-line flex flex-col overflow-hidden outline-none"
       >
         <div className="flex items-center justify-between gap-2 px-3 sm:px-4 h-14 border-b border-line shrink-0">
           <div className="min-w-0">
-            <h2 id={titleId} className="text-[14px] font-semibold text-ink truncate">
+            <h2 id={titleId} className="text-[15.5px] font-semibold text-ink truncate">
               {title}
             </h2>
-            {detail && <p className="text-[12px] text-ink-muted truncate">{detail}</p>}
+            {detail && <p className="text-[13.5px] text-ink-muted truncate">{detail}</p>}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {url && (
@@ -94,7 +94,7 @@ export const PdfPreview: React.FC<{
                 <a
                   href={url}
                   download={fileName}
-                  className="inline-flex items-center gap-1.5 h-[40px] lg:h-8 px-3 rounded-md border border-line-strong bg-white text-[13px] font-medium text-ink hover:bg-subtle"
+                  className="inline-flex items-center gap-1.5 h-[40px] lg:h-8 px-3 rounded-md border border-line-strong bg-surface text-[14.5px] font-medium text-ink hover:bg-subtle"
                 >
                   <Download className="w-3.5 h-3.5" aria-hidden />
                   Download
@@ -114,18 +114,18 @@ export const PdfPreview: React.FC<{
         </div>
         <div className="flex-1 min-h-0 bg-subtle">
           {url ? (
-            <iframe ref={frame} src={url} title={title} className="w-full h-full border-0 bg-white" />
+            <iframe ref={frame} src={url} title={title} className="w-full h-full border-0 bg-surface" />
           ) : error ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 px-6 text-center" role="alert">
               <AlertCircle className="w-6 h-6 text-failed" aria-hidden />
-              <p className="text-[14px] font-semibold text-ink">The PDF could not be prepared</p>
-              <p className="text-[13px] text-ink-muted max-w-md">{error}</p>
+              <p className="text-[15.5px] font-semibold text-ink">The PDF could not be prepared</p>
+              <p className="text-[14.5px] text-ink-muted max-w-md">{error}</p>
             </div>
           ) : (
             <div className="h-full flex flex-col items-center justify-center gap-2 px-6 text-center" aria-live="polite">
               <Loader2 className="w-6 h-6 text-accent animate-spin" aria-hidden />
-              <p className="text-[14px] font-semibold text-ink">Preparing the PDF…</p>
-              <p className="text-[13px] text-ink-muted max-w-md">
+              <p className="text-[15.5px] font-semibold text-ink">Preparing the PDF…</p>
+              <p className="text-[14.5px] text-ink-muted max-w-md">
                 {detail ? `${detail}. ` : ''}A report with many checks and photos can take up to a minute.
                 {seconds >= 3 ? ` ${seconds} s` : ''}
               </p>

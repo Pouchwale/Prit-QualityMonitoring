@@ -31,7 +31,7 @@ export const CLOSURE_TYPES: Record<
     hint: 'Weekly off or unplanned closure',
     icon: <DoorClosed className="w-3.5 h-3.5" />,
     cell: 'bg-subtle hover:bg-line/60',
-    chip: 'bg-ink-secondary text-white ring-1 ring-inset ring-ink-secondary',
+    chip: 'bg-inverse-secondary text-white ring-1 ring-inset ring-inverse-secondary',
     dot: 'bg-ink-secondary'
   },
   HOLIDAY: {

@@ -108,53 +108,53 @@ export const NotificationDevicesSection: React.FC = () => {
     const isTesting = testingModule === assignment.module
 
     return (
-      <div className="flex flex-col rounded-lg border border-line bg-white">
+      <div className="flex flex-col rounded-lg border border-line bg-surface">
         <div className="flex items-start justify-between gap-3 px-3.5 pt-3.5">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="inline-flex items-center h-5 px-1.5 rounded bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line font-mono text-[11.5px] font-semibold tracking-wide">
+              <span className="inline-flex items-center h-5 px-1.5 rounded bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line font-mono text-[13px] font-semibold tracking-wide">
                 {assignment.module}
               </span>
-              <h3 className="text-[13.5px] font-semibold text-ink">{title}</h3>
+              <h3 className="text-[15px] font-semibold text-ink">{title}</h3>
             </div>
-            <p className="text-[11.5px] text-ink-muted mt-1 leading-snug">{subtitle}</p>
+            <p className="text-[13px] text-ink-muted mt-1 leading-snug">{subtitle}</p>
           </div>
 
           {isAssigned ? (
-            <span className="shrink-0 inline-flex items-center gap-1 h-[22px] px-2 rounded-full bg-success-bg text-success ring-1 ring-inset ring-success-line text-[11.5px] font-medium">
+            <span className="shrink-0 inline-flex items-center gap-1 h-[22px] px-2 rounded-full bg-success-bg text-success ring-1 ring-inset ring-success-line text-[13px] font-medium">
               <CheckCircle2 className="w-3.5 h-3.5" aria-hidden /> Configured
             </span>
           ) : (
-            <span className="shrink-0 inline-flex items-center gap-1 h-[22px] px-2 rounded-full bg-exception-bg text-exception ring-1 ring-inset ring-exception-line text-[11.5px] font-medium">
+            <span className="shrink-0 inline-flex items-center gap-1 h-[22px] px-2 rounded-full bg-exception-bg text-exception ring-1 ring-inset ring-exception-line text-[13px] font-medium">
               <AlertCircle className="w-3.5 h-3.5" aria-hidden /> No Phone Assigned
             </span>
           )}
         </div>
 
         <div className="mx-3.5 my-3 px-3 py-2.5 rounded-md bg-subtle border border-line">
-          <div className="text-[11px] text-ink-muted uppercase font-semibold tracking-[0.05em] mb-1.5">Dedicated Notification Phone / User</div>
+          <div className="text-[12.5px] text-ink-muted uppercase font-semibold tracking-[0.05em] mb-1.5">Dedicated Notification Phone / User</div>
           {isAssigned ? (
             <div className="flex items-center gap-2.5 min-w-0">
-              <span className="w-8 h-8 shrink-0 rounded-full bg-white ring-1 ring-line text-ink-secondary flex items-center justify-center" aria-hidden>
+              <span className="w-8 h-8 shrink-0 rounded-full bg-surface ring-1 ring-line text-ink-secondary flex items-center justify-center" aria-hidden>
                 <User className="w-4 h-4" />
               </span>
               <div className="min-w-0">
-                <div className="text-[13px] font-semibold text-ink truncate">
+                <div className="text-[14.5px] font-semibold text-ink truncate">
                   {assignment.userName}
-                  {assignment.employeeId && <span className="ml-1.5 font-mono text-[11.5px] font-normal text-ink-muted">{assignment.employeeId}</span>}
+                  {assignment.employeeId && <span className="ml-1.5 font-mono text-[13px] font-normal text-ink-muted">{assignment.employeeId}</span>}
                 </div>
                 {assignment.userPhone ? (
-                  <div className="flex items-center gap-1.5 text-[12px] text-ink-secondary tabular-nums">
+                  <div className="flex items-center gap-1.5 text-[13.5px] text-ink-secondary tabular-nums">
                     <Phone className="w-3 h-3 text-ink-muted" aria-hidden />
                     <span>{assignment.userPhone}</span>
                   </div>
                 ) : (
-                  <div className="text-[11.5px] text-ink-muted italic">No phone number recorded on profile</div>
+                  <div className="text-[13px] text-ink-muted italic">No phone number recorded on profile</div>
                 )}
               </div>
             </div>
           ) : (
-            <p className="text-[12px] text-ink-secondary">
+            <p className="text-[13.5px] text-ink-secondary">
               No worker / phone assigned. Notifications for {assignment.module} checks will not be dispatched.
             </p>
           )}
@@ -224,7 +224,7 @@ export const NotificationDevicesSection: React.FC = () => {
         }
       >
         <form id="assign-device-form" onSubmit={handleSave} className="space-y-3">
-          <p className="text-[12.5px] text-ink-secondary">
+          <p className="text-[14px] text-ink-secondary">
             Select the worker/device that will receive push and voice alerts whenever an <strong className="text-ink">{assignModalModule}</strong> check becomes due.
             The same phone can be assigned to both IPQC and QC, or separated anytime.
           </p>

@@ -69,8 +69,8 @@ const CheckDetailRoute: React.FC = () => {
 const NotFoundPage: React.FC = () => (
   <div className="max-w-md mx-auto mt-16 text-center space-y-2">
     <h1 className="text-lg font-bold text-ink">Page not found</h1>
-    <p className="text-xs text-ink-muted">This address is not a page of the admin panel. It may have been mistyped or moved.</p>
-    <Link to="/" className="inline-block mt-2 text-xs font-semibold text-accent hover:underline">
+    <p className="text-[13px] text-ink-muted">This address is not a page of the admin panel. It may have been mistyped or moved.</p>
+    <Link to="/" className="inline-block mt-2 text-[13px] font-semibold text-accent hover:underline">
       Go to the start page
     </Link>
   </div>
@@ -180,7 +180,7 @@ const Shell: React.FC = () => {
       {/* First stop for keyboard users: jump past the menu and header. */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[80] focus:px-3 focus:py-2 focus:rounded focus:bg-white focus:text-accent focus:font-semibold focus:shadow-lg focus:border focus:border-line-strong"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[80] focus:px-3 focus:py-2 focus:rounded focus:bg-surface focus:text-accent focus:font-semibold focus:shadow-lg focus:border focus:border-line-strong"
         onClick={(e) => {
           e.preventDefault()
           document.getElementById('main-content')?.focus()
@@ -278,10 +278,10 @@ const ServerUnreachable: React.FC<{ message: string }> = ({ message }) => {
   }
   return (
     <div className="h-screen flex items-center justify-center bg-canvas px-4">
-      <div className="w-full max-w-sm bg-white border border-line rounded-lg p-6 text-center" role="alert">
+      <div className="w-full max-w-sm bg-surface border border-line rounded-lg p-6 text-center" role="alert">
         <AlertCircle className="w-5 h-5 text-failed mx-auto mb-2" />
-        <div className="text-sm font-semibold text-ink">Cannot reach the server</div>
-        <div className="text-xs text-ink-muted mt-1">{message}</div>
+        <div className="text-[14.5px] font-semibold text-ink">Cannot reach the server</div>
+        <div className="text-[13px] text-ink-muted mt-1">{message}</div>
         <div className="mt-4 flex justify-center gap-2">
           <Button size="sm" variant="primary" onClick={retry} loading={busy}>
             Try again
@@ -307,7 +307,7 @@ const AppRoutes: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center text-xs text-ink-muted gap-2">
+      <div className="h-screen flex items-center justify-center text-[13px] text-ink-muted gap-2">
         <Loader2 className="w-4 h-4 animate-spin" /> Loading…
       </div>
     )

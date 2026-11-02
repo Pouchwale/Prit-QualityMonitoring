@@ -248,7 +248,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
                 Today
               </Button>
             )}
-            <IconButton label="Refresh now" size="md" onClick={() => refresh()} className="border border-line-strong bg-white">
+            <IconButton label="Refresh now" size="md" onClick={() => refresh()} className="border border-line-strong bg-surface">
               <RefreshCw className={`w-4 h-4 ${dashboard.loading && data !== null ? 'animate-spin' : ''}`} />
             </IconButton>
             {canOpen('checks') && (
@@ -266,11 +266,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
             {CLOSURE_TYPES[data.closure.type].icon}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="text-[13.5px] font-semibold text-ink">
+            <div className="text-[15px] font-semibold text-ink">
               Plant closed {isToday ? 'today' : `on ${formatDateKey(date)}`} · {data.closure.label}
               {data.closure.reason ? ` · ${data.closure.reason}` : ''}
             </div>
-            <div className="text-[12px] text-ink-muted">No checks scheduled, no alerts sent, nothing marked Missed.</div>
+            <div className="text-[13.5px] text-ink-muted">No checks scheduled, no alerts sent, nothing marked Missed.</div>
           </div>
           {canOpen('calendar') && (
             <Button size="sm" variant="outline" onClick={() => onNavigate('calendar')} icon={<CalendarOff className="w-3.5 h-3.5" />} className="hidden sm:inline-flex">
@@ -369,7 +369,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
                   const v = kpi?.[s.key as 'completed' | 'exceptions' | 'missed' | 'open'] ?? 0
                   const pct = kpi?.scheduled ? Math.round((v / kpi.scheduled) * 100) : 0
                   return (
-                    <li key={s.key} className="flex items-center gap-2.5 text-[12.5px]">
+                    <li key={s.key} className="flex items-center gap-2.5 text-[14px]">
                       <span className="w-2.5 h-2.5 rounded-[3px] shrink-0" style={{ backgroundColor: s.color }} aria-hidden />
                       <span className="flex-1 text-ink-secondary">{s.label}</span>
                       <span className="font-semibold text-ink tabular-nums">{v}</span>
@@ -424,7 +424,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
               subtitle={`Last ${REPEAT_WINDOW_DAYS} days to ${formatDateKey(date)}`}
               actions={
                 attentionCount > 0 ? (
-                  <span className="h-5 min-w-5 px-1.5 inline-flex items-center justify-center rounded-full bg-missed-bg text-missed ring-1 ring-inset ring-missed-line text-[11px] font-semibold tabular-nums">
+                  <span className="h-5 min-w-5 px-1.5 inline-flex items-center justify-center rounded-full bg-missed-bg text-missed ring-1 ring-inset ring-missed-line text-[12.5px] font-semibold tabular-nums">
                     {attentionCount}
                   </span>
                 ) : null
@@ -450,7 +450,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
                           series={EXCEPTION_STATUS.map((s) => ({ key: s.key, label: s.label, color: s.color }))}
                           height={6}
                         />
-                        <span className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-ink-muted">
+                        <span className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[12.5px] text-ink-muted">
                           {EXCEPTION_STATUS.filter((s) => exceptionCounts[s.key] > 0).map((s) => (
                             <span key={s.key}>
                               {s.label} <span className="font-semibold text-ink tabular-nums">{exceptionCounts[s.key]}</span>
@@ -469,7 +469,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
                 <AlertRow tone="ok" icon={<Repeat className="w-4 h-4" />} title="No repeated misses" detail="No machine or worker missed 2 or more checks" />
               ) : (
                 <div className="rounded-lg border border-line">
-                  <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5 text-[12px] font-semibold text-ink">
+                  <div className="flex items-center gap-2 px-3 pt-2.5 pb-1.5 text-[13.5px] font-semibold text-ink">
                     <Repeat className="w-3.5 h-3.5 text-missed" aria-hidden />
                     Repeated misses
                   </div>
@@ -538,7 +538,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
                               <span className="font-semibold">{m.machineName}</span>
                             )}
                             {repeatMachineIds.has(m.machineId) && (
-                              <span className="ml-2 inline-flex items-center h-[18px] px-1.5 rounded-full text-[10.5px] font-semibold bg-missed-bg text-missed ring-1 ring-inset ring-missed-line">
+                              <span className="ml-2 inline-flex items-center h-[18px] px-1.5 rounded-full text-[12px] font-semibold bg-missed-bg text-missed ring-1 ring-inset ring-missed-line">
                                 Repeat misses
                               </span>
                             )}
@@ -555,7 +555,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
                                 series={STATUS_SERIES}
                                 className="min-w-[96px]"
                               />
-                              <span className="w-9 text-right text-[12px] font-semibold text-ink tabular-nums">{pct}%</span>
+                              <span className="w-9 text-right text-[13.5px] font-semibold text-ink tabular-nums">{pct}%</span>
                             </div>
                           </td>
                         </tr>
@@ -590,7 +590,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
                     {i < (data?.recent.length ?? 0) - 1 && <span className="absolute left-[19px] top-8 bottom-0 w-px bg-line" aria-hidden />}
                     <button type="button" onClick={() => onViewCheck(c.id)} className="w-full text-left flex items-start gap-3 px-2 py-2 rounded-md hover:bg-subtle">
                       <span
-                        className={`relative mt-0.5 w-[22px] h-[22px] shrink-0 rounded-full flex items-center justify-center ring-4 ring-white ${
+                        className={`relative mt-0.5 w-[22px] h-[22px] shrink-0 rounded-full flex items-center justify-center ring-4 ring-surface ${
                           c.status === 'COMPLETED' ? 'bg-success-bg text-success' : c.status === 'EXCEPTION' ? 'bg-exception-bg text-exception' : 'bg-subtle text-ink-muted'
                         }`}
                         aria-hidden
@@ -599,11 +599,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
                       </span>
                       <span className="flex-1 min-w-0">
                         <span className="flex items-center justify-between gap-2">
-                          <span className="text-[12.5px] font-semibold text-ink truncate">{c.machineName ?? c.departmentName ?? '—'}</span>
-                          <span className="text-[11px] text-ink-muted tabular-nums shrink-0">{formatTime(c.submittedAt)}</span>
+                          <span className="text-[14px] font-semibold text-ink truncate">{c.machineName ?? c.departmentName ?? '—'}</span>
+                          <span className="text-[12.5px] text-ink-muted tabular-nums shrink-0">{formatTime(c.submittedAt)}</span>
                         </span>
-                        <span className="block text-[12px] text-ink-secondary truncate">{c.activityName}</span>
-                        <span className="block text-[11px] text-ink-muted truncate">
+                        <span className="block text-[13.5px] text-ink-secondary truncate">{c.activityName}</span>
+                        <span className="block text-[12.5px] text-ink-muted truncate">
                           {workerLabel(c)}
                           {c.jobNo ? ` · PO ${c.jobNo}` : ''}
                         </span>
@@ -625,7 +625,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
           subtitle="Time window closed without a submission"
           actions={
             <span
-              className={`h-5 min-w-5 px-1.5 inline-flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums ring-1 ring-inset ${
+              className={`h-5 min-w-5 px-1.5 inline-flex items-center justify-center rounded-full text-[12.5px] font-semibold tabular-nums ring-1 ring-inset ${
                 missedOnDay.length > 0 ? 'bg-missed-bg text-missed ring-missed-line' : 'bg-subtle text-ink-muted ring-line'
               }`}
             >
@@ -634,7 +634,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
           }
         />
         {missed.data === null ? (
-          <div className="p-4">{missed.error ? <div className="text-[12.5px] text-missed">{missed.error}</div> : <LoadingRows />}</div>
+          <div className="p-4">{missed.error ? <div className="text-[14px] text-missed">{missed.error}</div> : <LoadingRows />}</div>
         ) : missedOnDay.length === 0 ? (
           <EmptyState icon={<CheckCircle2 className="w-5 h-5" />} title="No missed checks for this day" compact />
         ) : (
@@ -695,7 +695,7 @@ const Num: React.FC<{ value: number; tone: string }> = ({ value, tone }) => (
 const ALERT_TONE = {
   critical: 'border-missed-line bg-missed-bg/60 text-missed',
   warning: 'border-exception-line bg-exception-bg/70 text-exception',
-  ok: 'border-line bg-white text-success'
+  ok: 'border-line bg-surface text-success'
 }
 
 /** One line of the "Attention needed" card: severity icon, headline and optional detail. */
@@ -712,8 +712,8 @@ const AlertRow: React.FC<{ tone: keyof typeof ALERT_TONE; icon: React.ReactNode;
         {icon}
       </span>
       <span className="flex-1 min-w-0 text-left">
-        <span className="block text-[12.5px] font-semibold text-ink">{title}</span>
-        {detail && <span className="block text-[11.5px] text-ink-muted">{detail}</span>}
+        <span className="block text-[14px] font-semibold text-ink">{title}</span>
+        {detail && <span className="block text-[13px] text-ink-muted">{detail}</span>}
       </span>
     </>
   )
@@ -729,20 +729,20 @@ const AlertRow: React.FC<{ tone: keyof typeof ALERT_TONE; icon: React.ReactNode;
 
 const RepeatList: React.FC<{ title: string; rows: RepeatRow[] }> = ({ title, rows }) => (
   <div className="px-3 pb-2.5">
-    <div className="text-[10.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted mb-1">{title}</div>
+    <div className="text-[12px] font-semibold uppercase tracking-[0.06em] text-ink-muted mb-1">{title}</div>
     {rows.length === 0 ? (
-      <div className="text-[12px] text-ink-faint">None</div>
+      <div className="text-[13.5px] text-ink-faint">None</div>
     ) : (
       <ul className="space-y-1">
         {rows.slice(0, 4).map((r) => (
-          <li key={r.key} className="flex items-center gap-2 text-[12.5px]">
+          <li key={r.key} className="flex items-center gap-2 text-[14px]">
             <span className="flex-1 min-w-0 truncate">
               <span className="font-medium text-ink">{r.name}</span>
               {r.detail && <span className="text-ink-muted"> · {r.detail}</span>}
             </span>
-            {r.onDay > 0 && <span className="text-[11px] text-ink-muted whitespace-nowrap">{r.onDay} on day</span>}
+            {r.onDay > 0 && <span className="text-[12.5px] text-ink-muted whitespace-nowrap">{r.onDay} on day</span>}
             <span
-              className={`h-5 px-1.5 inline-flex items-center rounded-full text-[11px] font-semibold tabular-nums ${
+              className={`h-5 px-1.5 inline-flex items-center rounded-full text-[12.5px] font-semibold tabular-nums ${
                 r.total >= 3 ? 'bg-[var(--color-chart-missed)] text-white' : 'bg-missed-bg text-missed ring-1 ring-inset ring-missed-line'
               }`}
             >
@@ -750,7 +750,7 @@ const RepeatList: React.FC<{ title: string; rows: RepeatRow[] }> = ({ title, row
             </span>
           </li>
         ))}
-        {rows.length > 4 && <li className="text-[11px] text-ink-muted">+{rows.length - 4} more</li>}
+        {rows.length > 4 && <li className="text-[12.5px] text-ink-muted">+{rows.length - 4} more</li>}
       </ul>
     )}
   </div>

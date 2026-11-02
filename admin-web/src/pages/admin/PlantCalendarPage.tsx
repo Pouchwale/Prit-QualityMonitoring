@@ -72,7 +72,7 @@ export const PlantCalendarPage: React.FC = () => {
                   role="tab"
                   aria-selected={active}
                   onClick={() => open(t.id)}
-                  className={`relative inline-flex items-center gap-1.5 h-10 lg:h-9 px-3 text-[13px] font-medium whitespace-nowrap transition-colors ${
+                  className={`relative inline-flex items-center gap-1.5 h-10 lg:h-9 px-3 text-[14.5px] font-medium whitespace-nowrap transition-colors ${
                     active ? 'text-accent-strong' : 'text-ink-muted hover:text-ink'
                   }`}
                 >
@@ -281,7 +281,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
     <div className="space-y-4">
       {canEdit && (
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-muted mr-auto">
+          <span className="inline-flex items-center gap-1.5 text-[13.5px] text-ink-muted mr-auto">
             <Info className="w-3.5 h-3.5 shrink-0 text-ink-faint" aria-hidden />
             Dates up to 31/12/2026 are edited here. From 2027, dates come from the approved annual calendar.
           </span>
@@ -301,10 +301,10 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
         <Card className="overflow-hidden" aria-label="Plant calendar">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-3 border-b border-line">
             <div className="min-w-0">
-              <h2 className="text-[16px] sm:text-[17px] font-semibold text-ink tracking-tight" aria-live="polite">
+              <h2 className="text-[17px] sm:text-[18px] font-semibold text-ink tracking-tight" aria-live="polite">
                 {monthTitle(month)}
               </h2>
-              <p className="text-[12px] text-ink-muted">
+              <p className="text-[13.5px] text-ink-muted">
                 {monthData.loading && !monthData.data
                   ? 'Loading…'
                   : closedThisMonth || workingThisMonth
@@ -321,7 +321,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
               <Button size="sm" variant="outline" onClick={() => goToDate(today)} disabled={monthKey === today.slice(0, 7) && selected === today}>
                 Today
               </Button>
-              <div className="flex items-center rounded-md border border-line-strong bg-white shadow-[0_1px_1px_rgb(15_23_42/0.04)]">
+              <div className="flex items-center rounded-md border border-line-strong bg-surface shadow-[0_1px_1px_rgb(15_23_42/0.04)]">
                 <IconButton label="Previous month" onClick={() => goToMonth(-1)} className="rounded-r-none">
                   <ChevronLeft className="w-4 h-4" />
                 </IconButton>
@@ -334,7 +334,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
           </div>
 
           {viewedYear >= Number(CALENDAR_V2_START.slice(0, 4)) && years.data && (!viewedCalendar || viewedCalendar.status !== 'APPROVED' || viewedCalendar.pendingChanges) && (
-            <div className="px-4 py-2 text-[12px] border-b border-exception-line bg-exception-bg flex flex-wrap items-center justify-between gap-2" role="status">
+            <div className="px-4 py-2 text-[13.5px] border-b border-exception-line bg-exception-bg flex flex-wrap items-center justify-between gap-2" role="status">
               <span className="inline-flex items-start gap-1.5 text-ink-secondary">
                 <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-px text-exception" aria-hidden />
                 {!viewedCalendar
@@ -350,7 +350,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
           )}
 
           {monthData.error && (
-            <div className="px-4 py-2 text-[12px] text-missed bg-missed-bg border-b border-missed-line flex items-center justify-between gap-2" role="alert">
+            <div className="px-4 py-2 text-[13.5px] text-missed bg-missed-bg border-b border-missed-line flex items-center justify-between gap-2" role="alert">
               <span>{monthData.error}</span>
               <Button size="sm" variant="outline" onClick={monthData.reload}>Retry</Button>
             </div>
@@ -358,7 +358,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
 
           <div className="grid grid-cols-7 border-b border-line bg-subtle/60">
             {WEEKDAYS.map((d) => (
-              <div key={d} className="py-2 text-center text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+              <div key={d} className="py-2 text-center text-[12.5px] font-semibold uppercase tracking-wider text-ink-muted">
                 <span className="sm:hidden">{d.slice(0, 1)}</span>
                 <span className="hidden sm:inline">{d}</span>
               </div>
@@ -390,14 +390,14 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                   onDoubleClick={() => canEdit && (closure ? openEdit(closure) : openNew(key))}
                   className={`relative flex flex-col items-stretch text-left min-h-[54px] sm:min-h-[88px] lg:min-h-[96px] p-1 sm:p-1.5 border-line transition-colors focus:outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent ${
                     i % 7 !== 6 ? 'border-r' : ''
-                  } ${i < 35 ? 'border-b' : ''} ${style ? style.cell : inMonth ? 'bg-white hover:bg-subtle/60' : 'bg-subtle/50 hover:bg-subtle'}`}
+                  } ${i < 35 ? 'border-b' : ''} ${style ? style.cell : inMonth ? 'bg-surface hover:bg-subtle/60' : 'bg-subtle/50 hover:bg-subtle'}`}
                 >
                   {isSelected && <span className="pointer-events-none absolute inset-0 ring-2 ring-inset ring-accent bg-accent/[0.03]" aria-hidden />}
                   <span className="flex items-center justify-between gap-1">
                     <span
-                      className={`inline-flex items-center justify-center h-6 min-w-6 px-1 rounded-full text-[12px] sm:text-[12.5px] font-semibold tabular-nums ${
+                      className={`inline-flex items-center justify-center h-6 min-w-6 px-1 rounded-full text-[13.5px] sm:text-[14px] font-semibold tabular-nums ${
                         isToday
-                          ? 'bg-accent text-white ring-2 ring-accent-line ring-offset-1'
+                          ? 'bg-accent-fill text-white ring-2 ring-accent-line ring-offset-1 ring-offset-surface'
                           : inMonth
                             ? past && !closure
                               ? 'text-ink-muted'
@@ -410,7 +410,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                     <span className="inline-flex items-center gap-1">
                       {away.length > 0 && (
                         <span
-                          className={`inline-flex items-center justify-center gap-0.5 h-4 sm:h-5 min-w-4 sm:min-w-5 px-0.5 sm:px-1 rounded ring-1 ring-inset ring-due-line bg-due-bg text-due text-[9px] sm:text-[11px] font-semibold leading-none tabular-nums ${inMonth ? '' : 'opacity-60'}`}
+                          className={`inline-flex items-center justify-center gap-0.5 h-4 sm:h-5 min-w-4 sm:min-w-5 px-0.5 sm:px-1 rounded ring-1 ring-inset ring-due-line bg-due-bg text-due text-[11px] sm:text-[12.5px] font-semibold leading-none tabular-nums ${inMonth ? '' : 'opacity-60'}`}
                           title={`On leave: ${away.map((l) => l.workerName).join(', ')}`}
                           aria-hidden
                         >
@@ -420,7 +420,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                       )}
                       {plan && (
                         <span
-                          className={`inline-flex items-center justify-center h-4 sm:h-5 min-w-4 sm:min-w-5 px-0.5 sm:px-1 rounded ring-1 ring-inset ring-accent-line bg-accent-soft text-accent-strong text-[9px] sm:text-[11px] font-semibold leading-none tabular-nums ${inMonth ? '' : 'opacity-60'}`}
+                          className={`inline-flex items-center justify-center h-4 sm:h-5 min-w-4 sm:min-w-5 px-0.5 sm:px-1 rounded ring-1 ring-inset ring-accent-line bg-accent-soft text-accent-strong text-[11px] sm:text-[12.5px] font-semibold leading-none tabular-nums ${inMonth ? '' : 'opacity-60'}`}
                           title={`Machine plan: ${plan.machineIds.length} machine${plan.machineIds.length === 1 ? '' : 's'} running`}
                           aria-hidden
                         >
@@ -430,7 +430,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                     </span>
                   </span>
                   {away.length > 0 && (
-                    <span className={`hidden lg:block mt-1 px-0.5 text-[11px] leading-tight text-due truncate ${inMonth ? '' : 'opacity-60'}`} aria-hidden>
+                    <span className={`hidden lg:block mt-1 px-0.5 text-[12.5px] leading-tight text-due truncate ${inMonth ? '' : 'opacity-60'}`} aria-hidden>
                       {away.slice(0, 2).map((l) => l.workerName).join(', ')}
                       {away.length > 2 ? ` +${away.length - 2}` : ''}
                     </span>
@@ -439,11 +439,11 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                     <>
                       <span className={`sm:hidden mt-auto mx-auto mb-0.5 h-1.5 w-1.5 rounded-full ${style.dot}`} aria-hidden />
                       <span className={`hidden sm:flex flex-col gap-0.5 mt-auto min-w-0 ${inMonth ? '' : 'opacity-60'}`} aria-hidden>
-                        <span className={`inline-flex items-center gap-1 self-start max-w-full min-h-5 px-1.5 py-px rounded-md text-[11px] font-semibold leading-tight ${style.chip}`}>
+                        <span className={`inline-flex items-center gap-1 self-start max-w-full min-h-5 px-1.5 py-px rounded-md text-[12.5px] font-semibold leading-tight ${style.chip}`}>
                           <span className="shrink-0 [&>svg]:w-3 [&>svg]:h-3">{style.icon}</span>
                           <span className="line-clamp-2 break-words">{style.short}</span>
                         </span>
-                        {closure?.reason && <span className="block px-0.5 text-[11px] text-ink-secondary leading-tight line-clamp-2 break-words">{closure.reason}</span>}
+                        {closure?.reason && <span className="block px-0.5 text-[12.5px] text-ink-secondary leading-tight line-clamp-2 break-words">{closure.reason}</span>}
                       </span>
                     </>
                   )}
@@ -452,7 +452,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
             })}
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 sm:px-4 py-2.5 border-t border-line text-[12px] text-ink-secondary">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 sm:px-4 py-2.5 border-t border-line text-[13.5px] text-ink-secondary">
             {TYPE_ORDER.map((t) => (
               <span key={t} className="inline-flex items-center gap-1.5">
                 <span className={`w-4 h-4 rounded flex items-center justify-center [&>svg]:w-2.5 [&>svg]:h-2.5 ${CLOSURE_TYPES[t].chip}`} aria-hidden>
@@ -474,7 +474,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
               Today
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <span className="inline-flex items-center justify-center h-4 px-1 rounded ring-1 ring-inset ring-accent-line bg-accent-soft text-accent-strong text-[9px] font-semibold leading-none" aria-hidden>
+              <span className="inline-flex items-center justify-center h-4 px-1 rounded ring-1 ring-inset ring-accent-line bg-accent-soft text-accent-strong text-[11px] font-semibold leading-none" aria-hidden>
                 M
               </span>
               Machine plan
@@ -488,7 +488,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
               </span>
             )}
             {canEdit && (
-              <span className="text-[11.5px] text-ink-muted sm:ml-auto">
+              <span className="text-[13px] text-ink-muted sm:ml-auto">
                 <span className="lg:hidden">Tap a day to mark or edit it</span>
                 <span className="hidden lg:inline">Select a day to mark or edit it · double-click to open it directly</span>
               </span>
@@ -522,7 +522,7 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
               onChanged={machinePlans.reload}
             />
             {machinePlans.error && (
-              <p className="mt-2 text-[11.5px] text-missed" role="alert">
+              <p className="mt-2 text-[13px] text-missed" role="alert">
                 {machinePlans.error}
               </p>
             )}
@@ -535,11 +535,11 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
           <Card className="overflow-hidden">
             <CardHeader icon={<CalendarCheck2 className="w-4 h-4" />} title="Upcoming dates" subtitle="Next 12 months" />
             {upcoming.error ? (
-              <p className="px-4 py-4 text-[12px] text-missed" role="alert">
+              <p className="px-4 py-4 text-[13.5px] text-missed" role="alert">
                 {upcoming.error}
               </p>
             ) : upcomingRanges.length === 0 ? (
-              <p className="px-4 py-5 text-[12px] text-ink-muted text-center">{upcoming.loading ? 'Loading…' : 'No holidays or working days planned.'}</p>
+              <p className="px-4 py-5 text-[13.5px] text-ink-muted text-center">{upcoming.loading ? 'Loading…' : 'No holidays or working days planned.'}</p>
             ) : (
               <ul className="divide-y divide-line max-h-[340px] overflow-y-auto">
                 {upcomingRanges.map((r) => {
@@ -552,17 +552,17 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
                           {style.icon}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block text-[12.5px] font-semibold text-ink tabular-nums">
+                          <span className="block text-[14px] font-semibold text-ink tabular-nums">
                             {days === 1 ? shortDate(r.from) : `${shortDate(r.from)} – ${shortDate(r.to)}`}
                           </span>
-                          <span className="block text-[11.5px] text-ink-muted truncate">
+                          <span className="block text-[13px] text-ink-muted truncate">
                             {style.label}
                             {r.reason ? ` · ${r.reason}` : ''}
                             {days > 1 ? ` · ${days} days` : ''}
                           </span>
                         </span>
                         {r.from === today && (
-                          <span className="inline-flex items-center h-5 px-1.5 rounded-full bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line text-[11px] font-semibold">Today</span>
+                          <span className="inline-flex items-center h-5 px-1.5 rounded-full bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line text-[12.5px] font-semibold">Today</span>
                         )}
                       </button>
                     </li>
@@ -573,16 +573,16 @@ const CalendarView: React.FC<{ onOpen: (tab: Tab, yearId?: string | null) => voi
           </Card>
 
           <Card padded className="bg-subtle/40 shadow-none">
-            <h2 className="text-[12.5px] font-semibold text-ink flex items-start gap-1.5">
+            <h2 className="text-[14px] font-semibold text-ink flex items-start gap-1.5">
               <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden /> On a closed day (weekly off, holiday, shutdown)
             </h2>
-            <ul className="mt-2 space-y-1.5 text-[12px] text-ink-secondary">
+            <ul className="mt-2 space-y-1.5 text-[13.5px] text-ink-secondary">
               <li className="flex gap-2"><CalendarOff className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden /> Scheduled checks are skipped</li>
               <li className="flex gap-2"><BellOff className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden /> Workers get no check alerts</li>
               <li className="flex gap-2"><ClipboardX className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden /> Nothing is marked Missed</li>
               <li className="flex gap-2"><CalendarCheck2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-ink-muted" aria-hidden /> Completed and Exception records are kept</li>
             </ul>
-            <p className="mt-2.5 pt-2.5 border-t border-line text-[12px] text-ink-secondary">
+            <p className="mt-2.5 pt-2.5 border-t border-line text-[13.5px] text-ink-secondary">
               <span className="font-semibold text-due">Adjustment working days</span> are normal working days: checks are scheduled, workers get alerts
               and Missed checks count as usual.
             </p>
@@ -664,21 +664,21 @@ const SelectedDay: React.FC<{
       <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-3 border-b border-line">
         <span
           className={`w-10 h-10 shrink-0 rounded-lg flex flex-col items-center justify-center leading-none ring-1 ring-inset ${
-            date === today ? 'bg-accent text-white ring-accent' : 'bg-subtle text-ink ring-line'
+            date === today ? 'bg-accent-fill text-white ring-accent-fill' : 'bg-subtle text-ink ring-line'
           }`}
           aria-hidden
         >
-          <span className={`text-[10px] font-semibold uppercase ${date === today ? 'text-white/85' : 'text-ink-muted'}`}>{weekday.slice(0, 3)}</span>
-          <span className="text-[15px] font-semibold tabular-nums">{keyToDate(date).getDate()}</span>
+          <span className={`text-[11.5px] font-semibold uppercase ${date === today ? 'text-white/85' : 'text-ink-muted'}`}>{weekday.slice(0, 3)}</span>
+          <span className="text-[16.5px] font-semibold tabular-nums">{keyToDate(date).getDate()}</span>
         </span>
         <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">{when ?? 'Selected day'}</div>
-          <div className="mt-0.5 text-[13.5px] font-semibold text-ink">{longDate(date)}</div>
+          <div className="text-[12.5px] font-semibold uppercase tracking-wider text-ink-muted">{when ?? 'Selected day'}</div>
+          <div className="mt-0.5 text-[15px] font-semibold text-ink">{longDate(date)}</div>
         </div>
       </div>
       <div className="px-4 py-3">
         {loading ? (
-          <p className="text-[12px] text-ink-muted">Loading…</p>
+          <p className="text-[13.5px] text-ink-muted">Loading…</p>
         ) : closure && style ? (
           <div className="space-y-3">
             <div className="flex items-start gap-3">
@@ -686,13 +686,13 @@ const SelectedDay: React.FC<{
                 {style.icon}
               </span>
               <div className="min-w-0">
-                <div className="text-[13.5px] font-semibold text-ink">{style.label}</div>
+                <div className="text-[15px] font-semibold text-ink">{style.label}</div>
                 {(closure.reason || isClosedType(closure.type)) && (
-                  <div className="text-[12px] text-ink-secondary break-words">{closure.reason || <span className="text-ink-muted">No reason added</span>}</div>
+                  <div className="text-[13.5px] text-ink-secondary break-words">{closure.reason || <span className="text-ink-muted">No reason added</span>}</div>
                 )}
               </div>
             </div>
-            <p className="text-[11.5px] text-ink-muted">
+            <p className="text-[13px] text-ink-muted">
               {isClosedType(closure.type)
                 ? 'No checks are scheduled and no alerts are sent on this day.'
                 : weeklyOff
@@ -719,11 +719,11 @@ const SelectedDay: React.FC<{
                 {WEEKLY_OFF_STYLE.icon}
               </span>
               <div className="min-w-0">
-                <div className="text-[13.5px] font-semibold text-ink">Weekly Off · Plant closed</div>
-                <div className="text-[12px] text-ink-secondary">Every {weekday} is closed unless marked as an Adjustment Working Day.</div>
+                <div className="text-[15px] font-semibold text-ink">Weekly Off · Plant closed</div>
+                <div className="text-[13.5px] text-ink-secondary">Every {weekday} is closed unless marked as an Adjustment Working Day.</div>
               </div>
             </div>
-            <p className="text-[11.5px] text-ink-muted">No checks are scheduled and no alerts are sent on this day.</p>
+            <p className="text-[13px] text-ink-muted">No checks are scheduled and no alerts are sent on this day.</p>
             {managedYear ? (
               <YearLink year={managedYear} status={yearStatus} onOpen={onOpenYear} />
             ) : canEdit && (
@@ -734,7 +734,7 @@ const SelectedDay: React.FC<{
           </div>
         ) : (
           <div className="space-y-3">
-            <div className="inline-flex items-center gap-1.5 h-[22px] px-2 rounded-full bg-success-bg text-success ring-1 ring-inset ring-success-line text-[12px] font-medium">
+            <div className="inline-flex items-center gap-1.5 h-[22px] px-2 rounded-full bg-success-bg text-success ring-1 ring-inset ring-success-line text-[13.5px] font-medium">
               <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-chart-completed)]" aria-hidden />
               Plant open · checks run as scheduled
             </div>
@@ -756,7 +756,7 @@ const SelectedDay: React.FC<{
 /** 2027+ dates are changed in their annual calendar, after review and approval. */
 const YearLink: React.FC<{ year: number; status: CalendarYearSummary | null; onOpen: () => void }> = ({ year, status, onOpen }) => (
   <div className="space-y-2">
-    <p className="text-[11.5px] text-ink-muted">
+    <p className="text-[13px] text-ink-muted">
       {status
         ? status.status === 'APPROVED'
           ? `From the approved ${year} calendar. Change it there and approve again.`
@@ -780,12 +780,12 @@ const WeeklySummaryCard: React.FC<{ legacyDays: number[] | null; rules: WeeklyRu
   return (
     <Card className="overflow-hidden">
       <CardHeader icon={<CalendarRange className="w-4 h-4" />} title="Weekly off" />
-      <div className="px-4 py-3 space-y-2.5 text-[12.5px]">
+      <div className="px-4 py-3 space-y-2.5 text-[14px]">
         <div className="flex justify-between gap-2">
           <span className="text-ink-muted">Up to 2026</span>
           <span className="text-right font-medium text-ink">
             {legacyDays === null ? '…' : legacyDays.length ? legacyDays.map((d) => WEEKDAY_NAMES[d]).join(', ') : 'None'}
-            <span className="block text-[11.5px] font-normal text-ink-muted">Locked</span>
+            <span className="block text-[13px] font-normal text-ink-muted">Locked</span>
           </span>
         </div>
         <div className="flex justify-between gap-2">
@@ -859,7 +859,7 @@ const ClosureModal: React.FC<{
 
         {/* A fieldset, not a <label>: a label would give its name to the first option. */}
         <fieldset>
-          <legend className="block text-[13px] lg:text-[12.5px] font-medium text-ink-secondary mb-1.5">
+          <legend className="block text-[14.5px] lg:text-[14px] font-medium text-ink-secondary mb-1.5">
             Type<span className="text-missed"> *</span>
           </legend>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="radiogroup" aria-label="Type">
@@ -874,15 +874,15 @@ const ClosureModal: React.FC<{
                   aria-checked={active}
                   onClick={() => onChange({ ...editor, type: t })}
                   className={`flex sm:flex-col items-center sm:items-start gap-2.5 sm:gap-1.5 text-left px-3 py-2.5 rounded-md border transition-colors ${
-                    active ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-line-strong bg-white hover:bg-subtle'
+                    active ? 'border-accent bg-accent-soft ring-1 ring-accent' : 'border-line-strong bg-surface hover:bg-subtle'
                   }`}
                 >
                   <span className={`w-7 h-7 shrink-0 rounded-lg flex items-center justify-center ${style.chip}`} aria-hidden>
                     {style.icon}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-[12.5px] font-semibold text-ink">{style.label}</span>
-                    <span className="block text-[11px] text-ink-muted leading-snug">{style.hint}</span>
+                    <span className="block text-[14px] font-semibold text-ink">{style.label}</span>
+                    <span className="block text-[12.5px] text-ink-muted leading-snug">{style.hint}</span>
                   </span>
                 </button>
               )
@@ -938,7 +938,7 @@ const ClosureModal: React.FC<{
         </Field>
 
         {(includesPast || includesToday) && (
-          <div className="flex gap-2 px-3 py-2.5 rounded-md border border-exception-line bg-exception-bg text-[12px] text-ink-secondary" role="note">
+          <div className="flex gap-2 px-3 py-2.5 rounded-md border border-exception-line bg-exception-bg text-[13.5px] text-ink-secondary" role="note">
             <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-px text-exception" aria-hidden />
             <span>
               {includesToday && 'Today’s open checks are removed and workers get no more alerts today. '}
@@ -959,19 +959,19 @@ const OnLeaveCard: React.FC<{ date: string; leave: LeaveRequest[]; loading: bool
   <Card className="overflow-hidden">
     <CardHeader icon={<UserMinus className="w-4 h-4" />} title="On leave" subtitle={longDate(date)} />
     {error ? (
-      <p className="px-4 py-4 text-[12px] text-missed" role="alert">
+      <p className="px-4 py-4 text-[13.5px] text-missed" role="alert">
         {error}
       </p>
     ) : leave.length === 0 ? (
-      <p className="px-4 py-5 text-[12px] text-ink-muted text-center">{loading ? 'Loading…' : 'Nobody is on leave.'}</p>
+      <p className="px-4 py-5 text-[13.5px] text-ink-muted text-center">{loading ? 'Loading…' : 'Nobody is on leave.'}</p>
     ) : (
       <ul className="divide-y divide-line max-h-[300px] overflow-y-auto">
         {leave.map((l) => (
           <li key={l.id} className="px-4 py-2.5">
-            <span className="block text-[12.5px] font-semibold text-ink">
+            <span className="block text-[14px] font-semibold text-ink">
               {l.workerName} <span className="font-normal text-ink-muted">({l.workerEmployeeId})</span>
             </span>
-            <span className="block text-[11.5px] text-ink-muted">
+            <span className="block text-[13px] text-ink-muted">
               {l.leaveTypeName}
               {HALF[l.dayPart]}
               {l.departmentName ? ` · ${l.departmentName}` : ''}

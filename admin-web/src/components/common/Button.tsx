@@ -25,18 +25,18 @@ export const Button: React.FC<ButtonProps> = ({
 
   // Touch-sized below lg, compact from lg up (design-system/MASTER.md "Buttons").
   const sizeClasses = {
-    sm: 'h-[36px] min-w-[36px] lg:h-[30px] lg:min-w-0 px-3 lg:px-2.5 text-[13px] lg:text-[12.5px] gap-1.5',
-    md: 'h-[40px] lg:h-[34px] px-3.5 text-[14px] lg:text-[13px] gap-1.5',
-    lg: 'h-[44px] lg:h-[38px] px-4 text-sm gap-2',
-    field: 'h-[40px] lg:h-8 px-3 lg:px-2.5 text-[13px] lg:text-[12.5px] gap-1.5'
+    sm: 'h-[36px] min-w-[36px] lg:h-[30px] lg:min-w-0 px-3 lg:px-2.5 text-[14.5px] lg:text-[14px] gap-1.5',
+    md: 'h-[40px] lg:h-[34px] px-3.5 text-[15.5px] lg:text-[14.5px] gap-1.5',
+    lg: 'h-[44px] lg:h-[38px] px-4 text-[14.5px] gap-2',
+    field: 'h-[40px] lg:h-8 px-3 lg:px-2.5 text-[14.5px] lg:text-[14px] gap-1.5'
   }
 
   const variantClasses = {
-    primary: 'bg-accent text-white border border-accent hover:bg-accent-strong hover:border-accent-strong active:bg-blue-800 shadow-[0_1px_2px_rgb(37_99_235/0.25)] focus-visible:ring-accent',
+    primary: 'bg-accent-fill text-white border border-accent-fill hover:bg-accent-fill-hover hover:border-accent-fill-hover active:bg-blue-800 shadow-[0_1px_2px_rgb(37_99_235/0.25)] focus-visible:ring-accent',
     secondary: 'bg-subtle text-ink border border-line hover:bg-line active:bg-line-strong focus-visible:ring-ink-faint',
-    outline: 'bg-white text-ink border border-line-strong hover:bg-subtle hover:border-ink-faint/40 shadow-[0_1px_1px_rgb(15_23_42/0.04)] focus-visible:ring-ink-faint',
+    outline: 'bg-surface text-ink border border-line-strong hover:bg-subtle hover:border-ink-faint/40 shadow-[0_1px_1px_rgb(15_23_42/0.04)] focus-visible:ring-ink-faint',
     ghost: 'bg-transparent text-ink-secondary border border-transparent hover:bg-subtle hover:text-ink focus-visible:ring-ink-faint',
-    danger: 'bg-failed text-white border border-failed hover:bg-missed hover:border-missed active:bg-red-800 focus-visible:ring-failed'
+    danger: 'bg-danger-fill text-white border border-danger-fill hover:bg-danger-fill-hover hover:border-danger-fill-hover active:bg-red-800 focus-visible:ring-failed'
   }
 
   return (

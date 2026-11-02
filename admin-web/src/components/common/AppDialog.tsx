@@ -117,7 +117,7 @@ const DialogCard: React.FC<{ entry: Entry }> = ({ entry }) => {
   const main = ordered[ordered.length - 1]
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-[2px] animate-fade-in" onMouseDown={(e) => e.target === e.currentTarget && dismiss(entry)}>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-scrim/45 backdrop-blur-[2px] animate-fade-in" onMouseDown={(e) => e.target === e.currentTarget && dismiss(entry)}>
       <div
         role="alertdialog"
         aria-modal="true"
@@ -125,7 +125,7 @@ const DialogCard: React.FC<{ entry: Entry }> = ({ entry }) => {
         tabIndex={-1}
         aria-labelledby={`dialog-title-${entry.id}`}
         aria-describedby={`dialog-body-${entry.id}`}
-        className="animate-scale-in outline-none w-full max-w-[420px] bg-white rounded-xl border border-line shadow-[var(--shadow-pop)] flex flex-col max-h-[calc(100dvh-2rem)] overflow-hidden"
+        className="animate-scale-in outline-none w-full max-w-[420px] bg-surface rounded-xl border border-line shadow-[var(--shadow-pop)] flex flex-col max-h-[calc(100dvh-2rem)] overflow-hidden"
       >
         <div className="px-5 pt-5 pb-4 overflow-y-auto">
           <div className="flex items-start gap-3">
@@ -133,24 +133,24 @@ const DialogCard: React.FC<{ entry: Entry }> = ({ entry }) => {
               <tone.Icon className={`w-[18px] h-[18px] ${tone.icon}`} aria-hidden />
             </div>
             <div className="min-w-0 flex-1 pt-1.5" id={`dialog-body-${entry.id}`}>
-              <h3 id={`dialog-title-${entry.id}`} className="text-[15px] font-semibold text-ink leading-snug">
+              <h3 id={`dialog-title-${entry.id}`} className="text-[16.5px] font-semibold text-ink leading-snug">
                 {entry.title}
               </h3>
-              {entry.message ? <div className="mt-1.5 text-[13px] leading-relaxed text-ink-secondary">{entry.message}</div> : null}
+              {entry.message ? <div className="mt-1.5 text-[14.5px] leading-relaxed text-ink-secondary">{entry.message}</div> : null}
 
               {entry.items?.length ? (
                 <ul className="mt-3 rounded-md border border-line divide-y divide-line bg-subtle/60">
                   {entry.items.map((item, i) => (
                     <li key={`${item.label}-${i}`} className="px-3 py-2">
-                      <div className="text-[13px] font-medium text-ink">{item.label}</div>
-                      {item.detail ? <div className="text-[12px] text-ink-muted">{item.detail}</div> : null}
+                      <div className="text-[14.5px] font-medium text-ink">{item.label}</div>
+                      {item.detail ? <div className="text-[13.5px] text-ink-muted">{item.detail}</div> : null}
                     </li>
                   ))}
                 </ul>
               ) : null}
 
               {entry.next ? (
-                <p className="mt-3 flex items-start gap-1.5 text-[12px] leading-relaxed text-ink-muted">
+                <p className="mt-3 flex items-start gap-1.5 text-[13.5px] leading-relaxed text-ink-muted">
                   <ArrowRight className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden />
                   <span>{entry.next}</span>
                 </p>

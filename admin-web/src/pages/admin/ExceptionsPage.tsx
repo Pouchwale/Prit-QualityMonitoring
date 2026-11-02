@@ -52,7 +52,7 @@ export const ExceptionsPage: React.FC<{ onViewCheck: (id: string) => void }> = (
         }
         info="Checks that workers could not perform, with their reason, remark and photo. Open a row's check for the full record."
         actions={
-          <IconButton label="Refresh" size="md" onClick={() => reload()} className="border border-line-strong bg-white">
+          <IconButton label="Refresh" size="md" onClick={() => reload()} className="border border-line-strong bg-surface">
             <RefreshCw className={`w-4 h-4 ${loading && data !== null ? 'animate-spin' : ''}`} />
           </IconButton>
         }
@@ -120,29 +120,29 @@ export const ExceptionsPage: React.FC<{ onViewCheck: (id: string) => void }> = (
                     <tr key={e.id} className="align-top">
                       <td className="whitespace-nowrap tabular-nums">
                         <div className="font-medium text-ink">{formatDateTime(e.createdAt)}</div>
-                        <div className="text-[11.5px] text-ink-muted">
+                        <div className="text-[13px] text-ink-muted">
                           Slot {formatDateTime(e.scheduledAt)} · <span className="font-mono">{e.checkCode}</span>
                         </div>
                       </td>
                       <td className="whitespace-nowrap">
                         <div className="font-semibold text-ink">{e.machineName}</div>
-                        <div className="text-[11.5px] text-ink-muted">{[e.activityName, e.departmentName].filter(Boolean).join(' · ')}</div>
+                        <div className="text-[13px] text-ink-muted">{[e.activityName, e.departmentName].filter(Boolean).join(' · ')}</div>
                       </td>
                       <td className="whitespace-nowrap">
                         <div className={e.workerName ? 'font-medium text-ink' : 'text-ink-muted italic'}>{e.workerName ?? 'Unknown'}</div>
-                        {e.workerEmployeeId && <div className="text-[11px] text-ink-muted font-mono">{e.workerEmployeeId}</div>}
+                        {e.workerEmployeeId && <div className="text-[12.5px] text-ink-muted font-mono">{e.workerEmployeeId}</div>}
                       </td>
                       {/* Reason, the worker's remark and any resolution notes in one cell. */}
                       <td className="min-w-[200px] max-w-[340px]">
                         <div className="font-medium text-ink">{e.reason}</div>
-                        {e.reading && <div className="text-[12px] font-medium text-ink-secondary">{e.reading}</div>}
+                        {e.reading && <div className="text-[13.5px] font-medium text-ink-secondary">{e.reading}</div>}
                         {e.remark && (
-                          <div className="text-[11.5px] text-ink-secondary line-clamp-2" title={e.remark}>
+                          <div className="text-[13px] text-ink-secondary line-clamp-2" title={e.remark}>
                             {e.remark}
                           </div>
                         )}
                         {e.resolutionNotes && (
-                          <div className="mt-1 flex items-start gap-1 text-[11.5px] text-success line-clamp-2" title={e.resolutionNotes}>
+                          <div className="mt-1 flex items-start gap-1 text-[13px] text-success line-clamp-2" title={e.resolutionNotes}>
                             <CheckCircle2 className="w-3 h-3 mt-0.5 shrink-0" aria-hidden />
                             <span>Resolution: {e.resolutionNotes}</span>
                           </div>
@@ -150,7 +150,7 @@ export const ExceptionsPage: React.FC<{ onViewCheck: (id: string) => void }> = (
                       </td>
                       <td className="whitespace-nowrap">
                         <StatusBadge status={e.status} size="sm" />
-                        {e.reviewedByName && <div className="text-[11px] text-ink-muted mt-1">by {e.reviewedByName}</div>}
+                        {e.reviewedByName && <div className="text-[12.5px] text-ink-muted mt-1">by {e.reviewedByName}</div>}
                       </td>
                       <td className="whitespace-nowrap">{e.media.length > 0 ? <EvidenceViewer media={e.media} compact /> : <span className="text-ink-faint">—</span>}</td>
                       <td className="text-right whitespace-nowrap" data-label="">

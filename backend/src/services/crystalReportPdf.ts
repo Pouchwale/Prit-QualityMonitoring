@@ -34,7 +34,11 @@ pdfmake.addFonts({
 })
 // Photos and the logo are embedded as data, so the PDF library never needs to open a file or URL;
 // only the built-in PDF fonts above are looked up by name.
-const BUILT_IN_FONTS = new Set(['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique'])
+// Courier is the credentials sheet's monospace font (services/credentialsPdf.ts), also built in.
+const BUILT_IN_FONTS = new Set([
+  'Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'Helvetica-BoldOblique',
+  'Courier', 'Courier-Bold', 'Courier-Oblique', 'Courier-BoldOblique'
+])
 pdfmake.setUrlAccessPolicy(() => false)
 pdfmake.setLocalAccessPolicy((file) => BUILT_IN_FONTS.has(file))
 

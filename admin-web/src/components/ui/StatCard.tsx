@@ -46,19 +46,19 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, icon, tone = '
           <span className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${t.icon}`} aria-hidden>
             {icon}
           </span>
-          <span className="text-[12.5px] leading-snug font-medium text-ink-secondary line-clamp-2 sm:line-clamp-1 break-words">{label}</span>
+          <span className="text-[14px] leading-snug font-medium text-ink-secondary line-clamp-2 sm:line-clamp-1 break-words">{label}</span>
         </div>
         {alert && <span className="mt-1 w-2 h-2 rounded-full bg-[var(--color-chart-missed)] ring-4 ring-missed-bg shrink-0" aria-hidden />}
       </div>
       <div className="mt-2.5 flex items-end justify-between gap-2">
-        <div className={`text-[26px] leading-none font-semibold tracking-tight tabular-nums ${t.value}`}>{shown}</div>
+        <div className={`text-[27px] leading-none font-semibold tracking-tight tabular-nums ${t.value}`}>{shown}</div>
         {trend && trend.length > 1 && (
           <div className="shrink-0">
             <Sparkline values={trend} color={t.spark} width={64} height={24} />
           </div>
         )}
       </div>
-      {meta && <div className="mt-1.5 text-[12px] leading-snug text-ink-muted line-clamp-2 sm:line-clamp-1">{meta}</div>}
+      {meta && <div className="mt-1.5 text-[13.5px] leading-snug text-ink-muted line-clamp-2 sm:line-clamp-1">{meta}</div>}
       {footer && <div className="mt-2.5">{footer}</div>}
     </>
   )

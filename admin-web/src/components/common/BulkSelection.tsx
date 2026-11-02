@@ -75,7 +75,7 @@ export const RowCheckbox: React.FC<{ checked: boolean; onChange: () => void; lab
 /** Shown while rows are selected: the count, Clear, and Delete selected. There is no "delete all". */
 export const BulkDeleteBar: React.FC<{ count: number; noun: string; onClear: () => void; onDelete: () => void }> = ({ count, noun, onClear, onDelete }) =>
   count === 0 ? null : (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-failed-line bg-failed-bg px-3 py-2 text-xs" role="region" aria-label="Selection">
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-failed-line bg-failed-bg px-3 py-2 text-[13px]" role="region" aria-label="Selection">
       <span className="font-semibold text-ink">
         {count} {noun} selected{count >= MAX_BULK ? ` (the most at once is ${MAX_BULK})` : ''}
       </span>

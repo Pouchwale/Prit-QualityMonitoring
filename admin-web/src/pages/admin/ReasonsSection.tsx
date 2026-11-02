@@ -74,22 +74,22 @@ const EVIDENCE_OPTIONS: { value: EvidenceRule; label: string }[] = [
 /** Off / Optional / Required in the list: required stands out, off is muted. */
 const EvidenceCell: React.FC<{ rule: EvidenceRule }> = ({ rule }) =>
   rule === 'REQUIRED' ? (
-    <span className="text-[12px] font-medium text-ink">Required</span>
+    <span className="text-[13.5px] font-medium text-ink">Required</span>
   ) : rule === 'OPTIONAL' ? (
-    <span className="text-[12px] text-ink-secondary">Optional</span>
+    <span className="text-[13.5px] text-ink-secondary">Optional</span>
   ) : (
-    <span className="text-[12px] text-ink-muted">Off</span>
+    <span className="text-[13.5px] text-ink-muted">Off</span>
   )
 
 /** Yes / no cell. The phone card shows the column name in front of it. */
 const Flag: React.FC<{ on: boolean }> = ({ on }) =>
   on ? (
-    <span className="inline-flex items-center gap-1 text-[12px] text-success font-medium">
+    <span className="inline-flex items-center gap-1 text-[13.5px] text-success font-medium">
       <Check className="w-3.5 h-3.5" aria-hidden />
       Yes
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 text-[12px] text-ink-muted">
+    <span className="inline-flex items-center gap-1 text-[13.5px] text-ink-muted">
       <Minus className="w-3.5 h-3.5" aria-hidden />
       No
     </span>
@@ -224,7 +224,7 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
                   <tbody>
                     {(reasons.data ?? []).map((r) => (
                       <tr key={r.id}>
-                        <td className="num font-mono text-[11.5px] text-ink-muted">{r.sortOrder}</td>
+                        <td className="num font-mono text-[13px] text-ink-muted">{r.sortOrder}</td>
                         <td className={`font-medium ${r.isActive ? 'text-ink' : 'text-ink-muted'}`}>{r.label}</td>
                         <td>
                           <Flag on={r.requiresRemark} />
@@ -232,7 +232,7 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
                         {jobDetails && (
                           <td>
                             {r.requiresJobDetails === false ? (
-                              <span className="text-[12px] text-ink-muted">Machine only</span>
+                              <span className="text-[13.5px] text-ink-muted">Machine only</span>
                             ) : (
                               <Flag on />
                             )}
@@ -251,12 +251,12 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
                         {evidence && (
                           <td className="whitespace-nowrap">
                             {r.readingLabel ? (
-                              <span className="text-[12px] font-medium text-ink">
+                              <span className="text-[13.5px] font-medium text-ink">
                                 {r.readingLabel}
                                 {r.readingUnit ? ` (${r.readingUnit})` : ''}
                               </span>
                             ) : (
-                              <span className="text-[12px] text-ink-muted">—</span>
+                              <span className="text-[13.5px] text-ink-muted">—</span>
                             )}
                           </td>
                         )}
@@ -329,23 +329,23 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
           />
           {evidence && (
             <div className="space-y-2.5 rounded-lg border border-line bg-panel p-3">
-              <div className="text-[12.5px] font-medium text-ink-secondary">Evidence with the exception</div>
+              <div className="text-[14px] font-medium text-ink-secondary">Evidence with the exception</div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[12.5px] text-ink">Photo</span>
+                <span className="text-[14px] text-ink">Photo</span>
                 <Segmented<EvidenceRule> label="Photo evidence" value={form.photoEvidence} onChange={(v) => setForm((f) => ({ ...f, photoEvidence: v }))} options={EVIDENCE_OPTIONS} />
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[12.5px] text-ink">Video</span>
+                <span className="text-[14px] text-ink">Video</span>
                 <Segmented<EvidenceRule> label="Video evidence" value={form.videoEvidence} onChange={(v) => setForm((f) => ({ ...f, videoEvidence: v }))} options={EVIDENCE_OPTIONS} />
               </div>
-              <p className="text-[11.5px] text-ink-muted">
+              <p className="text-[13px] text-ink-muted">
                 Required: the worker cannot send the exception without it. Optional: the worker may add it. Off: not asked.
               </p>
             </div>
           )}
           {evidence && (
             <div className="space-y-2.5 rounded-lg border border-line bg-panel p-3">
-              <div className="text-[12.5px] font-medium text-ink-secondary">Reading with the exception</div>
+              <div className="text-[14px] font-medium text-ink-secondary">Reading with the exception</div>
               <div className="grid grid-cols-1 sm:grid-cols-[1fr_120px] gap-2.5">
                 <Field label="Reading" hint="e.g. Viscosity. Empty: no reading is asked.">
                   <TextInput value={form.readingLabel} onChange={(e) => setForm((f) => ({ ...f, readingLabel: e.target.value }))} placeholder="None" maxLength={60} />
@@ -354,7 +354,7 @@ export const ReasonsSection: React.FC<ReasonsSectionProps> = ({ title, descripti
                   <TextInput value={form.readingUnit} onChange={(e) => setForm((f) => ({ ...f, readingUnit: e.target.value }))} placeholder="e.g. sec" maxLength={20} disabled={!form.readingLabel.trim()} />
                 </Field>
               </div>
-              <p className="text-[11.5px] text-ink-muted">With a reading set, the worker must enter it (a number above 0) before the exception can be sent.</p>
+              <p className="text-[13px] text-ink-muted">With a reading set, the worker must enter it (a number above 0) before the exception can be sent.</p>
             </div>
           )}
           {jobDetails && (

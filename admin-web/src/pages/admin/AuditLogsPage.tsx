@@ -109,7 +109,7 @@ export const AuditLogsPage: React.FC = () => {
   // Up to 5 page buttons around the current page, as in the shared Pagination.
   const start = Math.max(1, Math.min(page - 2, totalPages - 4))
   const numbers = Array.from({ length: Math.min(5, totalPages) }, (_, i) => start + i)
-  const pageBtn = 'h-8 min-w-8 px-2 inline-flex items-center justify-center rounded-md text-[12.5px] font-medium tabular-nums transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
+  const pageBtn = 'h-8 min-w-8 px-2 inline-flex items-center justify-center rounded-md text-[14px] font-medium tabular-nums transition-colors disabled:opacity-40 disabled:cursor-not-allowed'
 
   return (
     <div className="space-y-5">
@@ -127,7 +127,7 @@ export const AuditLogsPage: React.FC = () => {
         }
         info="Who changed what and when — configuration edits, check submissions and exception reviews. Open a row to see the entity ID, IP address and the values before and after the change."
         actions={
-          <IconButton label="Refresh" size="md" onClick={() => reload()} className="border border-line-strong bg-white">
+          <IconButton label="Refresh" size="md" onClick={() => reload()} className="border border-line-strong bg-surface">
             <RefreshCw className={`w-4 h-4 ${loading && data !== null ? 'animate-spin' : ''}`} />
           </IconButton>
         }
@@ -209,11 +209,11 @@ export const AuditLogsPage: React.FC = () => {
                       <tr className="cursor-pointer" onClick={() => toggle(log.id)}>
                         <td className="whitespace-nowrap tabular-nums">
                           <div className="text-ink">{formatDate(log.createdAt)}</div>
-                          <div className="text-[11.5px] text-ink-muted">{formatTime(log.createdAt, true)}</div>
+                          <div className="text-[13px] text-ink-muted">{formatTime(log.createdAt, true)}</div>
                         </td>
                         <td className="whitespace-nowrap">
                           <span
-                            className={`inline-flex items-center h-5 px-2 rounded-full text-[11.5px] font-medium ring-1 ring-inset ${actionTone(log.action)}`}
+                            className={`inline-flex items-center h-5 px-2 rounded-full text-[13px] font-medium ring-1 ring-inset ${actionTone(log.action)}`}
                             title={log.action}
                           >
                             {actionLabel(log.action)}
@@ -222,14 +222,14 @@ export const AuditLogsPage: React.FC = () => {
                         <td>
                           <div className="font-medium text-ink">{log.entity}</div>
                           {log.entityId && (
-                            <div className="max-w-[200px] text-[11.5px] text-ink-muted font-mono truncate" title={log.entityId}>
+                            <div className="max-w-[200px] text-[13px] text-ink-muted font-mono truncate" title={log.entityId}>
                               {log.entityId}
                             </div>
                           )}
                         </td>
                         <td className="whitespace-nowrap">
                           <div className="font-medium text-ink">{log.userName ?? <span className="text-ink-muted italic">System</span>}</div>
-                          {log.role && <div className="text-[11.5px] text-ink-muted">{log.role}</div>}
+                          {log.role && <div className="text-[13px] text-ink-muted">{log.role}</div>}
                         </td>
                         <td className="text-right" data-label="">
                           <IconButton
@@ -261,7 +261,7 @@ export const AuditLogsPage: React.FC = () => {
         </div>
 
         <nav aria-label="Audit log pages" className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 border-t border-line">
-          <div className="flex items-center gap-2 text-[12px] text-ink-muted">
+          <div className="flex items-center gap-2 text-[13.5px] text-ink-muted">
             <select
               aria-label="Rows per page"
               value={perPage}
@@ -336,18 +336,18 @@ const AuditDetails: React.FC<{ log: AuditLog }> = ({ log }) => {
   const hasValues = (before !== null && before !== undefined) || (after !== null && after !== undefined)
   return (
     <div className="py-1 space-y-3 text-left">
-      <dl className="flex flex-wrap gap-x-6 gap-y-1.5 text-[12px]">
+      <dl className="flex flex-wrap gap-x-6 gap-y-1.5 text-[13.5px]">
         <Meta label="Action code" value={log.action} mono />
         <Meta label="Entity ID" value={log.entityId ?? '—'} mono />
         <Meta label="IP address" value={log.ipAddress ?? '—'} mono />
         {log.role && <Meta label="Role" value={log.role} />}
       </dl>
       {!hasValues ? (
-        <p className="text-[12px] text-ink-muted">No values recorded for this entry.</p>
+        <p className="text-[13.5px] text-ink-muted">No values recorded for this entry.</p>
       ) : fields.length > 0 ? (
         // Divs, not a nested table: the phone layout of the log table restyles every cell inside it.
-        <div className="rounded-md border border-line bg-white text-[12px] divide-y divide-line" role="list" aria-label="Changed fields">
-          <div className="hidden sm:grid grid-cols-[minmax(120px,1fr)_2fr_2fr] gap-3 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.04em] text-ink-muted" aria-hidden>
+        <div className="rounded-md border border-line bg-surface text-[13.5px] divide-y divide-line" role="list" aria-label="Changed fields">
+          <div className="hidden sm:grid grid-cols-[minmax(120px,1fr)_2fr_2fr] gap-3 px-3 py-1.5 text-[12.5px] font-semibold uppercase tracking-[0.04em] text-ink-muted" aria-hidden>
             <span>Field</span>
             <span>Before</span>
             <span>After</span>
@@ -367,10 +367,10 @@ const AuditDetails: React.FC<{ log: AuditLog }> = ({ log }) => {
           ))}
         </div>
       ) : (
-        <p className="text-[12px] text-ink-muted">No field changed between the recorded values.</p>
+        <p className="text-[13.5px] text-ink-muted">No field changed between the recorded values.</p>
       )}
       {hasValues && (
-        <details className="text-[12px]">
+        <details className="text-[13.5px]">
           <summary className="cursor-pointer text-ink-secondary font-medium w-fit">Raw values</summary>
           <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-2">
             <RawValue label="Before" value={before} />
@@ -384,15 +384,15 @@ const AuditDetails: React.FC<{ log: AuditLog }> = ({ log }) => {
 
 const Meta: React.FC<{ label: string; value: string; mono?: boolean }> = ({ label, value, mono }) => (
   <div className="min-w-0">
-    <dt className="text-[11px] font-semibold uppercase tracking-[0.04em] text-ink-muted">{label}</dt>
-    <dd className={`text-ink [overflow-wrap:anywhere] ${mono ? 'font-mono text-[11.5px]' : ''}`}>{value}</dd>
+    <dt className="text-[12.5px] font-semibold uppercase tracking-[0.04em] text-ink-muted">{label}</dt>
+    <dd className={`text-ink [overflow-wrap:anywhere] ${mono ? 'font-mono text-[13px]' : ''}`}>{value}</dd>
   </div>
 )
 
 const RawValue: React.FC<{ label: string; value: unknown }> = ({ label, value }) => (
   <div className="min-w-0">
-    <div className="text-[11px] font-semibold uppercase tracking-[0.04em] text-ink-muted mb-1">{label}</div>
-    <pre className="max-h-64 overflow-auto rounded-md border border-line bg-white p-2.5 font-mono text-[11.5px] text-ink whitespace-pre-wrap [overflow-wrap:anywhere]">
+    <div className="text-[12.5px] font-semibold uppercase tracking-[0.04em] text-ink-muted mb-1">{label}</div>
+    <pre className="max-h-64 overflow-auto rounded-md border border-line bg-surface p-2.5 font-mono text-[13px] text-ink whitespace-pre-wrap [overflow-wrap:anywhere]">
       {value === null || value === undefined ? '—' : JSON.stringify(value, null, 2)}
     </pre>
   </div>

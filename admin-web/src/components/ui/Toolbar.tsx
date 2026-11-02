@@ -29,7 +29,7 @@ export const SearchInput: React.FC<{
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       aria-label={label}
-      className="w-full h-[40px] lg:h-8 pl-8 pr-8 text-[16px] lg:text-[13px] rounded-md border border-line-strong bg-white text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent [&::-webkit-search-cancel-button]:hidden"
+      className="w-full h-[40px] lg:h-8 pl-8 pr-8 text-[17px] lg:text-[14.5px] rounded-md border border-line-strong bg-surface text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-accent/25 focus:border-accent [&::-webkit-search-cancel-button]:hidden"
     />
     {value && (
       <button
@@ -78,13 +78,13 @@ export function Segmented<T extends string>({
             type="button"
             aria-pressed={on}
             onClick={() => onChange(o.value)}
-            className={`inline-flex items-center gap-1.5 h-[36px] lg:h-7 px-2.5 rounded text-[12.5px] font-medium whitespace-nowrap transition-colors ${
-              on ? 'bg-white text-ink shadow-[var(--shadow-card)] ring-1 ring-line' : 'text-ink-secondary hover:text-ink'
+            className={`inline-flex items-center gap-1.5 h-[36px] lg:h-7 px-2.5 rounded text-[14px] font-medium whitespace-nowrap transition-colors ${
+              on ? 'bg-surface text-ink shadow-[var(--shadow-card)] ring-1 ring-line' : 'text-ink-secondary hover:text-ink'
             }`}
           >
             {o.label}
             {o.count !== undefined && (
-              <span className={`min-w-5 px-1 rounded text-[11px] tabular-nums ${on ? 'bg-accent-soft text-accent-strong' : 'bg-white/70 text-ink-muted'}`}>{o.count}</span>
+              <span className={`min-w-5 px-1 rounded text-[12.5px] tabular-nums ${on ? 'bg-accent-soft text-accent-strong' : 'bg-surface/70 text-ink-muted'}`}>{o.count}</span>
             )}
           </button>
         )
@@ -115,7 +115,7 @@ export const IconButton: React.FC<
 
 /** A "12 results" style count for the right side of a toolbar. */
 export const ResultCount: React.FC<{ shown: number; total?: number; noun: string }> = ({ shown, total, noun }) => (
-  <span className="text-[12px] text-ink-muted tabular-nums whitespace-nowrap" aria-live="polite">
+  <span className="text-[13.5px] text-ink-muted tabular-nums whitespace-nowrap" aria-live="polite">
     {total !== undefined && total !== shown ? `${shown.toLocaleString('en-IN')} of ${total.toLocaleString('en-IN')}` : shown.toLocaleString('en-IN')} {noun}
   </span>
 )

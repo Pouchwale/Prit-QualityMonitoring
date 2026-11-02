@@ -26,7 +26,7 @@ const fmt = (n: number) => n.toLocaleString('en-IN')
 
 /** Legend: a swatch and label per series, with the value when given. */
 export const ChartLegend: React.FC<{ items: (Series & { value?: number | string })[]; className?: string }> = ({ items, className = '' }) => (
-  <ul className={`flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px] text-ink-secondary ${className}`}>
+  <ul className={`flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13.5px] text-ink-secondary ${className}`}>
     {items.map((s) => (
       <li key={s.key} className="inline-flex items-center gap-1.5">
         <span className="w-2.5 h-2.5 rounded-[3px] shrink-0" style={{ backgroundColor: s.color }} aria-hidden />
@@ -78,7 +78,7 @@ export const StackedBarChart: React.FC<{
     <div className="w-full" role="group" aria-label={summary} aria-describedby={tableId}>
       <div className="relative flex gap-2" style={{ height }}>
         {/* Value axis */}
-        <div className="flex flex-col justify-between text-[10.5px] text-ink-muted tabular-nums text-right w-7 shrink-0 -my-1.5" aria-hidden>
+        <div className="flex flex-col justify-between text-[12px] text-ink-muted tabular-nums text-right w-7 shrink-0 -my-1.5" aria-hidden>
           {[...ticks].reverse().map((t) => (
             <span key={t}>{fmt(t)}</span>
           ))}
@@ -114,11 +114,11 @@ export const StackedBarChart: React.FC<{
                   >
                     {series.map((s) => {
                       const v = d.values[s.key] ?? 0
-                      return v > 0 ? <span key={s.key} style={{ height: `${(v / Math.max(total, 1)) * 100}%`, backgroundColor: s.color }} className="w-full block border-t border-white/70 first:border-t-0" /> : null
+                      return v > 0 ? <span key={s.key} style={{ height: `${(v / Math.max(total, 1)) * 100}%`, backgroundColor: s.color }} className="w-full block border-t border-surface/70 first:border-t-0" /> : null
                     })}
                   </span>
                   {isActive && (
-                    <span className="absolute bottom-full left-1/2 z-20 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-ink px-2.5 py-2 text-left text-[11.5px] text-white shadow-[var(--shadow-pop)]" aria-hidden>
+                    <span className="absolute bottom-full left-1/2 z-20 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-inverse px-2.5 py-2 text-left text-[13px] text-white shadow-[var(--shadow-pop)]" aria-hidden>
                       <span className="block font-semibold mb-1">{d.fullLabel ?? d.label}</span>
                       {series.map((s) => (
                         <span key={s.key} className="flex items-center gap-1.5 leading-relaxed">
@@ -144,7 +144,7 @@ export const StackedBarChart: React.FC<{
         <div className="w-7 shrink-0" />
         <div className="flex-1 flex gap-[6%] px-[3%]">
           {data.map((d, i) => (
-            <span key={d.label + i} className={`flex-1 text-center text-[11px] leading-tight break-words ${d.highlight ? 'font-semibold text-ink' : 'text-ink-muted'}`}>
+            <span key={d.label + i} className={`flex-1 text-center text-[12.5px] leading-tight break-words ${d.highlight ? 'font-semibold text-ink' : 'text-ink-muted'}`}>
               {d.label}
             </span>
           ))}
@@ -190,7 +190,7 @@ export const SegmentBar: React.FC<{ values: Record<string, number>; series: Seri
       {total > 0 &&
         series.map((s) => {
           const v = values[s.key] ?? 0
-          return v > 0 ? <span key={s.key} className="h-full border-l border-white/80 first:border-l-0" style={{ width: `${(v / total) * 100}%`, backgroundColor: s.color }} title={`${s.label}: ${fmt(v)}`} /> : null
+          return v > 0 ? <span key={s.key} className="h-full border-l border-surface/80 first:border-l-0" style={{ width: `${(v / total) * 100}%`, backgroundColor: s.color }} title={`${s.label}: ${fmt(v)}`} /> : null
         })}
     </div>
   )
@@ -218,9 +218,9 @@ export const BarList: React.FC<{ rows: BarListRow[]; series: Series[]; valueLabe
   emptyText = 'No data'
 }) =>
   rows.length === 0 ? (
-    <div className="py-6 text-center text-[12px] text-ink-muted">{emptyText}</div>
+    <div className="py-6 text-center text-[13.5px] text-ink-muted">{emptyText}</div>
   ) : (
-    <table className="w-full text-[12.5px]">
+    <table className="w-full text-[14px]">
       <thead className="sr-only">
         <tr>
           <th scope="col">{labelHeader}</th>
@@ -237,12 +237,12 @@ export const BarList: React.FC<{ rows: BarListRow[]; series: Series[]; valueLabe
                 <span className="block truncate" title={r.label}>
                   {r.label}
                 </span>
-                {r.detail && <span className="block text-[11px] font-normal text-ink-muted truncate">{r.detail}</span>}
+                {r.detail && <span className="block text-[12.5px] font-normal text-ink-muted truncate">{r.detail}</span>}
               </th>
               <td className="py-1.5 pr-3">
                 <SegmentBar values={r.values} series={series} />
                 <span className="sr-only">{series.map((s) => `${s.label} ${r.values[s.key] ?? 0}`).join(', ')}</span>
-                <span className="block mt-1 text-[10.5px] text-ink-muted tabular-nums" aria-hidden>
+                <span className="block mt-1 text-[12px] text-ink-muted tabular-nums" aria-hidden>
                   {fmt(total)} {total === 1 ? 'check' : 'checks'}
                 </span>
               </td>
@@ -297,8 +297,8 @@ export const DonutChart: React.FC<{
           })}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center" aria-hidden>
-        <span className="text-[22px] font-semibold text-ink leading-none tabular-nums">{centerValue}</span>
-        <span className="mt-1 text-[11px] text-ink-muted">{centerLabel}</span>
+        <span className="text-[23px] font-semibold text-ink leading-none tabular-nums">{centerValue}</span>
+        <span className="mt-1 text-[12.5px] text-ink-muted">{centerLabel}</span>
       </div>
     </div>
   )

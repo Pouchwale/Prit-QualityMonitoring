@@ -37,9 +37,9 @@ export const Modal: React.FC<ModalProps> = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/45 backdrop-blur-[2px] animate-fade-in">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-scrim/45 backdrop-blur-[2px] animate-fade-in">
       <div
-        className={`animate-scale-in outline-none bg-white rounded-xl border border-line shadow-[var(--shadow-pop)] w-full ${maxWidthClasses[maxWidth]} flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh] overflow-hidden`}
+        className={`animate-scale-in outline-none bg-surface rounded-xl border border-line shadow-[var(--shadow-pop)] w-full ${maxWidthClasses[maxWidth]} flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh] overflow-hidden`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -48,10 +48,10 @@ export const Modal: React.FC<ModalProps> = ({
         tabIndex={-1}
       >
         {/* Header */}
-        <div className="pl-4 pr-2 sm:pl-5 sm:pr-3 py-3 sm:py-3.5 border-b border-line flex items-start justify-between gap-2 bg-white">
+        <div className="pl-4 pr-2 sm:pl-5 sm:pr-3 py-3 sm:py-3.5 border-b border-line flex items-start justify-between gap-2 bg-surface">
           <div className="min-w-0 pt-1.5 sm:pt-0">
-            <h2 id={titleId} className="text-[15px] font-semibold text-ink tracking-tight">{title}</h2>
-            {subtitle && <p id={subtitleId} className="text-xs text-ink-muted mt-0.5">{subtitle}</p>}
+            <h2 id={titleId} className="text-[16.5px] font-semibold text-ink tracking-tight">{title}</h2>
+            {subtitle && <p id={subtitleId} className="text-[13px] text-ink-muted mt-0.5">{subtitle}</p>}
           </div>
           <button
             onClick={onClose}
@@ -63,7 +63,7 @@ export const Modal: React.FC<ModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="px-4 sm:px-5 py-4 overflow-y-auto overflow-x-hidden space-y-4 text-[13px]" data-dialog-body>
+        <div className="px-4 sm:px-5 py-4 overflow-y-auto overflow-x-hidden space-y-4 text-[14.5px]" data-dialog-body>
           {children}
         </div>
 

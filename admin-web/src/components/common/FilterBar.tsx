@@ -77,15 +77,15 @@ export const FilterBar: React.FC<FilterBarProps> = ({ value, onChange, onReset, 
   return (
     <div className="card px-3 py-2.5 no-print">
       {/* Phones: two columns of full-width controls. From sm up: one wrapping row, as before. */}
-      <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-end gap-2.5 text-xs">
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-end gap-2.5 text-[13px]">
         {showDates && (
           <>
             <label className="min-w-0">
-              <span className="block text-[11px] font-medium text-ink-muted mb-1">From</span>
+              <span className="block text-[12.5px] font-medium text-ink-muted mb-1">From</span>
               <DateInput value={value.from} max={value.to} onChange={(e) => setFrom(e.target.value)} className="sm:w-[160px] lg:w-[132px]" />
             </label>
             <label className="min-w-0">
-              <span className="block text-[11px] font-medium text-ink-muted mb-1">To</span>
+              <span className="block text-[12.5px] font-medium text-ink-muted mb-1">To</span>
               <DateInput value={value.to} min={value.from} onChange={(e) => setTo(e.target.value)} className="sm:w-[160px] lg:w-[132px]" />
             </label>
             <div className="col-span-2 grid grid-cols-3 sm:flex items-center gap-0.5 p-0.5 rounded-md bg-subtle border border-line h-[40px] lg:h-8" role="group" aria-label="Date presets">
@@ -97,8 +97,8 @@ export const FilterBar: React.FC<FilterBarProps> = ({ value, onChange, onReset, 
                     type="button"
                     aria-pressed={active}
                     onClick={() => set({ from: p.from, to: p.to })}
-                    className={`px-2.5 h-full rounded text-[12px] lg:text-[12px] font-medium whitespace-nowrap transition-colors ${
-                      active ? 'bg-white text-ink shadow-[var(--shadow-card)] ring-1 ring-line' : 'text-ink-secondary hover:text-ink'
+                    className={`px-2.5 h-full rounded text-[13.5px] lg:text-[13.5px] font-medium whitespace-nowrap transition-colors ${
+                      active ? 'bg-surface text-ink shadow-[var(--shadow-card)] ring-1 ring-line' : 'text-ink-secondary hover:text-ink'
                     }`}
                   >
                     {p.label}
@@ -208,7 +208,7 @@ const FilterSelect: React.FC<{
   children: React.ReactNode
 }> = ({ label, value, allLabel, onChange, children }) => (
   <label className="min-w-0">
-    <span className="block text-[11px] font-medium text-ink-muted mb-1">{label}</span>
+    <span className="block text-[12.5px] font-medium text-ink-muted mb-1">{label}</span>
     <select value={value} onChange={(e) => onChange(e.target.value)} className={`${selectClass} ${value ? 'border-accent bg-accent-soft/40' : ''}`}>
       <option value="">{allLabel}</option>
       {children}
@@ -241,7 +241,7 @@ const FilterText: React.FC<{
   }
   return (
     <label className="min-w-0">
-      <span className="block text-[11px] font-medium text-ink-muted mb-1">{label}</span>
+      <span className="block text-[12.5px] font-medium text-ink-muted mb-1">{label}</span>
       <span className="relative block">
         <input
           type="search"
