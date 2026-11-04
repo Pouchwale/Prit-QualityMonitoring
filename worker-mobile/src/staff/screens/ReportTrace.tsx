@@ -170,7 +170,9 @@ export const DetailedRecords: React.FC<{ checks: QualityCheck[]; onOpen: (id: st
             ? `Exception: ${[c.exception.reason, c.exception.reading, c.exception.remark].filter(Boolean).join(' — ')} · ${c.exception.status}${c.exception.reviewedByName ? ` by ${c.exception.reviewedByName}` : ''}`
             : c.result === 'MISSED'
               ? `Missed: not submitted before ${formatDateTime(c.windowEndsAt)}`
-              : null
+              : c.result === 'EXCUSED'
+                ? 'Excused: machine breakdown approved'
+                : null
           return (
             <Row
               key={c.id}

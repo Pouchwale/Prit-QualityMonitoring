@@ -46,6 +46,8 @@ interface Totals {
 }
 const empty = (): Totals => ({ scheduled: 0, completed: 0, missed: 0, exceptions: 0, open: 0 })
 function add(t: Totals, c: QualityCheck) {
+  // Excused by an approved machine breakdown: not a task, never counted (as on the server).
+  if (c.result === 'EXCUSED') return
   t.scheduled++
   if (c.result === 'COMPLETED') t.completed++
   else if (c.result === 'MISSED') t.missed++

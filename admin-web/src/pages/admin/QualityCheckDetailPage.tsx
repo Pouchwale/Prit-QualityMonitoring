@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
-import { AlertTriangle, ArrowLeft, Briefcase, Camera, ClipboardCheck, Clock3, Cpu, ListChecks, Printer, RefreshCw, Trash2, User as UserIcon } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Briefcase, Camera, ClipboardCheck, Clock3, Cpu, ListChecks, Printer, RefreshCw, Trash2, User as UserIcon, Wrench } from 'lucide-react'
 import type { CheckResult, MediaFile, QualityCheck } from '../../types'
+import { mediaUrl } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useAuth } from '../../lib/auth'
 import { PARAMETER_TYPE_LABEL, formatDateTime, RESULT_HINT, RESULT_LABEL } from '../../lib/format'
@@ -158,6 +159,33 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                 <Info label="Device" value={check.deviceInfo} className="col-span-2" />
               </dl>
             </Card>
+
+            {check.breakdown && (
+              <Card className="printable-card overflow-hidden">
+                <CardHeader
+                  icon={<Wrench className="w-4 h-4" />}
+                  title="Excused: machine breakdown"
+                  subtitle={`${check.breakdown.code} · not counted in the worker's score`}
+                  actions={<CheckStatusBadge status="EXCUSED" size="sm" />}
+                  className="bg-subtle/70"
+                />
+                <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3.5 p-4">
+                  <Info label="Breakdown reason" value={check.breakdown.reason} className="col-span-2" />
+                  <Info label="Period" value={`${formatDateTime(check.breakdown.startedAt)} → ${formatDateTime(check.breakdown.endsAt)}`} className="col-span-2" />
+                  <Info label="Approved by" value={check.breakdown.decidedByName ? `${check.breakdown.decidedByName}, ${formatDateTime(check.breakdown.decidedAt)}` : null} className="col-span-2" />
+                  <Info label="Approval reason" value={check.breakdown.decisionComment} className="col-span-2" multiline />
+                  {check.breakdown.remark && <Info label="Worker remark" value={check.breakdown.remark} className="col-span-4" multiline />}
+                </dl>
+                {check.breakdown.photoUrl && (
+                  <div className="px-4 pb-4">
+                    <div className="text-[12.5px] font-semibold uppercase tracking-[0.06em] text-ink-muted mb-1.5">Breakdown photo</div>
+                    <a href={mediaUrl(check.breakdown.photoUrl)} target="_blank" rel="noreferrer" className="block w-fit" title="Open the photo full size">
+                      <img src={mediaUrl(check.breakdown.photoUrl)} alt="Machine breakdown photo" className="max-h-56 max-w-full rounded-md ring-1 ring-line object-contain bg-subtle" />
+                    </a>
+                  </div>
+                )}
+              </Card>
+            )}
 
             {check.exception && (
               <Card className="printable-card overflow-hidden border-exception-line">

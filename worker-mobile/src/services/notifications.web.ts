@@ -179,6 +179,11 @@ export function onLeaveNotificationTap(_handler: () => void) {
   return () => undefined
 }
 
+/** Like leave decisions: the web app opens on Today; breakdown reports are seen on their screen. */
+export function onBreakdownNotificationTap(_type: 'BREAKDOWN_DECISION' | 'BREAKDOWN_REPORTED', _handler: (id: string) => void) {
+  return () => undefined
+}
+
 /**
  * Calls back with the check id when the worker taps an alert: either the app was opened
  * from the notification (?check=<id> in the address) or it was already open.

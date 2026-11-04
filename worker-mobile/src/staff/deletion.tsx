@@ -150,6 +150,7 @@ const STATUS_LABEL: Record<string, string> = {
   IN_PROGRESS: 'In progress',
   MISSED: 'Missed',
   EXCEPTION: 'Exception',
+  EXCUSED: 'Excused',
   DISABLED: 'Disabled'
 }
 const statusText = (s: string) => STATUS_LABEL[s] ?? s

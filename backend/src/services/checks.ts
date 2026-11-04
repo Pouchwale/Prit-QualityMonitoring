@@ -7,6 +7,7 @@ import {
   checkExceptions,
   departments,
   jobs,
+  machineBreakdowns,
   machines,
   media,
   qualityCheckValues,
@@ -167,7 +168,20 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
       itemCodeOfJob: jobs.itemCode,
       jobNoOfJob: jobs.jobNo,
       jobStartedAt: jobs.startedAt,
-      jobEndedAt: jobs.endedAt
+      jobEndedAt: jobs.endedAt,
+      /** EXCUSED checks: the approved machine breakdown that excused them. */
+      breakdown: {
+        id: machineBreakdowns.id,
+        code: machineBreakdowns.code,
+        reason: machineBreakdowns.reason,
+        remark: machineBreakdowns.remark,
+        photoPath: machineBreakdowns.photoPath,
+        startedAt: machineBreakdowns.startedAt,
+        endsAt: machineBreakdowns.endsAt,
+        decidedByName: machineBreakdowns.decidedByName,
+        decidedAt: machineBreakdowns.decidedAt,
+        decisionComment: machineBreakdowns.decisionComment
+      }
     })
     .from(qualityChecks)
     .leftJoin(machines, eq(qualityChecks.machineId, machines.id))
@@ -177,6 +191,7 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
     .leftJoin(shifts, eq(qualityChecks.shiftId, shifts.id))
     .leftJoin(submitter, eq(qualityChecks.submittedById, submitter.id))
     .leftJoin(jobs, eq(qualityChecks.jobId, jobs.id))
+    .leftJoin(machineBreakdowns, eq(qualityChecks.breakdownId, machineBreakdowns.id))
     .where(buildWhere(filters))
     .orderBy(order === 'asc' ? asc(sortColumn) : desc(sortColumn))
     .limit(limit)
@@ -222,8 +237,13 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
       scheduledAt: r.check.scheduledAt,
       windowEndsAt: r.check.windowEndsAt,
       status: r.check.status,
-      /** Overall result: Completed, Missed or Exception (null while still open). */
+      /** Overall result: Completed, Missed, Exception or Excused (null while still open). */
       result: resultOf(r.check.status),
+      /** Excused checks: the approved machine breakdown, its reason and who approved it (audit). */
+      breakdown:
+        r.check.breakdownId && r.breakdown?.id
+          ? (({ photoPath, ...b }) => ({ ...b, photoUrl: photoPath ? signedMediaUrl(photoPath) : null }))(r.breakdown)
+          : null,
       itemCode: r.check.itemCode,
       jobNo: r.check.jobNo,
       /** MANUAL when the worker started the check, NOTIFICATION when the scheduler did. */

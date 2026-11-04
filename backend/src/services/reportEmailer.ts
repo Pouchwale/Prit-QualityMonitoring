@@ -70,6 +70,77 @@ export function resolveSmtpConfig(custom?: SmtpConfig): {
 }
 
 /** Creates a nodemailer transporter */
+/**
+ * Gmail (the configured mail server) and most others refuse a message over 25 MB once encoded, and
+ * attachments grow by about a third when encoded. An email's files (PDF and videos) stay under this
+ * raw size, so the email is accepted; videos that do not fit are listed in the email instead.
+ */
+export const EMAIL_FILES_BUDGET_BYTES = 17 * 1024 * 1024
+
+/** A check video in a report email: attached, or listed because it did not fit. */
+export interface EmailVideo {
+  checkCode: string
+  fileName: string
+  sizeBytes: number
+}
+
+/**
+ * The checks' videos (each check's own and its exception's) as attachments, in report order, up
+ * to `budgetBytes` in total. A video that does not fit, or whose file is missing, is returned in
+ * `skipped` so the email can say so instead of dropping it silently.
+ */
+export function videoAttachments(checks: CrystalReportCheck[], budgetBytes: number) {
+  const attachments: Attachment[] = []
+  const attached: EmailVideo[] = []
+  const skipped: EmailVideo[] = []
+  let used = 0
+  for (const check of checks) {
+    for (const vid of check.videos) {
+      const fullPath = path.isAbsolute(vid.path) ? vid.path : path.resolve(config.uploadDir, vid.path)
+      const item: EmailVideo = { checkCode: check.code, fileName: `${check.code}_${path.basename(vid.path)}`, sizeBytes: vid.sizeBytes }
+      try {
+        if (!fs.existsSync(fullPath)) {
+          console.warn(`[Report email] Video ${vid.path} not found on disk; listed instead of attached.`)
+          skipped.push(item)
+          continue
+        }
+        item.sizeBytes = fs.statSync(fullPath).size
+        if (used + item.sizeBytes > budgetBytes) {
+          skipped.push(item)
+          continue
+        }
+        attachments.push({ filename: item.fileName, path: fullPath, contentType: vid.mimeType || 'video/mp4' })
+        used += item.sizeBytes
+        attached.push(item)
+      } catch (err) {
+        console.error(`[Report email] Could not attach video ${vid.path}:`, err)
+        skipped.push(item)
+      }
+    }
+  }
+  return { attachments, attached, skipped }
+}
+
+const mb = (bytes: number) => `${(bytes / 1048576).toFixed(1)} MB`
+
+/** The email's video section: what is attached, and what was too large for one email. */
+export function videosHtml(attached: EmailVideo[], skipped: EmailVideo[]) {
+  if (!attached.length && !skipped.length) return ''
+  const list = (items: EmailVideo[]) =>
+    items.map((v) => `<li style="margin: 2px 0;">${esc(v.checkCode)} &middot; ${esc(v.fileName)} (${mb(v.sizeBytes)})</li>`).join('')
+  const attachedPart = attached.length
+    ? `<strong>Inspection videos attached (${attached.length}):</strong><ul style="margin: 6px 0 0 18px; padding: 0;">${list(attached)}</ul>`
+    : ''
+  const skippedPart = skipped.length
+    ? `<div style="margin-top: ${attached.length ? '8px' : '0'};"><strong>Not attached (${skipped.length}):</strong> too large to fit in one email. Open the check in the admin panel to watch ${skipped.length === 1 ? 'it' : 'them'}.<ul style="margin: 6px 0 0 18px; padding: 0;">${list(skipped)}</ul></div>`
+    : ''
+  return `
+    <div style="margin-top: 12px; padding: 10px 14px; background-color: #eff6ff; border-left: 4px solid #2563eb; border-radius: 4px; color: #1e3a8a; font-size: 13px;">
+      ${attachedPart}
+      ${skippedPart}
+    </div>`
+}
+
 export function createTransporter(custom?: SmtpConfig) {
   const resolved = resolveSmtpConfig(custom)
   if (!resolved.user || !resolved.pass) {
@@ -89,7 +160,8 @@ export function createTransporter(custom?: SmtpConfig) {
     // A mail server that does not answer is a (temporary) failure after this, not a scheduler that waits.
     connectionTimeout: 30_000,
     greetingTimeout: 30_000,
-    socketTimeout: 120_000,
+    // Long enough for an email with videos (up to ~23 MB encoded) on a slow plant line.
+    socketTimeout: 300_000,
     // The server's certificate is checked, so the password cannot be read by a machine in between.
     // SMTP_ALLOW_SELF_SIGNED=1 accepts a company mail server's own certificate.
     tls: {
@@ -216,7 +288,7 @@ export function scoreSummaryHtml(rows: ScoreRow[] | null, heading = 'ALL USERS: 
     </tr>`
 }
 
-export function buildEmailHtml(opts: SendReportEmailOptions, videoCount: number, summary: ScoreRow[] | null = null): string {
+export function buildEmailHtml(opts: SendReportEmailOptions, videoCount: number, summary: ScoreRow[] | null = null, skippedVideos: EmailVideo[] = []): string {
   const { checks, samplePercentage, totalEligible, periodFrom, periodTo, reportId } = opts
 
   const totalPassed = checks.filter((c) => c.status === 'COMPLETED' && !c.values.some((v) => v.result === 'FAIL')).length
@@ -333,6 +405,7 @@ ${scoreSummaryHtml(summary)}
         `
             : ''
         }
+        ${skippedVideos.length ? videosHtml([], skippedVideos) : ''}
 
         <!-- Tabular Overview of Sampled Checks -->
         <h3 style="font-size: 14px; font-weight: 700; color: #1e3a8a; margin: 16px 0 8px 0;">INSPECTION BATCH OVERVIEW</h3>
@@ -397,34 +470,10 @@ export async function buildReportMail(options: SendReportEmailOptions): Promise<
     }
   ]
 
-  // Attach video recordings if any exist on disk
-  let videoCount = 0
-  let totalVideoBytes = 0
-  const MAX_TOTAL_ATTACHMENT_BYTES = 45 * 1024 * 1024 // 45 MB total attachment limit for safety
-
-  for (const check of checks) {
-    for (const vid of check.videos) {
-      try {
-        const fullPath = path.isAbsolute(vid.path) ? vid.path : path.resolve(config.uploadDir, vid.path)
-        if (fs.existsSync(fullPath)) {
-          const stat = fs.statSync(fullPath)
-          if (totalVideoBytes + stat.size < MAX_TOTAL_ATTACHMENT_BYTES) {
-            attachments.push({
-              filename: `${check.code}_${path.basename(vid.path)}`,
-              path: fullPath,
-              contentType: vid.mimeType || 'video/mp4'
-            })
-            totalVideoBytes += stat.size
-            videoCount++
-          } else {
-            console.warn(`Video attachment ${vid.path} skipped: exceeds email attachment size limit.`)
-          }
-        }
-      } catch (vidErr) {
-        console.error(`Error attaching video ${vid.path}:`, vidErr)
-      }
-    }
-  }
+  // The checks' videos, as many as fit in one email after the PDF; the rest are listed in the body.
+  const videos = videoAttachments(checks, EMAIL_FILES_BUDGET_BYTES - pdfBuffer.length)
+  attachments.push(...videos.attachments)
+  const videoCount = videos.attached.length
 
   const emailSubject =
     subject ||
@@ -435,6 +484,6 @@ export async function buildReportMail(options: SendReportEmailOptions): Promise<
     console.error('[Report email] Score summary failed:', err)
     return null
   })
-  const html = buildEmailHtml(options, videoCount, summary)
+  const html = buildEmailHtml(options, videoCount, summary, videos.skipped)
   return { subject: emailSubject, html, attachments, videoCount, pdfSizeBytes: pdfBuffer.length }
 }

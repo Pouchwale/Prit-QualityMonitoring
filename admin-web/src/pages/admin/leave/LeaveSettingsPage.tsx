@@ -15,6 +15,7 @@ import { useToast } from '../../../components/common/Toast'
 import { Card, CardHeader, EmptyState } from '../../../components/ui/Card'
 import { CodeChip } from '../../../components/ui/Chips'
 import { IconButton } from '../../../components/ui/Toolbar'
+import { WorkerLeaveSwitch } from './WorkerLeaveSwitch'
 
 interface TypeForm {
   name: string
@@ -176,6 +177,9 @@ export const LeaveSettingsPage: React.FC = () => {
         description="Leave types, quotas and leave emails"
         info="Changes apply to new requests; requests already applied keep their counted days. Every change is in the Audit Logs."
       />
+
+      {/* Leave on or off for every worker (Super Admin only). */}
+      <WorkerLeaveSwitch />
 
       {/* Leave types */}
       <Card className="overflow-hidden">

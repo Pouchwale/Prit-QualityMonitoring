@@ -464,7 +464,7 @@ export const WorkersPage: React.FC = () => {
                           </td>
                         )}
                         <td>
-                          <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex flex-nowrap items-center gap-2.5 min-w-0">
                             <UserAvatar name={u.name} muted={!u.isActive} />
                             <div className="min-w-0 text-left">
                               <div className="flex items-center gap-1.5 min-w-0">

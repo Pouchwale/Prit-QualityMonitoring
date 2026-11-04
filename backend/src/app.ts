@@ -11,6 +11,7 @@ import { activities, departmentMappings, departments, machines, parameters, sche
 import { errorHandler, notFound } from './lib/http'
 import { authRouter } from './routes/auth'
 import { leaveRouter, workerLeaveRouter } from './routes/leave'
+import { breakdownsRouter, workerBreakdownRouter } from './routes/breakdowns'
 import { departmentsRouter } from './routes/departments'
 import { departmentMappingsRouter } from './routes/departmentMappings'
 import { shiftAccessRouter, shiftsRouter } from './routes/shifts'
@@ -84,6 +85,8 @@ export function createApp() {
   // Worker mobile app
   // Leave and shift change requests in the worker app (routes/leave.ts).
   app.use('/api/worker/leave', authenticate, requireRole('WORKER'), workerLeaveRouter)
+  // Machine breakdowns the worker reports during their shift (routes/breakdowns.ts).
+  app.use('/api/worker/breakdowns', authenticate, requireRole('WORKER'), workerBreakdownRouter)
   app.use('/api/worker', authenticate, requireRole('WORKER'), workerRouter)
   // The app's native voice service (no sign-in session when the app is closed): its remote voice log.
   app.use('/api/device', deviceRouter)
@@ -116,6 +119,7 @@ export function createApp() {
   admin.use('/jobs', jobsRouter)
   admin.use('/performance', performanceRouter)
   admin.use('/leave', leaveRouter)
+  admin.use('/breakdowns', breakdownsRouter)
   admin.use('/reports/sharing', reportSharingRouter)
   // Backup & Restore: Super Admin only (checked inside).
   admin.use('/system/backup', backupRouter)

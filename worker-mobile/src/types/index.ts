@@ -7,6 +7,8 @@ export type QualityCheckStatus =
   | 'COMPLETED'
   | 'MISSED'
   | 'EXCEPTION'
+  /** Not counted: an approved machine breakdown covered it. */
+  | 'EXCUSED'
 
 export type WorkerQualityRole = 'IPQC' | 'QC' | 'BOTH'
 
@@ -71,8 +73,8 @@ export interface CheckSummary {
   scheduledAt: string
   windowEndsAt: string
   status: QualityCheckStatus
-  /** Overall result: Completed, Missed or Exception; null while the check is still open. */
-  result: 'COMPLETED' | 'MISSED' | 'EXCEPTION' | null
+  /** Overall result: Completed, Missed, Exception or Excused; null while the check is still open. */
+  result: 'COMPLETED' | 'MISSED' | 'EXCEPTION' | 'EXCUSED' | null
   itemCode?: string | null
   jobNo: string | null
   submittedAt: string | null
@@ -90,6 +92,23 @@ export interface CheckSummary {
   nextDueAt?: string | null
   /** Older servers leave it out: a shift schedule check. */
   kind?: CheckKind
+  /** EXCUSED checks: the approved machine breakdown that excused it. */
+  breakdown?: CheckBreakdown | null
+}
+
+/** The approved machine breakdown that excused a check. */
+export interface CheckBreakdown {
+  id: string
+  code: string
+  reason: string
+  remark: string | null
+  startedAt: string
+  endsAt: string
+  decidedByName: string | null
+  decidedAt: string | null
+  decisionComment: string | null
+  /** The worker's photo of the breakdown (server path; show it with fileUrl()). */
+  photoUrl?: string | null
 }
 
 /** A production job on a machine: planned, starting, running, ending or finished. */
@@ -594,4 +613,43 @@ export interface LeaveOverview {
   shifts: { id: string; name: string; startTime: string; endTime: string }[]
   currentShiftId: string | null
   rules: { maxPastDays: number; maxShiftChangeDays: number; workerCanCancelApproved: boolean }
+}
+
+// ---------------------------------------------------------------------------- Machine breakdowns (backend services/breakdowns.ts)
+
+export type BreakdownStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+
+/** A worker's report that a machine broke down, from the report time to the end of their shift. */
+export interface Breakdown {
+  id: string
+  code: string
+  workerId: string
+  workerName: string
+  workerEmployeeId: string
+  machineId: string
+  machineName: string
+  machineCode: string
+  reason: string
+  /** Only older reports have a remark; new ones carry a photo instead. */
+  remark?: string | null
+  /** The worker's photo of the breakdown (server path; show it with fileUrl()). */
+  photoUrl: string | null
+  startedAt: string
+  endsAt: string
+  shiftName: string | null
+  status: BreakdownStatus
+  decidedByName: string | null
+  decidedAt: string | null
+  decisionComment: string | null
+  createdAt: string
+  /** Checks this report excused (approved). */
+  excusedCount: number
+  /** Unsubmitted checks in the period so far: what approving would excuse now. */
+  affectedCount: number
+}
+
+/** The worker's reports (last 30 days) and the shift they are on now; null: not on shift, cannot report. */
+export interface MyBreakdowns {
+  items: Breakdown[]
+  shift: { name: string; start: string; end: string } | null
 }

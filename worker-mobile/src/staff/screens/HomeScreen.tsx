@@ -77,6 +77,7 @@ export const HomeScreen: React.FC = () => {
   const years = useQuery<{ years: CalendarYearSummary[] }>(isAdmin && can('calendar') ? '/api/calendar-years' : null)
   // Only needed for the welcome card of a Manager without monitoring access ("Your access" lives on My Account).
   const modules = useQuery<ModuleInfo[]>(!isAdmin && !monitoring && !canList ? '/api/access/modules' : null)
+  const breakdowns = useQuery<{ pending: number }>(can('breakdowns') ? '/api/breakdowns/pending-count' : null)
 
   const [showAllWarnings, setShowAllWarnings] = useState(false)
   const [showAllMachines, setShowAllMachines] = useState(false)
@@ -88,9 +89,10 @@ export const HomeScreen: React.FC = () => {
   const reloadDay = dayChecks.reload
   const reloadExceptions = exceptions.reload
   const reloadYears = years.reload
+  const reloadBreakdowns = breakdowns.reload
   const reloadAll = useCallback(async () => {
-    await Promise.all([reloadDashboard(), reloadMissed(), reloadDay(), reloadExceptions(), reloadYears()])
-  }, [reloadDashboard, reloadMissed, reloadDay, reloadExceptions, reloadYears])
+    await Promise.all([reloadDashboard(), reloadMissed(), reloadDay(), reloadExceptions(), reloadYears(), reloadBreakdowns()])
+  }, [reloadDashboard, reloadMissed, reloadDay, reloadExceptions, reloadYears, reloadBreakdowns])
 
   // Monitoring data refreshes every minute, like the web dashboard.
   useEffect(() => {
@@ -98,9 +100,10 @@ export const HomeScreen: React.FC = () => {
       reloadDashboard()
       reloadMissed()
       reloadDay()
+      reloadBreakdowns()
     }, REFRESH_MS)
     return () => clearInterval(timer)
-  }, [reloadDashboard, reloadMissed, reloadDay])
+  }, [reloadDashboard, reloadMissed, reloadDay, reloadBreakdowns])
 
   const data = dashboard.data
   const kpi = data?.kpi
@@ -114,6 +117,8 @@ export const HomeScreen: React.FC = () => {
   const team = useMemo(() => {
     const map = new Map<string, { key: string; name: string; employeeId: string | null; total: number; completed: number; missed: number; exceptions: number; open: number }>()
     for (const c of dayChecks.data ?? []) {
+      // Excused by an approved machine breakdown: not counted.
+      if (c.result === 'EXCUSED') continue
       const key = c.submittedById ?? c.workerId ?? '—'
       const row = map.get(key) ?? { key, name: workerOf(c), employeeId: c.submittedByEmployeeId ?? c.workerEmployeeId, total: 0, completed: 0, missed: 0, exceptions: 0, open: 0 }
       row.total++
@@ -202,6 +207,20 @@ export const HomeScreen: React.FC = () => {
             </>
           ) : null}
         </Card>
+      ) : null}
+
+      {/* Machine breakdowns waiting for a decision */}
+      {breakdowns.data?.pending ? (
+        <List>
+          <Row
+            icon="construct-outline"
+            iconTone="exception"
+            title="Machine breakdowns"
+            subtitle={`${plural(breakdowns.data.pending, 'report')} waiting for a decision`}
+            accessibilityLabel={`Machine breakdowns: ${plural(breakdowns.data.pending, 'report')} waiting for a decision`}
+            onPress={() => push('breakdowns')}
+          />
+        </List>
       ) : null}
 
       {/* 2. Today: completion and the four figures, each opening the matching list */}

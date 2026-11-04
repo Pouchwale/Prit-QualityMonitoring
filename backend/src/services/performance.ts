@@ -76,7 +76,9 @@ function conditions(f: PerformanceFilters): SQL {
   const where: SQL[] = [
     gte(qualityChecks.scheduledAt, f.from),
     lt(qualityChecks.scheduledAt, f.to),
-    sql`${qualityChecks.workerId} is not null`
+    sql`${qualityChecks.workerId} is not null`,
+    // Checks excused by an approved machine breakdown are not tasks: never assigned, missed or scored.
+    sql`${qualityChecks.status} <> 'EXCUSED'`
   ]
   if (f.workerId) where.push(eq(qualityChecks.workerId, f.workerId))
   if (f.departmentId) where.push(eq(qualityChecks.departmentId, f.departmentId))

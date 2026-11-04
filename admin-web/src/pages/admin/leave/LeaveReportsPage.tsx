@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { BarChart3, ChevronLeft, ChevronRight, Download, Users } from 'lucide-react'
+import { BarChart3, ChevronLeft, ChevronRight, Download, Tag, Users } from 'lucide-react'
 import type { LeaveReportData } from '../../../types'
 import { useApi } from '../../../lib/useApi'
 import { useAuth } from '../../../lib/auth'
@@ -86,7 +86,7 @@ export const LeaveReportsPage: React.FC = () => {
       {totals.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {totals.map((t) => (
-            <StatCard key={t.id} label={`${t.name} used`} value={num(t.used)} icon={<span className="text-[11.5px] font-bold">{t.code}</span>} tone="accent" meta={t.pending ? `${num(t.pending)} pending` : 'none pending'} />
+            <StatCard key={t.id} label={`${t.name} used`} value={num(t.used)} icon={t.code.length <= 3 ? <span className="text-[11.5px] font-bold">{t.code}</span> : <Tag className="w-4 h-4" />} tone="accent" meta={t.pending ? `${num(t.pending)} pending` : 'none pending'} />
           ))}
         </div>
       )}

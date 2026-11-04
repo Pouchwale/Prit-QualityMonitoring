@@ -24,7 +24,9 @@ import {
   DayPart,
   LeaveOverview,
   MyLeaveRequest,
-  MyShiftChange
+  MyShiftChange,
+  Breakdown,
+  MyBreakdowns
 } from '../types'
 import { tokenStorage } from './storage'
 import { normalizeServerUrl } from './serverUrl'
@@ -809,3 +811,18 @@ export const requestShiftChange = (fields: { requestedShiftId: string; startDate
 
 export const cancelLeaveRequest = (id: string) => request<MyLeaveRequest>('POST', `/api/worker/leave/requests/${id}/cancel`)
 export const cancelShiftChange = (id: string) => request<MyShiftChange>('POST', `/api/worker/leave/shift-changes/${id}/cancel`)
+
+// ---- Machine breakdowns (backend routes/breakdowns.ts) ----
+
+export const getMyBreakdowns = () => request<MyBreakdowns>('GET', '/api/worker/breakdowns')
+/** Report a breakdown with the photo taken as proof (multipart, like an exception). */
+export const reportBreakdown = (data: { machineId: string; reason: string; photo: Capture }) =>
+  upload<Breakdown>('/api/worker/breakdowns', () => {
+    const form = new FormData()
+    form.append('machineId', data.machineId)
+    form.append('reason', data.reason)
+    form.append('photoCapturedAt', data.photo.capturedAt)
+    appendFile(form, 'photo', data.photo)
+    return form
+  })
+export const cancelBreakdown = (id: string) => request<Breakdown>('POST', `/api/worker/breakdowns/${id}/cancel`)

@@ -1,6 +1,7 @@
 import { and, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { db } from '../db/client'
 import { activities, jobs, machines, moduleNotificationAssignments, parameters, pushTokens, qualityChecks, users } from '../db/schema'
+import { notInReportedBreakdown } from './breakdownWindow'
 import { sendWebPush, type WebSubscription } from './webPush'
 import { fcmEnabled, sendFcmAlert } from './fcm'
 import { machineOffBetween } from './plantCalendar'
@@ -282,7 +283,9 @@ export async function notifyDueChecks() {
         eq(qualityChecks.status, 'DUE'),
         isNull(qualityChecks.notifiedAt),
         lte(qualityChecks.scheduledAt, new Date()),
-        jobStillNeedsIt
+        jobStillNeedsIt,
+        // The worker reported this machine broken down (waiting for approval, or approved): no alerts.
+        notInReportedBreakdown
       )
     )
     .limit(200)
@@ -315,7 +318,7 @@ export async function notifyDueChecks() {
       await db
         .update(qualityChecks)
         .set({ notifiedAt: new Date() })
-        .where(and(inArray(qualityChecks.id, candidates.map((c) => c.id)), eq(qualityChecks.status, 'DUE'), isNull(qualityChecks.notifiedAt), jobStillNeedsIt))
+        .where(and(inArray(qualityChecks.id, candidates.map((c) => c.id)), eq(qualityChecks.status, 'DUE'), isNull(qualityChecks.notifiedAt), jobStillNeedsIt, notInReportedBreakdown))
         .returning({ id: qualityChecks.id })
     ).map((r) => r.id)
   )

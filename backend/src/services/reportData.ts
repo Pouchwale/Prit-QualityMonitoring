@@ -272,6 +272,8 @@ const rate = (part: number, whole: number) => (whole > 0 ? Math.round((part / wh
 const emptyCounts = (): StatusCounts => ({ scheduled: 0, completed: 0, exception: 0, missed: 0, open: 0 })
 
 function tally(counts: StatusCounts, status: CheckDto['status']) {
+  // Excused by an approved machine breakdown: not a task, so not scheduled, open or missed.
+  if (status === 'EXCUSED') return
   counts.scheduled++
   const result = resultOf(status)
   if (result === 'COMPLETED') counts.completed++

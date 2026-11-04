@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { AppState, Platform, View } from 'react-native'
 import { AssignedMachine, Profile } from '../types'
-import { getPushToken, onLeaveNotificationTap, onNotificationTap, registerForPush, requestNotificationPermission, unregisterForPush } from '../services/notifications'
+import { getPushToken, onBreakdownNotificationTap, onLeaveNotificationTap, onNotificationTap, registerForPush, requestNotificationPermission, unregisterForPush } from '../services/notifications'
 import { reportPresence } from '../services/api'
 import { TabBar } from '../components/ui/TabBar'
 import type { IconName } from '../components/ui/Icon'
@@ -13,18 +13,20 @@ import { LeaveScreen } from '../screens/LeaveScreen'
 import { CheckScreen } from '../screens/CheckScreen'
 import { HistoryDetailScreen } from '../screens/HistoryDetailScreen'
 import { JobScreen } from '../screens/JobScreen'
+import { BreakdownScreen } from '../screens/BreakdownScreen'
 import { dismissKeyboard } from '../utils/keyboard'
 import { WorkerFeaturesContext, featuresOf } from './features'
 
 /** How often the open app tells the server it is on company Wi-Fi (Company Wi-Fi rule). */
 const PRESENCE_EVERY_MS = 2 * 60_000
 
-type Tab = 'today' | 'history' | 'leave' | 'profile'
+type Tab = 'today' | 'history' | 'leave' | 'breakdown' | 'profile'
 
 const TABS: { key: Tab; label: string; icon: IconName }[] = [
   { key: 'today', label: 'Today', icon: 'today-outline' },
   { key: 'history', label: 'History', icon: 'time-outline' },
   { key: 'leave', label: 'Leave', icon: 'calendar-outline' },
+  { key: 'breakdown', label: 'Breakdown', icon: 'construct-outline' },
   { key: 'profile', label: 'Profile', icon: 'person-circle-outline' }
 ]
 
@@ -45,6 +47,14 @@ export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<voi
   const [openJobId, setOpenJobId] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [leaveForm, setLeaveForm] = useState(false)
+
+  // The Super Admin switched Leave off while it was open: leave the tab (and any half-filled form).
+  useEffect(() => {
+    if (!features.leave && tab === 'leave') {
+      setLeaveForm(false)
+      setTab('today')
+    }
+  }, [features.leave, tab])
 
   // Opening another screen closes the keyboard: it must never be left over the new one.
   useEffect(() => {
@@ -108,6 +118,18 @@ export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<voi
     })
   }, [features.leave])
 
+  // Tapping "Breakdown approved / rejected" opens the Breakdown tab with the worker's reports.
+  useEffect(() => {
+    return onBreakdownNotificationTap('BREAKDOWN_DECISION', () => {
+      setOpenCheck(null)
+      setOpenRecordId(null)
+      setOpenJobId(null)
+      setMachine(null)
+      setTab('breakdown')
+      setRefreshKey((k) => k + 1)
+    })
+  }, [])
+
   const handleLogout = async () => {
     // The phone still gets this worker's shift-start login reminder (only that, until they sign in).
     await unregisterForPush({ keepShiftReminders: true })
@@ -162,6 +184,7 @@ export const WorkerApp: React.FC<{ profile: Profile; onLogout: () => Promise<voi
           )}
           {tab === 'history' && features.history && <HistoryScreen refreshKey={refreshKey} onOpenRecord={setOpenRecordId} />}
           {tab === 'leave' && features.leave && <LeaveScreen refreshKey={refreshKey} onFormChange={setLeaveForm} />}
+          {tab === 'breakdown' && <BreakdownScreen refreshKey={refreshKey} />}
           {tab === 'profile' && <ProfileScreen profile={profile} onLogout={handleLogout} />}
         </View>
         {tab === 'leave' && leaveForm ? null : (

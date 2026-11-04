@@ -27,6 +27,7 @@ export type ModuleKey =
   | 'wifi_rule'
   | 'leave'
   | 'leave_settings'
+  | 'breakdowns'
   // Worker app features (Worker role)
   | 'app_jobs'
   | 'app_performance'
@@ -95,7 +96,7 @@ export type MachineStatus = 'ACTIVE' | 'MAINTENANCE' | 'IDLE'
  * Internal check state from the API. Only COMPLETED, MISSED and EXCEPTION are ever shown as a
  * status; PENDING / DUE / IN_PROGRESS mean "not finished yet" and are displayed as "—".
  */
-export type QualityCheckStatus = 'PENDING' | 'DUE' | 'IN_PROGRESS' | 'COMPLETED' | 'MISSED' | 'EXCEPTION'
+export type QualityCheckStatus = 'PENDING' | 'DUE' | 'IN_PROGRESS' | 'COMPLETED' | 'MISSED' | 'EXCEPTION' | 'EXCUSED'
 export type ExceptionStatus = 'UNDER_REVIEW' | 'ACKNOWLEDGED' | 'ACTION_TAKEN' | 'RESOLVED'
 export type ValueResult = 'PASS' | 'FAIL' | 'NA'
 
@@ -109,7 +110,66 @@ export type MonitoringMode = ScheduleMode | 'MANUAL'
 export type SubmissionType = 'NOTIFICATION' | 'MANUAL'
 
 /** Overall result of a check (backend/src/lib/result.ts). Null while the check is still open. */
-export type CheckResult = 'COMPLETED' | 'MISSED' | 'EXCEPTION'
+export type CheckResult = 'COMPLETED' | 'MISSED' | 'EXCEPTION' | 'EXCUSED'
+
+/** The approved machine breakdown that excused a check (EXCUSED): never counted or scored. */
+export interface CheckBreakdown {
+  id: string
+  code: string
+  reason: string
+  remark: string | null
+  /** The worker's photo of the breakdown (signed link; null on older reports). */
+  photoUrl?: string | null
+  startedAt: string
+  endsAt: string
+  decidedByName: string | null
+  decidedAt: string | null
+  decisionComment: string | null
+}
+
+export type BreakdownStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+
+/** A worker's machine breakdown report (backend/src/services/breakdowns.ts). */
+export interface MachineBreakdown {
+  id: string
+  code: string
+  workerId: string
+  workerName: string
+  workerEmployeeId: string
+  machineId: string
+  machineName: string
+  machineCode: string
+  reason: string
+  /** Older reports only: the app no longer asks for a remark. */
+  remark: string | null
+  /** The photo the worker took of the breakdown (signed link; null on older reports). */
+  photoUrl: string | null
+  /** When it was reported: the start of the period. */
+  startedAt: string
+  /** The end of the worker's shift: the end of the period. */
+  endsAt: string
+  shiftName: string | null
+  status: BreakdownStatus
+  decidedByName: string | null
+  decidedAt: string | null
+  decisionComment: string | null
+  createdAt: string
+  /** Checks this breakdown excused (approved). */
+  excusedCount: number
+  /** Unsubmitted checks in the period so far: what approving excuses now. */
+  affectedCount: number
+}
+
+/** A check in a breakdown's period (the report's detail). */
+export interface BreakdownCheck {
+  id: string
+  code: string
+  activityName: string
+  scheduledAt: string
+  windowEndsAt: string
+  status: QualityCheckStatus
+  submittedAt: string | null
+}
 
 export interface CurrentUser {
   id: string
@@ -433,6 +493,8 @@ export interface QualityCheck {
   values: CheckValue[]
   media: MediaFile[]
   exception: CheckException | null
+  /** EXCUSED checks: the approved machine breakdown, its reason and who approved it. */
+  breakdown?: CheckBreakdown | null
   /** SCHEDULED (shift schedule) or a job check (older servers leave it out). */
   kind?: CheckKind
   /** Job checks: the parameters this check asks for. */

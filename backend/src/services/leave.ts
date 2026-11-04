@@ -10,7 +10,7 @@ import { config } from '../config'
 import { audit } from '../lib/audit'
 import { badRequest, conflict, forbidden, notFound } from '../lib/http'
 import { addDays, atTime, dateKey, formatDateKey, parseDateKey, startOfDay } from '../lib/time'
-import { loadActions } from '../lib/permissions'
+import { loadActions, loadRoleMatrix } from '../lib/permissions'
 import { dayStates } from './plantCalendar'
 import { invalidateCheckGeneration } from './checkGenerator'
 import { sendToUser } from './notifications'
@@ -872,14 +872,27 @@ async function notifySubmitted(kind: RequestKind, d: LeaveDto | ShiftChangeDto) 
   }
 }
 
-/** A decision: to the worker (email on their account) and the copies; a push to the worker's phone. */
+/**
+ * Whether workers have Leave in the app: the Worker role's "Leave in the app" permission, the one
+ * switch the Super Admin turns on or off for every worker (Leave Settings, Roles & Permissions).
+ * Workers have no permissions of their own, so this decides it for all of them.
+ */
+export async function workerLeaveEnabled(tx?: Transaction) {
+  return (await loadRoleMatrix('WORKER', tx)).app_leave.create
+}
+
+/**
+ * A decision: to the worker (email on their account) and the copies; a push to the worker's phone.
+ * While leave is switched off for workers, nothing goes to the worker; the copies still do.
+ */
 async function notifyDecided(kind: RequestKind, d: LeaveDto | ShiftChangeDto) {
   const s = await getLeaveSettings()
+  const toWorker = await workerLeaveEnabled()
   const approved = d.status === 'APPROVED'
   const word = approved ? 'Approved' : 'Rejected'
   const what = kind === 'leave' ? 'Leave Request' : 'Shift Change Request'
   const [worker] = await db.select({ email: users.email }).from(users).where(eq(users.id, d.workerId))
-  const to = unique([s.notify.worker ? worker?.email : null, s.notify.copySuperAdmin ? s.notify.superAdminEmail : null, ...s.notify.ccEmails])
+  const to = unique([s.notify.worker && toWorker ? worker?.email : null, s.notify.copySuperAdmin ? s.notify.superAdminEmail : null, ...s.notify.ccEmails])
   const rows: [string, string][] = [
     ...(kind === 'leave' ? leaveRows(d as LeaveDto) : shiftRows(d as ShiftChangeDto)),
     [approved ? 'Approved By' : 'Rejected By', d.decidedByName ?? '—'],
@@ -892,6 +905,7 @@ async function notifyDecided(kind: RequestKind, d: LeaveDto | ShiftChangeDto) {
     rows,
     `<p>Please contact your manager if you need any further clarification.</p><p>Regards,<br>HR / Leave Management System</p>`
   )
+  if (!toWorker) return
   const dates = range(d.startDate, d.endDate)
   await sendToUser(
     d.workerId,

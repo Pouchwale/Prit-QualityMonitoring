@@ -1,7 +1,7 @@
 import React from 'react'
 import { QualityCheckStatus, MachineStatus, ExceptionStatus } from '../../types'
 
-const FINISHED: string[] = ['COMPLETED', 'MISSED', 'EXCEPTION']
+const FINISHED: string[] = ['COMPLETED', 'MISSED', 'EXCEPTION', 'EXCUSED']
 
 type BadgeType = QualityCheckStatus | MachineStatus | ExceptionStatus | 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | 'IDLE'
 
@@ -49,6 +49,15 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({
       borderClass = 'border-exception-line'
       dotClass = 'bg-[var(--color-chart-exception)]'
       label = 'Exception'
+      break
+
+    // Approved machine breakdown: not a task, so neutral (never a success or a failure).
+    case 'EXCUSED':
+      bgClass = 'bg-subtle'
+      textClass = 'text-ink-secondary'
+      borderClass = 'border-line-strong'
+      dotClass = 'bg-[var(--color-chart-open)]'
+      label = 'Excused'
       break
 
     // Machine / Entity statuses

@@ -2,6 +2,7 @@ import React from 'react'
 import { Text } from 'react-native'
 import type { ModuleKey } from '../types'
 import { useStaff, type TabKey } from '../nav'
+import { useQuery } from '../useQuery'
 import { ROLE_LABEL } from '../format'
 import { ActionList, ActionRow, Badge, List, ProfileCard, Row, Screen, Section, confirm, type IconName } from '../ui'
 
@@ -29,6 +30,7 @@ const GROUPS: { title: string; detail?: string; entries: Entry[] }[] = [
       { label: 'Quality Checks', description: 'Scheduled checks, values and evidence', screen: 'checks', icon: 'clipboard-outline', module: 'checks', tab: 'checks' },
       { label: 'Jobs', description: 'Planned and running jobs, handovers', screen: 'jobs', icon: 'briefcase-outline', module: 'jobs' },
       { label: 'Exceptions', description: 'Checks workers could not perform', screen: 'exceptions', icon: 'alert-circle-outline', module: 'exceptions', tab: 'exceptions' },
+      { label: 'Machine Breakdowns', description: 'Approve or reject breakdowns workers report', screen: 'breakdowns', icon: 'construct-outline', module: 'breakdowns' },
       {
         label: 'Reports',
         description: 'Summaries, CSV and PDF',
@@ -79,6 +81,9 @@ export const MoreScreen: React.FC = () => {
   const visible = (e: Entry) =>
     e.superAdminOnly ? isSuperAdmin : e.anyModules ? e.anyModules.some((m) => can(m)) : e.module ? can(e.module) : true
   const open = (e: Entry) => (e.tab && e.module && can(e.module) ? switchTab(e.tab) : push(e.screen))
+  // Breakdown reports waiting for a decision, shown on their row.
+  const breakdowns = useQuery<{ pending: number }>(can('breakdowns') ? '/api/breakdowns/pending-count' : null)
+  const waiting = breakdowns.data?.pending ?? 0
 
   return (
     <Screen title="All modules">
@@ -99,7 +104,13 @@ export const MoreScreen: React.FC = () => {
                     title={e.label}
                     subtitle={e.descriptionNoExport && !can('export') ? e.descriptionNoExport : e.description}
                     accessibilityLabel={e.label}
-                    right={viewOnly ? <Badge label="View only" /> : null}
+                    right={
+                      e.screen === 'breakdowns' && waiting > 0 ? (
+                        <Badge label={`${waiting} waiting`} tone="exception" />
+                      ) : viewOnly ? (
+                        <Badge label="View only" />
+                      ) : null
+                    }
                     onPress={() => open(e)}
                   />
                 )

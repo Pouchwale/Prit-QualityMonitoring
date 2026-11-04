@@ -47,6 +47,7 @@ export const MODULES = [
   'wifi_rule',
   'leave',
   'leave_settings',
+  'breakdowns',
   // The worker app's switchable features (Worker role only).
   'app_jobs',
   'app_performance',
@@ -155,6 +156,15 @@ const DEFS: Record<Module, ModuleDef> = {
     description: 'The Company Wi-Fi rule for check alerts',
     actions: ['view', 'edit'],
     notes: { view: 'The rule and when each phone was last on the company network', edit: 'Turn the rule on or off and change its timings' }
+  },
+  breakdowns: {
+    label: 'Machine Breakdowns',
+    description: 'Breakdowns workers report during their shift: approving one excuses their checks on that machine until the shift ends',
+    actions: ['view', 'approve'],
+    notes: {
+      view: 'Breakdown reports, the checks they cover and every decision',
+      approve: 'Approve or reject a worker’s breakdown report (managers: their department’s workers)'
+    }
   },
   leave: {
     label: 'Leave Management',

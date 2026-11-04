@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { AlertOctagon, Building2, CalendarCheck, CalendarClock, Clock3, Cpu, DatabaseBackup, Factory, FileSpreadsheet, Gauge, History, LayoutDashboard, ShieldCheck, SlidersHorizontal, Tags, UserRound, Users, Workflow, X } from 'lucide-react'
+import { AlertOctagon, Building2, Wrench, CalendarCheck, CalendarClock, Clock3, Cpu, DatabaseBackup, Factory, FileSpreadsheet, Gauge, History, LayoutDashboard, ShieldCheck, SlidersHorizontal, Tags, UserRound, Users, Workflow, X } from 'lucide-react'
 import type { ModuleKey } from '../../types'
 import { portalLabel, useAuth } from '../../lib/auth'
 import { Link } from 'react-router-dom'
@@ -22,6 +22,7 @@ export type NavTab =
   | 'calendar'
   | 'workers'
   | 'shifts'
+  | 'breakdowns'
   | 'leave-approval'
   | 'leave-requests'
   | 'leave-reports'
@@ -48,6 +49,7 @@ export const NAV_LABEL: Record<NavTab, string> = {
   departments: 'Departments',
   'department-config': 'Department Configuration',
   shifts: 'Shifts',
+  breakdowns: 'Machine Breakdowns',
   'leave-approval': 'Approvals',
   'leave-requests': 'All Leave Requests',
   'leave-reports': 'Leave Reports',
@@ -78,6 +80,8 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
   'department-config': 'departments',
   shifts: 'shifts',
   'audit-logs': 'audit_logs',
+  // Breakdown reports from the worker app: view to see them, approve to decide (Managers: their department).
+  breakdowns: 'breakdowns',
   // Leave Management: requests, approvals, calendar and reports; its settings have their own module.
   'leave-approval': 'leave',
   'leave-requests': 'leave',
@@ -87,7 +91,7 @@ export const NAV_MODULE: Partial<Record<NavTab, ModuleKey>> = {
 
 /** Pages in menu order, used to find where to land when the current page is not allowed. */
 export const NAV_ORDER: NavTab[] = [
-  'dashboard', 'checks', 'jobs', 'exceptions', 'reports', 'performance', 'leave-approval', 'leave-requests', 'leave-reports', 'leave-settings', 'parameters', 'activities', 'machines', 'schedules', 'calendar',
+  'dashboard', 'checks', 'jobs', 'exceptions', 'breakdowns', 'reports', 'performance', 'leave-approval', 'leave-requests', 'leave-reports', 'leave-settings', 'parameters', 'activities', 'machines', 'schedules', 'calendar',
   'workers', 'departments', 'department-config', 'shifts', 'audit-logs', 'access', 'backup', 'account'
 ]
 
@@ -114,6 +118,8 @@ interface SidebarProps {
   exceptionCount: number
   /** Leave and shift change requests waiting for a decision. */
   leavePending?: { leave: number; shiftChanges: number }
+  /** Machine breakdown reports waiting for a decision. */
+  breakdownPending?: number
   plantName: string
   /** Below the `lg` breakpoint the sidebar is a slide-in panel opened from the header. */
   mobileOpen: boolean
@@ -139,6 +145,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   missedCount,
   exceptionCount,
   leavePending,
+  breakdownPending,
   plantName,
   mobileOpen,
   onMobileClose
@@ -202,6 +209,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           badge: exceptionCount || undefined,
           badgeLabel: 'exceptions today',
           badgeColor: 'bg-exception-bg text-exception ring-exception-line'
+        },
+        {
+          id: 'breakdowns',
+          icon: <Wrench className="w-4 h-4" />,
+          badge: breakdownPending || undefined,
+          badgeLabel: 'breakdown reports waiting for a decision',
+          badgeColor: 'bg-due-bg text-due ring-due-line'
         },
         { id: 'reports', icon: <FileSpreadsheet className="w-4 h-4" /> },
         { id: 'performance', icon: <Gauge className="w-4 h-4" /> },

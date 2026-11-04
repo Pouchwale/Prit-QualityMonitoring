@@ -8,6 +8,7 @@ import { generateJobIntervalChecks } from './jobMonitoring'
 import { checkTypeInDepartment } from './checkTypeScope'
 import { keepChecksOutOfBreaks, loadBreaks, outsideBreak } from './workerBreaks'
 import { applyDayPlan, workerDayPlans } from './leave'
+import { applyApprovedBreakdowns } from './breakdownWindow'
 
 /**
  * The rolling scheduler: every schedule (machine + check type + shift) has **one open check at a
@@ -207,7 +208,8 @@ export async function planChecks(now: Date, options: { ignoreOpen?: boolean; mar
       .where(
         and(
           inArray(qualityChecks.scheduleId, scheduleIds),
-          inArray(qualityChecks.status, ['COMPLETED', 'MISSED', 'EXCEPTION']),
+          // EXCUSED (approved machine breakdown) moves the schedule on exactly like MISSED.
+          inArray(qualityChecks.status, ['COMPLETED', 'MISSED', 'EXCEPTION', 'EXCUSED']),
           gte(qualityChecks.scheduledAt, since)
         )
       ),
@@ -291,7 +293,7 @@ export async function planChecks(now: Date, options: { ignoreOpen?: boolean; mar
       }
       for (const check of past) {
         if (check.scheduledAt < occurrence.start || check.scheduledAt >= occurrence.end) continue
-        if (check.status === 'MISSED') {
+        if (check.status === 'MISSED' || check.status === 'EXCUSED') {
           const next = new Date(Math.max(check.scheduledAt.getTime() + interval, check.windowEndsAt.getTime()))
           events.push({ at: check.windowEndsAt, next })
         } else {
@@ -390,6 +392,8 @@ async function updateStatuses(): Promise<number> {
 export async function refreshStatuses() {
   // Checks on plant-closed dates are removed first, so they never become Due or Missed.
   await purgeClosedDays()
+  // Checks in an approved machine breakdown period are excused before they could become Due or Missed.
+  if (await applyApprovedBreakdowns()) invalidateCheckGeneration()
   // A check that has just been missed frees its schedule for the next one.
   if (await updateStatuses()) invalidateCheckGeneration()
 }
@@ -398,6 +402,8 @@ export async function refreshStatuses() {
 export async function prepareChecks(_days: Date[] = []) {
   await refreshStatuses()
   await generateNextChecks(true)
+  // A check just created inside an approved breakdown period is excused at once (never Due).
+  await applyApprovedBreakdowns()
   await updateStatuses()
 }
 

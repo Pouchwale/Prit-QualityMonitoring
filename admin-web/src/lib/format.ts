@@ -144,7 +144,9 @@ export const PARAMETER_TYPE_LABEL: Record<ParameterType, string> = {
 export const RESULT_LABEL: Record<CheckResult, string> = {
   COMPLETED: 'Completed',
   MISSED: 'Missed',
-  EXCEPTION: 'Exception'
+  EXCEPTION: 'Exception',
+  // Approved machine breakdown: shown for audit, never counted (it is also a filter option).
+  EXCUSED: 'Excused (breakdown)'
 }
 
 export const RESULT_OPTIONS = (Object.keys(RESULT_LABEL) as CheckResult[]).map((r) => ({ value: r, label: RESULT_LABEL[r] }))

@@ -16,3 +16,15 @@ export function can(profile: Profile, module: ModuleKey, level: Level = 'view') 
 }
 
 export const canAny = (profile: Profile, ...modules: ModuleKey[]) => modules.some((m) => can(profile, m))
+
+/**
+ * Machine breakdowns: approving is its own action (`actions.breakdowns.approve`); without it, the
+ * older summary's "manage" means the same. The Super Admin always may.
+ */
+export function canApproveBreakdowns(profile: Profile) {
+  if (isSuperAdmin(profile)) return true
+  const actions = profile.actions?.breakdowns
+  return actions ? !!actions.approve : can(profile, 'breakdowns', 'manage')
+}
+
+export const canViewBreakdowns = (profile: Profile) => isSuperAdmin(profile) || can(profile, 'breakdowns')

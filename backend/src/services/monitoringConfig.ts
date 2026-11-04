@@ -253,7 +253,8 @@ export async function listJobs(filters: JobFilters = {}): Promise<JobRow[]> {
     return mine.some((c) => open(c.status)) ? 'PENDING' : 'DONE'
   }
   return rows.map((r) => {
-    const list = checkRows.filter((c) => c.jobId === r.job.id)
+    // Checks excused by an approved machine breakdown are not tasks of the job.
+    const list = checkRows.filter((c) => c.jobId === r.job.id && c.status !== 'EXCUSED')
     const counts: JobCheckCounts = {
       total: list.length,
       pending: list.filter((c) => c.status === 'PENDING').length,

@@ -358,6 +358,20 @@
       "when": 1793529294084,
       "tag": "0050_measurements_switch",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1793771933382,
+      "tag": "0051_machine_breakdowns",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1793774306194,
+      "tag": "0052_breakdown_photo",
+      "breakpoints": true
     }
   ]
 }

@@ -555,7 +555,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onViewCheck, onNav
                                 series={STATUS_SERIES}
                                 className="min-w-[96px]"
                               />
-                              <span className="w-9 text-right text-[13.5px] font-semibold text-ink tabular-nums">{pct}%</span>
+                              <span className="shrink-0 min-w-9 text-right whitespace-nowrap text-[13.5px] font-semibold text-ink tabular-nums">{pct}%</span>
                             </div>
                           </td>
                         </tr>

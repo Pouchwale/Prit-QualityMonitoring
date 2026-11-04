@@ -74,7 +74,7 @@ const formatDay = (d: Date) => formatLocalDate(d)
 const LIST_LIMIT = 5000
 
 /** The only statuses that can be filtered on or shown. Unfinished checks have no status yet. */
-const CHECK_STATUSES = ['COMPLETED', 'MISSED', 'EXCEPTION'] as const
+const CHECK_STATUSES = ['COMPLETED', 'MISSED', 'EXCEPTION', 'EXCUSED'] as const
 
 /** The longest period one list, dashboard or report may cover. */
 const MAX_RANGE_DAYS = 366
@@ -355,10 +355,12 @@ monitoringRouter.get('/dashboard', requireAnyView('dashboard', 'checks', 'except
     .select({
       machineId: qualityChecks.machineId,
       machineName: machines.name,
-      total: count(),
+      // Excused checks (approved machine breakdown) are not tasks: counted on their own, never scheduled or open.
+      total: sql<number>`count(*) filter (where ${qualityChecks.status} <> 'EXCUSED')::int`,
       completed: sql<number>`count(*) filter (where ${qualityChecks.status} = 'COMPLETED')::int`,
       missed: sql<number>`count(*) filter (where ${qualityChecks.status} = 'MISSED')::int`,
-      exceptions: sql<number>`count(*) filter (where ${qualityChecks.status} = 'EXCEPTION')::int`
+      exceptions: sql<number>`count(*) filter (where ${qualityChecks.status} = 'EXCEPTION')::int`,
+      excused: sql<number>`count(*) filter (where ${qualityChecks.status} = 'EXCUSED')::int`
     })
     .from(qualityChecks)
     .leftJoin(machines, eq(qualityChecks.machineId, machines.id))
@@ -376,7 +378,7 @@ monitoringRouter.get('/dashboard', requireAnyView('dashboard', 'checks', 'except
       open: c.total - c.completed - c.missed - c.exceptions
     }))
     .sort((a, b) => a.machineName.localeCompare(b.machineName))
-  const sum = (key: 'total' | 'completed' | 'missed' | 'exceptions') => counts.reduce((n, c) => n + c[key], 0)
+  const sum = (key: 'total' | 'completed' | 'missed' | 'exceptions' | 'excused') => counts.reduce((n, c) => n + c[key], 0)
   const scheduled = sum('total')
   const completed = sum('completed')
   const kpi = {
@@ -385,6 +387,7 @@ monitoringRouter.get('/dashboard', requireAnyView('dashboard', 'checks', 'except
     missed: sum('missed'),
     exceptions: sum('exceptions'),
     open: scheduled - completed - sum('missed') - sum('exceptions'),
+    excused: sum('excused'),
     completionRate: scheduled ? Math.round((completed / scheduled) * 100) : 0
   }
 

@@ -272,6 +272,34 @@ export function onLeaveNotificationTap(handler: () => void) {
 }
 
 /**
+ * Calls back with the report id when a machine breakdown notification is tapped: BREAKDOWN_DECISION
+ * (sent to the worker) or BREAKDOWN_REPORTED (sent to the managers who approve).
+ */
+export function onBreakdownNotificationTap(type: 'BREAKDOWN_DECISION' | 'BREAKDOWN_REPORTED', handler: (id: string) => void) {
+  const idOf = (response: Notifications.NotificationResponse | null) => {
+    const data = response?.notification.request.content.data
+    return data?.type === type && typeof data.id === 'string' ? data.id : null
+  }
+  Notifications.getLastNotificationResponseAsync()
+    .then((response) => {
+      const id = idOf(response)
+      if (!id) return
+      handler(id)
+      try {
+        Notifications.clearLastNotificationResponse()
+      } catch {
+        // Older native code: the response stays until the app is restarted.
+      }
+    })
+    .catch(() => undefined)
+  const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+    const id = idOf(response)
+    if (id) handler(id)
+  })
+  return () => sub.remove()
+}
+
+/**
  * Calls back with the check id when a worker taps an alert, including the tap that
  * started the app from the notification panel while it was closed.
  */

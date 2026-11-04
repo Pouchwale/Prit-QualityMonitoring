@@ -16,6 +16,7 @@ import { Loading, ErrorState } from './src/components/ui/LoadState'
 import { Button } from './src/components/ui/Button'
 import { ServerSettingsSheet } from './src/components/ServerSettingsSheet'
 import { DialogHost } from './src/components/ui/AppDialog'
+import { UpdatePrompt } from './src/components/UpdatePrompt'
 import { LoginScreen } from './src/screens/LoginScreen'
 import { WorkerApp } from './src/worker/WorkerApp'
 import { StaffApp } from './src/staff/StaffApp'
@@ -81,6 +82,37 @@ export default function App() {
   // connection the app keeps working, says so, and asks again every 30 seconds.
   const sessionEndsAt = profile?.sessionEndsAt ?? null
   const profileId = profile?.id ?? null
+  const isWorker = profile?.role === 'WORKER'
+
+  // A worker's app features (Leave, history...) follow the Super Admin's switches while the app is
+  // open: read them again every 2 minutes and whenever the app comes back to the front. The server
+  // already refuses a switched-off feature; this takes its tab and buttons away too.
+  useEffect(() => {
+    if (!profileId || !isWorker) return
+    let cancelled = false
+    const sync = async () => {
+      try {
+        const me = await getMe()
+        if (cancelled || me.id !== profileId) return
+        setProfile((p) =>
+          p && p.id === me.id && JSON.stringify(p.actions) !== JSON.stringify(me.actions)
+            ? { ...p, actions: me.actions, permissions: me.permissions }
+            : p
+        )
+      } catch {
+        // Offline or the shift has ended: the session checks below deal with it.
+      }
+    }
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active') sync()
+    }, 120_000)
+    const sub = AppState.addEventListener('change', (state) => state === 'active' && sync())
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      sub.remove()
+    }
+  }, [profileId, isWorker])
   useEffect(() => {
     setAwaitingShiftEnd(false)
     const endsAt = sessionEndsAt ? new Date(sessionEndsAt).getTime() : NaN
@@ -189,6 +221,8 @@ export default function App() {
       </View>
       {/* Messages, questions and error popups from any screen. */}
       <DialogHost />
+      {/* A new app update: one UPDATE button, over everything (phones only). */}
+      <UpdatePrompt />
     </SafeAreaProvider>
   )
 }

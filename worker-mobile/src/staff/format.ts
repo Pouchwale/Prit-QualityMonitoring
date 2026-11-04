@@ -58,7 +58,8 @@ export const PARAMETER_TYPE_LABEL: Record<ParameterType, string> = {
 export const RESULT_LABEL: Record<CheckResult, string> = {
   COMPLETED: 'Completed',
   MISSED: 'Missed',
-  EXCEPTION: 'Exception'
+  EXCEPTION: 'Exception',
+  EXCUSED: 'Excused'
 }
 
 export const RESULT_OPTIONS = (Object.keys(RESULT_LABEL) as CheckResult[]).map((r) => ({ value: r, label: RESULT_LABEL[r] }))
@@ -141,6 +142,7 @@ export const STATUS_LABEL: Record<string, string> = {
   COMPLETED: 'Completed',
   MISSED: 'Missed',
   EXCEPTION: 'Exception',
+  EXCUSED: 'Excused',
   ACTIVE: 'Active',
   INACTIVE: 'Inactive',
   DISABLED: 'Disabled',

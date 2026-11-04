@@ -5,6 +5,8 @@
  *   Completed  the worker completed the check and submitted the required photo/video and form
  *   Missed     the worker did not complete or submit the check within the required time
  *   Exception  the worker could not do the check and submitted exception details with photo/video
+ *   Excused    the machine broke down and a manager approved the worker's breakdown report: the
+ *              check is shown (with the approval) but is not a task: never counted or scored
  *   (none)     the check is still pending or due
  *
  * Parameter readings (viscosity, TEAP, …) and their PASS/FAIL against the limits are separate
@@ -16,16 +18,17 @@
  * internally, to open checks at the right time, send alerts and detect missed checks.
  */
 
-export const CHECK_RESULTS = ['COMPLETED', 'MISSED', 'EXCEPTION'] as const
+export const CHECK_RESULTS = ['COMPLETED', 'MISSED', 'EXCEPTION', 'EXCUSED'] as const
 export type CheckResult = (typeof CHECK_RESULTS)[number]
 
 export const RESULT_LABEL: Record<CheckResult, string> = {
   COMPLETED: 'Completed',
   MISSED: 'Missed',
-  EXCEPTION: 'Exception'
+  EXCEPTION: 'Exception',
+  EXCUSED: 'Excused (breakdown)'
 }
 
-type Status = 'PENDING' | 'DUE' | 'IN_PROGRESS' | 'COMPLETED' | 'MISSED' | 'EXCEPTION'
+type Status = 'PENDING' | 'DUE' | 'IN_PROGRESS' | 'COMPLETED' | 'MISSED' | 'EXCEPTION' | 'EXCUSED'
 
 export function resultOf(status: Status): CheckResult | null {
   switch (status) {
@@ -35,6 +38,8 @@ export function resultOf(status: Status): CheckResult | null {
       return 'MISSED'
     case 'EXCEPTION':
       return 'EXCEPTION'
+    case 'EXCUSED':
+      return 'EXCUSED'
     default:
       return null
   }
@@ -44,5 +49,9 @@ export function resultOf(status: Status): CheckResult | null {
 export const RESULT_STATUSES: Record<CheckResult, Status[]> = {
   COMPLETED: ['COMPLETED'],
   MISSED: ['MISSED'],
-  EXCEPTION: ['EXCEPTION']
+  EXCEPTION: ['EXCEPTION'],
+  EXCUSED: ['EXCUSED']
 }
+
+/** Statuses that are tasks the worker had to do: every status except EXCUSED. Use in counts and scores. */
+export const TASK_STATUSES: Status[] = ['PENDING', 'DUE', 'IN_PROGRESS', 'COMPLETED', 'MISSED', 'EXCEPTION']

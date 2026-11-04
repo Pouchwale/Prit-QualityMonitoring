@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Text, View } from 'react-native'
+import { Image, Pressable, Text, View } from 'react-native'
 import type { Activity, CheckResult, CheckValue, Machine, MediaFile, QualityCheck, QualityCheckStatus, User } from '../types'
-import { api } from '../../services/api'
+import { api, fileUrl } from '../../services/api'
+import { PhotoViewer } from '../../components/PhotoViewer'
 import { shareText } from '../../services/files'
 import { useStaff } from '../nav'
 import { useQuery, errorText } from '../useQuery'
@@ -159,7 +160,7 @@ export const ChecksScreen: React.FC<{ params: ChecksParams }> = ({ params }) => 
             { value: '', label: 'All', count: all.length },
             // Missed comes first after All and stands out in red while it has checks.
             { value: 'MISSED', label: RESULT_LABEL.MISSED, count: missedCount, tone: 'missed' as const },
-            ...(['COMPLETED', 'EXCEPTION'] as CheckResult[]).map((s) => ({ value: s, label: RESULT_LABEL[s], count: counts.get(s) ?? 0 }))
+            ...(['COMPLETED', 'EXCEPTION', 'EXCUSED'] as CheckResult[]).map((s) => ({ value: s, label: RESULT_LABEL[s], count: counts.get(s) ?? 0 }))
           ]}
         />
       </View>
@@ -263,6 +264,7 @@ export const CheckDetailScreen: React.FC<{ params: { id: string } }> = ({ params
   // Permanent delete: needs Delete Checks (the server checks it again).
   const canDeleteChecks = useDeletePermissions().DELETE_CHECKS
   const [deleting, setDeleting] = useState(false)
+  const [zoom, setZoom] = useState<string | null>(null)
   const print = async () => {
     if (!check) return
     try {
@@ -324,6 +326,36 @@ export const CheckDetailScreen: React.FC<{ params: { id: string } }> = ({ params
               </View>
               {outside ? <Notice tone="missed" title={`${outside} reading${outside === 1 ? '' : 's'} outside limits`} /> : null}
             </Card>
+
+            {check.status === 'EXCUSED' ? (
+              <>
+              <Notice
+                icon="construct-outline"
+                title="Excused – machine breakdown approved"
+                message={
+                  check.breakdown
+                    ? [
+                        `Approved${check.breakdown.decidedByName ? ` by ${check.breakdown.decidedByName}` : ''}${check.breakdown.decisionComment ? `: ${check.breakdown.decisionComment}` : ''}`,
+                        `Reported: ${check.breakdown.reason}${check.breakdown.remark ? ` (${check.breakdown.remark})` : ''}`,
+                        `${formatDateTime(check.breakdown.startedAt)} – ${formatTime(check.breakdown.endsAt)} · ${check.breakdown.code}`
+                      ].join('\n')
+                    : 'Not counted in the worker’s score.'
+                }
+              >
+                {check.breakdown?.photoUrl ? (
+                  <Pressable
+                    onPress={() => setZoom(fileUrl(check.breakdown!.photoUrl!))}
+                    accessibilityRole="imagebutton"
+                    accessibilityLabel="Breakdown photo, tap to enlarge"
+                    className="mt-2 self-start active:opacity-80"
+                  >
+                    <Image source={{ uri: fileUrl(check.breakdown.photoUrl) }} resizeMode="cover" className="h-16 w-16 rounded-lg bg-staff-fill" />
+                  </Pressable>
+                ) : null}
+              </Notice>
+              <PhotoViewer uri={zoom} label="Breakdown photo" onClose={() => setZoom(null)} />
+              </>
+            ) : null}
 
             <Section title="Check information">
               <List>

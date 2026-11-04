@@ -5,12 +5,12 @@ import multer from 'multer'
 import { z } from 'zod'
 import { asc, eq, sql } from 'drizzle-orm'
 import { db } from '../db/client'
-import { leaveRequests, leaveTypes, shiftChangeRequests } from '../db/schema'
+import { leaveRequests, leaveTypes, rolePermissions, shiftChangeRequests } from '../db/schema'
 import { config } from '../config'
 import { HttpError, badRequest, conflict, notFound } from '../lib/http'
 import { audit, snapshot } from '../lib/audit'
 import { idParam } from '../lib/validate'
-import { can, requireModule } from '../lib/permissions'
+import { can, loadRoleMatrix, normalize, requireModule, saveRoleModules } from '../lib/permissions'
 import { assertActivation, isSuperAdmin } from '../lib/activation'
 import { assertWorkerInScope, departmentScope, scopedWorkerIds } from '../services/departmentScope'
 import { deleteOrDisable } from '../lib/crud'
@@ -31,6 +31,7 @@ import {
   pendingCounts,
   requestShiftChange,
   saveLeaveSettings,
+  workerLeaveEnabled,
   workerLeaveOverview,
   type LeaveSettings
 } from '../services/leave'
@@ -311,6 +312,30 @@ const settingsInput = z.object({
     copySuperAdmin: z.boolean(),
     ccEmails: emailList
   })
+})
+
+/**
+ * Leave for workers, on or off for every worker at once (mobile app and worker web app). It is the
+ * Worker role's "Leave in the app" permission, so Roles & Permissions shows the same switch. Off:
+ * the Leave tab disappears from every worker's app (open apps within 2 minutes) and the server
+ * refuses every worker leave call. Only the Super Admin switches it; each change is audited.
+ */
+leaveRouter.get('/worker-access', settingsView, async (_req, res) => {
+  res.json({ enabled: await workerLeaveEnabled() })
+})
+
+leaveRouter.put('/worker-access', async (req, res) => {
+  if (!isSuperAdmin(req)) throw new HttpError(403, 'Only the Super Admin can switch leave on or off for workers')
+  const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body)
+  await db.transaction(async (tx) => {
+    // The same lock as Roles & Permissions, so a save there cannot undo this one.
+    await tx.execute(sql`lock table ${rolePermissions} in share row exclusive mode`)
+    const before = (await loadRoleMatrix('WORKER', tx)).app_leave.create
+    if (before === enabled) return
+    await saveRoleModules('WORKER', { app_leave: normalize('app_leave', { create: enabled }) }, tx)
+    await audit(req, enabled ? 'ENABLE_WORKER_LEAVE' : 'DISABLE_WORKER_LEAVE', 'Role', 'WORKER', { oldValue: { leaveForWorkers: before }, newValue: { leaveForWorkers: enabled } }, tx)
+  })
+  res.json({ enabled })
 })
 
 leaveRouter.get('/settings', settingsView, async (_req, res) => {

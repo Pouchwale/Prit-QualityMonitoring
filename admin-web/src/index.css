@@ -454,6 +454,10 @@
   table.stack-sm td > .flex {
     flex-wrap: wrap;
   }
+  /* Opt out (e.g. an avatar beside a name): the parts stay on one line. */
+  table.stack-sm td > .flex.flex-nowrap {
+    flex-wrap: nowrap;
+  }
   /* Values one level deeper (a name with a badge) and narrow blocks (a rule chip, a short ID) sit on the right too */
   table.stack-sm td:not([colspan]) > div > .flex,
   table.stack-sm td:not([colspan]) > div > .inline-flex {

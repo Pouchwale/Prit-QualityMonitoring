@@ -9,6 +9,7 @@ import { SCREENS } from './screens'
 import { StaffTabBar } from './StaffTabBar'
 import { Empty, Screen, ToastProvider } from './ui'
 import { dismissKeyboard } from '../utils/keyboard'
+import { onBreakdownNotificationTap } from '../services/notifications'
 
 const TAB_ROOT: Record<TabKey, string> = {
   home: 'home',
@@ -110,6 +111,15 @@ export const StaffApp: React.FC<{ profile: Profile; onProfileChange: (p: Profile
     signOut: onLogout
   }
   nav.current = value
+
+  // Tapping "Machine breakdown reported" opens that report (from More, so Back leads to the list).
+  useEffect(() => {
+    return onBreakdownNotificationTap('BREAKDOWN_REPORTED', (id) => {
+      dismissKeyboard()
+      setTab('more')
+      setStacks((s) => ({ ...s, more: [route('more'), route('breakdowns'), route('breakdownDetail', { id })] }))
+    })
+  }, [])
 
   // Android back button: back within the tab, then to Home, then leave the app.
   useEffect(() => {

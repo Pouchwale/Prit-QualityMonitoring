@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { View, Text, ScrollView, RefreshControl } from 'react-native'
-import { endJob, getMyMachines, getTodayChecks, startJob, startManualCheck } from '../services/api'
+import { cancelBreakdown, endJob, getMyBreakdowns, getMyMachines, getTodayChecks, startJob, startManualCheck } from '../services/api'
 import { friendlyMessage } from '../utils/friendlyError'
 import { showDialog, showError, showSuccess } from '../utils/dialog'
 import { resyncLocalAlerts } from '../services/notifications'
-import { AssignedMachine, CheckSummary, Job, MachineCheckType } from '../types'
+import { AssignedMachine, Breakdown, CheckSummary, Job, MachineCheckType, MyBreakdowns } from '../types'
 import { formatTime } from '../utils/format'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import { NavBar } from '../components/ui/NavBar'
@@ -42,6 +42,18 @@ function statusLine(type: MachineCheckType, jobRunning: boolean): string {
   return 'Nothing due right now'
 }
 
+/**
+ * This machine's breakdown report that still matters now: waiting for approval, approved and not
+ * over yet, or rejected during this shift (so the worker sees the answer).
+ */
+function currentReport(items: Breakdown[], machineId: string): Breakdown | null {
+  const now = Date.now()
+  const latest = items.find((b) => b.machineId === machineId && b.status !== 'CANCELLED')
+  if (!latest) return null
+  if (latest.status === 'PENDING') return latest
+  return new Date(latest.endsAt).getTime() > now ? latest : null
+}
+
 /** Step 2: the check types of this machine, each with Click Image (and Exception when due), and its job. */
 export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBack, onStart, onOpenJob }) => {
   const [current, setCurrent] = useState<AssignedMachine>(machine)
@@ -50,6 +62,8 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
   const [refreshing, setRefreshing] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [handingOver, setHandingOver] = useState(false)
+  /** The worker's breakdown reports and current shift; null until loaded (or on an older server). */
+  const [breakdowns, setBreakdowns] = useState<MyBreakdowns | null>(null)
 
   /** Counts the loads, so an older answer arriving late never replaces a newer one. */
   const requestId = useRef(0)
@@ -59,8 +73,14 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
   const load = useCallback(async () => {
     const id = ++requestId.current
     try {
-      const [mine, today] = await Promise.all([getMyMachines(), getTodayChecks()])
+      const [mine, today, reports] = await Promise.all([
+        getMyMachines(),
+        getTodayChecks(),
+        // Breakdown reports are extra: the machine screen still works without them.
+        getMyBreakdowns().catch(() => null)
+      ])
       if (id !== requestId.current) return
+      setBreakdowns(reports)
       const fresh = mine.find((m) => m.id === machine.id)
       if (fresh) setCurrent(fresh)
       setChecks(today.filter((c) => c.machineId === machine.id))
@@ -129,6 +149,29 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
     }
   }
 
+  /** Withdraw a breakdown report that is still waiting: the machine's alerts come back. */
+  const withdraw = (report: Breakdown) =>
+    showDialog('Withdraw this report?', `Alerts for ${current.name} start again, and missed checks count as usual.`, [
+      { text: 'Keep', style: 'cancel' },
+      {
+        text: 'Withdraw',
+        style: 'destructive',
+        onPress: async () => {
+          setBusy('breakdown')
+          try {
+            await cancelBreakdown(report.id)
+            await load()
+            resyncLocalAlerts()
+          } catch (err) {
+            showError(err, { title: 'Not withdrawn' })
+            await load()
+          } finally {
+            setBusy(null)
+          }
+        }
+      }
+    ])
+
   /** End Job: opens the Job End check; the job completes when it is submitted. */
   const finishJob = () => {
     if (!job) return
@@ -167,6 +210,7 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
   /** Why this machine does not run today (plant closed, or left out of today's machine plan); null when it runs. */
   const offToday = current.runsToday === false ? current.notRunning ?? null : null
   const notRunning = current.runsToday === false
+  const report = breakdowns ? currentReport(breakdowns.items, current.id) : null
 
   return (
     <View className="flex-1 bg-canvas">
@@ -204,6 +248,8 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
                 </View>
               </View>
             ) : null}
+
+            {report ? <BreakdownStatusCard report={report} busy={busy === 'breakdown'} onWithdraw={() => withdraw(report)} /> : null}
 
             {/* A job-based machine shows its checks once a job runs: the job's department decides them. */}
             {current.checkTypes.length === 0 ? (
@@ -336,6 +382,51 @@ export const MachineScreen: React.FC<Props> = ({ machine, meId, refreshKey, onBa
             showSuccess('Job handed over', `${toName} now has PO No. ${job.jobNo} and its pending checks. They have been notified.`)
           }}
         />
+      ) : null}
+    </View>
+  )
+}
+
+/** The open breakdown report of this machine: waiting (with Withdraw), approved or rejected. */
+const BreakdownStatusCard: React.FC<{ report: Breakdown; busy: boolean; onWithdraw: () => void }> = ({ report, busy, onWithdraw }) => {
+  const decision = report.decisionComment ? `${report.decidedByName ? `${report.decidedByName}: ` : ''}${report.decisionComment}` : null
+  const look =
+    report.status === 'PENDING'
+      ? {
+          icon: 'time-outline' as const,
+          circle: 'bg-due-bg',
+          color: 'due' as const,
+          title: 'Breakdown reported – waiting for approval',
+          text: `${report.reason} · reported ${formatTime(report.startedAt)}. Alerts for this machine are off until ${formatTime(report.endsAt)}.`
+        }
+      : report.status === 'APPROVED'
+        ? {
+            icon: 'checkmark-circle-outline' as const,
+            circle: 'bg-success-bg',
+            color: 'success' as const,
+            title: `Breakdown approved – checks excused until ${formatTime(report.endsAt)}`,
+            text: decision ?? report.reason
+          }
+        : {
+            icon: 'close-circle-outline' as const,
+            circle: 'bg-missed-bg',
+            color: 'missed' as const,
+            title: 'Breakdown report rejected',
+            text: `${(decision ?? report.reason).replace(/[.\s]+$/, '')}. Missed checks on this machine count as usual.`
+          }
+  return (
+    <View className="rounded-2xl bg-surface px-4 py-4" accessibilityRole="summary">
+      <View className="flex-row">
+        <View className={`mr-3 h-10 w-10 items-center justify-center rounded-full ${look.circle}`}>
+          <Icon name={look.icon} size={20} color={look.color} />
+        </View>
+        <View className="flex-1">
+          <Text className="text-[17px] font-semibold leading-[22px] text-ink">{look.title}</Text>
+          <Text className="mt-0.5 text-[15px] leading-[20px] text-ink-muted">{look.text}</Text>
+        </View>
+      </View>
+      {report.status === 'PENDING' ? (
+        <Button label="Withdraw report" variant="destructive" size="compact" loading={busy} onPress={onWithdraw} className="mt-4" />
       ) : null}
     </View>
   )

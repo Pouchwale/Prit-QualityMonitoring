@@ -87,7 +87,7 @@ const stamp = Date.now().toString().slice(-6)
     rows.every((r) => r.canManage === (r.canCreate || r.canEdit || r.canDelete || r.canApprove) && (!r.canManage || r.canView || r.module === 'app_jobs' || r.module === 'app_leave'))
   )
   const adminRows = rows.filter((r) => r.role === 'ADMIN')
-  check('0d the Admin role has a row for each of the 21 modules', adminRows.length === 21, `${adminRows.length}`)
+  check('0d the Admin role has a row for each of the 22 modules', adminRows.length === 22, `${adminRows.length}`)
 }
 
 // Accounts for the tests, created by the Super Admin through the API.

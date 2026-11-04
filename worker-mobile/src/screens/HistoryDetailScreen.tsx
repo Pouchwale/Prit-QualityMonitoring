@@ -4,13 +4,14 @@ import { VideoView, useVideoPlayer } from 'expo-video'
 import { cssInterop } from 'nativewind'
 import { fileUrl, getCheckRecord } from '../services/api'
 import { friendlyMessage } from '../utils/friendlyError'
-import { CheckRecord, MediaFile, SubmittedValue } from '../types'
+import { CheckBreakdown, CheckRecord, MediaFile, SubmittedValue } from '../types'
 import { formatDuration, formatTime } from '../utils/format'
 import { NavBar } from '../components/ui/NavBar'
 import { SectionHeader } from '../components/ui/SectionHeader'
 import { ListGroup } from '../components/ui/ListGroup'
 import { StatusLabel } from '../components/ui/StatusLabel'
 import { ErrorState, Loading } from '../components/ui/LoadState'
+import { Icon } from '../components/ui/Icon'
 import { formatDateTime } from '../utils/datetime'
 
 cssInterop(VideoView, { className: 'style' })
@@ -133,6 +134,13 @@ const EXCEPTION_STATUS: Record<string, string> = {
   RESOLVED: 'Resolved'
 }
 
+/** Why an excused check does not count: the approved machine breakdown. */
+export function excusedNote(b: CheckBreakdown | null | undefined) {
+  if (!b) return 'Excused – machine breakdown approved.'
+  const by = b.decidedByName ? ` by ${b.decidedByName}` : ''
+  return `Excused – machine breakdown approved${by}${b.decisionComment ? `: ${b.decisionComment}` : '.'}`
+}
+
 /** One submitted record: every reading with its evidence, plus the check details. */
 export const HistoryDetailScreen: React.FC<Props> = ({ checkId, onClose }) => {
   const [record, setRecord] = useState<CheckRecord | null>(null)
@@ -191,6 +199,13 @@ export const HistoryDetailScreen: React.FC<Props> = ({ checkId, onClose }) => {
           </View>
 
           <View className="gap-7">
+            {record.status === 'EXCUSED' ? (
+              <View className="flex-row rounded-2xl bg-surface px-4 py-3.5" accessibilityRole="summary">
+                <Icon name="construct-outline" size={20} color="muted" />
+                <Text className="ml-3 flex-1 text-[15px] leading-[21px] text-ink-secondary">{excusedNote(record.breakdown)}</Text>
+              </View>
+            ) : null}
+
             {record.values.length > 0 ? (
               <View>
                 <SectionHeader title="Readings" detail={`${record.values.length}`} />

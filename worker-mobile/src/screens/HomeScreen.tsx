@@ -140,8 +140,10 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
   // An exception is a reasoned "could not do it": counted as done, never as missed (the same rule as
   // the score, backend services/performance.ts). It is listed with the done checks, marked Exception.
   const isException = (c: CheckSummary) => c.status === 'EXCEPTION' || c.result === 'EXCEPTION'
+  // Excused (approved machine breakdown) is not counted either way; it is listed with the done checks, in grey.
+  const isExcused = (c: CheckSummary) => c.status === 'EXCUSED' || c.result === 'EXCUSED'
   const completedChecks = useMemo(
-    () => filteredChecks.filter((c) => c.status === 'COMPLETED' || c.result === 'COMPLETED' || isException(c)),
+    () => filteredChecks.filter((c) => c.status === 'COMPLETED' || c.result === 'COMPLETED' || isException(c) || isExcused(c)),
     [filteredChecks]
   )
   const missedChecks = useMemo(
@@ -399,9 +401,15 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
                     const mod = c.module ?? 'IPQC'
                     return (
                       <View key={c.id} className="min-h-[64px] flex-row items-center py-3 pl-4 pr-3">
-                        <View className={`mr-3 h-5 w-5 items-center justify-center rounded-full ${isException(c) ? 'bg-exception-bg' : 'bg-success-bg'}`}>
-                          <Icon name={isException(c) ? 'alert' : 'checkmark'} size={12} color={isException(c) ? 'exception' : 'success'} />
-                        </View>
+                        {isExcused(c) ? (
+                          <View className="mr-3 h-5 w-5 items-center justify-center rounded-full bg-subtle">
+                            <Icon name="remove" size={12} color="muted" />
+                          </View>
+                        ) : (
+                          <View className={`mr-3 h-5 w-5 items-center justify-center rounded-full ${isException(c) ? 'bg-exception-bg' : 'bg-success-bg'}`}>
+                            <Icon name={isException(c) ? 'alert' : 'checkmark'} size={12} color={isException(c) ? 'exception' : 'success'} />
+                          </View>
+                        )}
                         <View className="flex-1">
                           <View className="flex-row items-center gap-2">
                             <View
@@ -417,13 +425,23 @@ export const HomeScreen: React.FC<Props> = ({ profile, refreshKey, onOpenMachine
                               {c.activityName}
                             </Text>
                           </View>
-                          <Text className="mt-0.5 text-[13px] text-ink-secondary" numberOfLines={1}>
-                            Submitted {c.submittedAt ? formatTime(c.submittedAt) : 'today'}
-                            {c.itemCode ? ` · Item: ${c.itemCode}` : ''}
-                            {c.jobNo ? ` · PO: ${c.jobNo}` : ''}
-                          </Text>
+                          {isExcused(c) ? (
+                            <Text className="mt-0.5 text-[13px] text-ink-muted" numberOfLines={1}>
+                              {formatTime(c.scheduledAt)} · Machine breakdown approved
+                            </Text>
+                          ) : (
+                            <Text className="mt-0.5 text-[13px] text-ink-secondary" numberOfLines={1}>
+                              Submitted {c.submittedAt ? formatTime(c.submittedAt) : 'today'}
+                              {c.itemCode ? ` · Item: ${c.itemCode}` : ''}
+                              {c.jobNo ? ` · PO: ${c.jobNo}` : ''}
+                            </Text>
+                          )}
                         </View>
-                        {isException(c) ? (
+                        {isExcused(c) ? (
+                          <View className="rounded px-2 py-0.5 bg-subtle">
+                            <Text className="text-[11px] font-bold text-ink-muted">Excused</Text>
+                          </View>
+                        ) : isException(c) ? (
                           <View className="rounded px-2 py-0.5 bg-exception-bg">
                             <Text className="text-[11px] font-bold text-exception">Exception</Text>
                           </View>

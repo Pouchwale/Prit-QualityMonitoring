@@ -150,29 +150,32 @@ export const StackedBarChart: React.FC<{
           ))}
         </div>
       </div>
-      <table id={tableId} className="sr-only">
-        <caption>{summary}</caption>
-        <thead>
-          <tr>
-            <th scope="col">Period</th>
-            {series.map((s) => (
-              <th key={s.key} scope="col">
-                {s.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((d, i) => (
-            <tr key={d.label + i}>
-              <th scope="row">{d.fullLabel ?? d.label}</th>
+      {/* sr-only on a wrapper: a table ignores width:1px and would widen the page on phones. */}
+      <div className="sr-only">
+        <table id={tableId}>
+          <caption>{summary}</caption>
+          <thead>
+            <tr>
+              <th scope="col">Period</th>
               {series.map((s) => (
-                <td key={s.key}>{d.values[s.key] ?? 0}</td>
+                <th key={s.key} scope="col">
+                  {s.label}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {data.map((d, i) => (
+              <tr key={d.label + i}>
+                <th scope="row">{d.fullLabel ?? d.label}</th>
+                {series.map((s) => (
+                  <td key={s.key}>{d.values[s.key] ?? 0}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

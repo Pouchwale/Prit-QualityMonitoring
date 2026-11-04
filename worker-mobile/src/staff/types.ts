@@ -1,3 +1,5 @@
+import type { Breakdown, CheckBreakdown } from '../types'
+
 // Shapes returned by the backend API (backend/src/routes).
 
 export type Role = 'WORKER' | 'MANAGER' | 'ADMIN' | 'SUPER_ADMIN'
@@ -26,6 +28,7 @@ export type ModuleKey =
   | 'settings'
   | 'calendar'
   | 'performance'
+  | 'breakdowns'
 
 export type Access = 'none' | 'view' | 'manage'
 export type Permissions = Record<ModuleKey, Access>
@@ -61,7 +64,7 @@ export type MachineStatus = 'ACTIVE' | 'MAINTENANCE' | 'IDLE'
  * Internal check state from the API. Only COMPLETED, MISSED and EXCEPTION are ever shown as a
  * status; PENDING / DUE / IN_PROGRESS mean "not finished yet" and are displayed as "—".
  */
-export type QualityCheckStatus = 'PENDING' | 'DUE' | 'IN_PROGRESS' | 'COMPLETED' | 'MISSED' | 'EXCEPTION'
+export type QualityCheckStatus = 'PENDING' | 'DUE' | 'IN_PROGRESS' | 'COMPLETED' | 'MISSED' | 'EXCEPTION' | 'EXCUSED'
 export type ExceptionStatus = 'UNDER_REVIEW' | 'ACKNOWLEDGED' | 'ACTION_TAKEN' | 'RESOLVED'
 export type ValueResult = 'PASS' | 'FAIL' | 'NA'
 
@@ -78,7 +81,7 @@ export type ScheduleMode = 'INTERVAL' | 'JOB'
 export type MonitoringMode = ScheduleMode | 'MANUAL'
 
 /** Overall result of a check (backend/src/lib/result.ts). Null while the check is still open. */
-export type CheckResult = 'COMPLETED' | 'MISSED' | 'EXCEPTION'
+export type CheckResult = 'COMPLETED' | 'MISSED' | 'EXCEPTION' | 'EXCUSED'
 
 export interface CurrentUser {
   id: string
@@ -345,6 +348,8 @@ export interface QualityCheck {
   kind?: CheckKind
   /** Job checks: the parameters this check asks for. */
   parameterIds?: string[] | null
+  /** EXCUSED checks: the approved machine breakdown that excused it (audit). */
+  breakdown?: CheckBreakdown | null
 }
 
 export interface ExceptionRecord extends CheckException {
@@ -664,4 +669,25 @@ export interface TraceReport {
   jobs: TraceGroup[]
   workers: TraceWorker[]
   changes: TraceChange[]
+}
+
+// ---------------------------------------------------------------------------- Machine breakdowns
+
+// The same shapes as the worker app's (src/types).
+export type { Breakdown, BreakdownStatus, CheckBreakdown } from '../types'
+
+/** One check a breakdown covers (GET /api/breakdowns/:id): what approving excuses. */
+export interface BreakdownCheck {
+  id: string
+  code: string
+  activityName: string
+  scheduledAt: string
+  windowEndsAt: string
+  status: QualityCheckStatus
+  submittedAt: string | null
+}
+
+export interface BreakdownDetail {
+  breakdown: Breakdown
+  checks: BreakdownCheck[]
 }

@@ -13,7 +13,8 @@ import {
   unique,
   index,
   uniqueIndex,
-  date
+  date,
+  type AnyPgColumn
 } from 'drizzle-orm/pg-core'
 
 export const roleEnum = pgEnum('role', ['WORKER', 'ADMIN', 'MANAGER', 'SUPER_ADMIN'])
@@ -26,7 +27,12 @@ export const checkStatusEnum = pgEnum('check_status', [
   'IN_PROGRESS',
   'COMPLETED',
   'MISSED',
-  'EXCEPTION'
+  'EXCEPTION',
+  /**
+   * Not counted: the worker's machine broke down and a manager approved the breakdown report
+   * (machine_breakdowns). Never open, never due, never in a score; breakdownId says why.
+   */
+  'EXCUSED'
 ])
 export const valueResultEnum = pgEnum('value_result', ['PASS', 'FAIL', 'NA'])
 /** When a parameter has to be filled in: always, or only while a job is running on the machine. */
@@ -485,6 +491,8 @@ export const qualityChecks = pgTable(
     departmentId: uuid('department_id').references(() => departments.id, { onDelete: 'set null' }),
     /** IPQC or QC: the check type's (or schedule's) module, written on every insert. */
     module: qualityModuleEnum('module').notNull(),
+    /** EXCUSED checks: the approved machine breakdown that excused this check (its reason and approver). */
+    breakdownId: uuid('breakdown_id').references((): AnyPgColumn => machineBreakdowns.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => [
@@ -539,6 +547,49 @@ export const qualityCheckValues = pgTable(
   sortOrder: integer('sort_order').notNull().default(0)
   },
   (t) => [index('quality_check_values_check_idx').on(t.checkId)]
+)
+
+export type BreakdownStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
+
+/**
+ * Machine breakdowns reported by a worker during their shift (services/breakdowns.ts). From the
+ * report until the end of that shift, "check due" alerts for that machine stop. A manager of the
+ * worker's department (or an Admin) approves or rejects it: approved, the worker's unsubmitted
+ * checks on that machine in [startedAt, endsAt) become EXCUSED and leave the score; rejected,
+ * they count as usual. The decision and its reason stay here for audit.
+ */
+export const machineBreakdowns = pgTable(
+  'machine_breakdowns',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** e.g. BD-20261104-4821, shown to the worker and the manager. */
+    code: text('code').notNull().unique(),
+    workerId: uuid('worker_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    machineId: uuid('machine_id').notNull().references(() => machines.id, { onDelete: 'restrict' }),
+    reason: text('reason').notNull(),
+    /** Older reports only: the app no longer asks for a remark. */
+    remark: text('remark'),
+    /** The photo the worker took of the breakdown (required on new reports), storage-relative. */
+    photoPath: text('photo_path'),
+    photoMimeType: text('photo_mime_type'),
+    photoSizeBytes: integer('photo_size_bytes'),
+    photoCapturedAt: timestamp('photo_captured_at', { withTimezone: true }),
+    /** When the worker reported it: the start of the period. */
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    /** The end of the worker's shift at the time of the report: the end of the period. */
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    shiftName: text('shift_name'),
+    status: text('status').$type<BreakdownStatus>().notNull().default('PENDING'),
+    decidedById: uuid('decided_by_id').references(() => users.id, { onDelete: 'set null' }),
+    decidedByName: text('decided_by_name'),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionComment: text('decision_comment'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [
+    index('machine_breakdowns_status_idx').on(t.status, t.startedAt),
+    index('machine_breakdowns_worker_machine_idx').on(t.workerId, t.machineId, t.endsAt)
+  ]
 )
 
 export const checkExceptions = pgTable('exceptions', {

@@ -88,7 +88,7 @@ export const Topbar: React.FC<TopbarProps> = ({ user, plantName, pageTitle, miss
         >
           <Bell className="w-[18px] h-[18px]" />
           {alerts > 0 && (
-            <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 bg-[var(--color-chart-missed)] text-white rounded-full text-[12px] font-semibold tabular-nums flex items-center justify-center ring-2 ring-chrome">
+            <span className="absolute top-0.5 right-0 min-w-[18px] h-[18px] px-1 bg-[var(--color-chart-missed)] text-white rounded-full text-[12px] font-semibold tabular-nums flex items-center justify-center ring-2 ring-chrome">
               {alerts > 99 ? '99+' : alerts}
             </span>
           )}

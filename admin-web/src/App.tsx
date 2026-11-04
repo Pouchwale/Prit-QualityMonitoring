@@ -19,6 +19,7 @@ import { DashboardPage } from './pages/admin/DashboardPage'
 import { QualityChecksPage } from './pages/admin/QualityChecksPage'
 import { QualityCheckDetailPage } from './pages/admin/QualityCheckDetailPage'
 import { ExceptionsPage } from './pages/admin/ExceptionsPage'
+import { BreakdownsPage } from './pages/admin/BreakdownsPage'
 import { ReportsPage } from './pages/admin/ReportsPage'
 import { PerformancePage } from './pages/admin/PerformancePage'
 import { MachinesPage } from './pages/admin/MachinesPage'
@@ -116,6 +117,24 @@ const Shell: React.FC = () => {
     return () => clearInterval(timer)
   }, [user, refreshLeave])
 
+  // The Machine Breakdowns badge: reports waiting for a decision.
+  const seesBreakdowns = can('breakdowns')
+  const [breakdownPending, setBreakdownPending] = useState<number | undefined>()
+  const refreshBreakdowns = useCallback(async () => {
+    if (!seesBreakdowns) return setBreakdownPending(undefined)
+    try {
+      setBreakdownPending((await api.get<{ pending: number }>('/api/breakdowns/pending-count')).pending)
+    } catch {
+      /* badges are best-effort */
+    }
+  }, [seesBreakdowns])
+  useEffect(() => {
+    if (!user) return
+    refreshBreakdowns()
+    const timer = setInterval(refreshBreakdowns, 60_000)
+    return () => clearInterval(timer)
+  }, [user, refreshBreakdowns])
+
   useEffect(() => {
     if (!user) return
     api
@@ -194,6 +213,7 @@ const Shell: React.FC = () => {
         missedCount={counts.missed}
         exceptionCount={counts.exceptions}
         leavePending={leavePending}
+        breakdownPending={breakdownPending}
         plantName={plantName}
         mobileOpen={menuOpen}
         onMobileClose={closeMenu}
@@ -230,6 +250,7 @@ const Shell: React.FC = () => {
             <Route path={`${NAV_PATH.checks}/:checkId`} element={<CheckDetailRoute />} />
             <Route path={NAV_PATH.jobs} element={<Guard tab="jobs"><JobsPage onViewCheck={viewCheck} tabs={<MonitoringTabs current="jobs" />} /></Guard>} />
             <Route path={NAV_PATH.exceptions} element={<Guard tab="exceptions"><ExceptionsPage onViewCheck={viewCheck} /></Guard>} />
+            <Route path={NAV_PATH.breakdowns} element={<Guard tab="breakdowns"><BreakdownsPage onCountsChange={refreshBreakdowns} /></Guard>} />
             <Route path={NAV_PATH.reports} element={<Guard tab="reports"><ReportsPage /></Guard>} />
             <Route path={NAV_PATH.performance} element={<Guard tab="performance"><PerformancePage /></Guard>} />
             <Route path={NAV_PATH.machines} element={<Guard tab="machines"><MachinesPage /></Guard>} />

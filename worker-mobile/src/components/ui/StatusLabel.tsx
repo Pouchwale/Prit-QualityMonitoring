@@ -6,7 +6,9 @@ import { QualityCheckStatus } from '../../types'
 const STATUS: Partial<Record<QualityCheckStatus, { label: string; dot: string; text: string }>> = {
   COMPLETED: { label: 'Completed', dot: 'bg-success', text: 'text-success' },
   MISSED: { label: 'Missed', dot: 'bg-missed', text: 'text-missed' },
-  EXCEPTION: { label: 'Exception', dot: 'bg-exception', text: 'text-exception' }
+  EXCEPTION: { label: 'Exception', dot: 'bg-exception', text: 'text-exception' },
+  // An approved machine breakdown covered it: not counted, so neutral grey.
+  EXCUSED: { label: 'Excused', dot: 'bg-ink-faint', text: 'text-ink-muted' }
 }
 
 export const hasStatusLabel = (status: QualityCheckStatus) => STATUS[status] !== undefined

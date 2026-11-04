@@ -4,7 +4,7 @@ import { reportEmailSettings } from '../db/schema'
 import { addDays, atTime, dateKey, formatDateKey, startOfDay } from '../lib/time'
 import { getCompanyPlantName, getReportSharingSettings, sampleEligibleChecks } from './automatedReports'
 import { renderCrystalReportPdf } from './crystalReportPdf'
-import { scoreSummary, scoreSummaryHtml } from './reportEmailer'
+import { EMAIL_FILES_BUDGET_BYTES, scoreSummary, scoreSummaryHtml, videoAttachments, videosHtml } from './reportEmailer'
 import { missedTasksHtml, missedTasksReport, type MissedTasksByMember } from './missedTasksReport'
 import { sendLoggedEmail, smtpOf } from './reportDelivery'
 import { deliveryError } from './automatedReports'
@@ -75,6 +75,8 @@ async function sendDailyTaskReport(settings: Settings, now: Date, by?: { id?: st
 
   // The previous day's Quality Inspection Report (PDF), as the automated report emails attach it.
   let attachment: { reportId: string; pdf: Buffer; checks: number; eligible: number; checkIds: string[] } | null = null
+  // The sampled checks' videos, as many as fit in the email after the PDF (the rest are listed).
+  let videos: ReturnType<typeof videoAttachments> | null = null
   let attachmentNote = ''
   try {
     const sampling = await sampleEligibleChecks({ periodFrom: day, periodTo: today, percentage: settings.percentage })
@@ -93,6 +95,7 @@ async function sendDailyTaskReport(settings: Settings, now: Date, by?: { id?: st
         checks: sampling.checks
       })
       attachment = { reportId, pdf, checks: sampling.checks.length, eligible: sampling.eligibleTotal, checkIds: sampling.sampledCheckIds }
+      videos = videoAttachments(sampling.checks, EMAIL_FILES_BUDGET_BYTES - pdf.length)
       attachmentNote = `The Quality Inspection Report for ${formatDateKey(dayKey)} is attached (${attachment.checks} of ${attachment.eligible} completed and exception checks, ${settings.percentage}% sample).`
     } else {
       attachmentNote = `No Quality Inspection Report is attached: no checks were completed or reported as exceptions on ${formatDateKey(dayKey)}.`
@@ -102,7 +105,7 @@ async function sendDailyTaskReport(settings: Settings, now: Date, by?: { id?: st
     attachmentNote = 'The Quality Inspection Report could not be attached this time; it can be sent from Report Sharing → Manual send.'
   }
 
-  const html = dailyTaskReportHtml({ dayKey, rows, assigned, attachmentNote, missedTasks })
+  const html = dailyTaskReportHtml({ dayKey, rows, assigned, attachmentNote, videosNote: videos ? videosHtml(videos.attached, videos.skipped) : '', missedTasks })
 
   // Logged and sent by services/reportDelivery.ts: a temporary failure is retried there (the same
   // email, to the recipients it failed for), and the automatic one alerts the Super Admin.
@@ -116,6 +119,7 @@ async function sendDailyTaskReport(settings: Settings, now: Date, by?: { id?: st
       checksCount: assigned,
       percentage: attachment ? settings.percentage : null,
       pdfSizeBytes: attachment?.pdf.length ?? null,
+      videoCount: videos?.attached.length ?? 0,
       periodFrom: day,
       periodTo: today,
       ...(by ? { sentById: by.id ?? null, sentByName: by.name ?? null } : {})
@@ -123,7 +127,9 @@ async function sendDailyTaskReport(settings: Settings, now: Date, by?: { id?: st
     mail: {
       subject,
       html,
-      attachments: attachment ? [{ filename: `Quality_Inspection_Report_${attachment.reportId}.pdf`, content: attachment.pdf, contentType: 'application/pdf' }] : []
+      attachments: attachment
+        ? [{ filename: `Quality_Inspection_Report_${attachment.reportId}.pdf`, content: attachment.pdf, contentType: 'application/pdf' }, ...(videos?.attachments ?? [])]
+        : []
     },
     smtp: smtpOf(settings)
   })
@@ -139,9 +145,11 @@ export function dailyTaskReportHtml(o: {
   rows: ScoreRows
   assigned: number
   attachmentNote: string
+  /** The attached (and too-large) inspection videos, as HTML; empty when the day had none. */
+  videosNote?: string
   missedTasks: MissedTasksByMember[] | null
 }): string {
-  const { dayKey, rows, assigned, attachmentNote, missedTasks } = o
+  const { dayKey, rows, assigned, attachmentNote, videosNote = '', missedTasks } = o
   const missed = rows.filter((r) => r.missed > 0)
   return `<!DOCTYPE html>
 <html>
@@ -159,6 +167,7 @@ export function dailyTaskReportHtml(o: {
         Dear Coordinator,<br><br>
         Below is each worker's task performance for <strong>${formatDateKey(dayKey)}</strong>: ${assigned} check${assigned === 1 ? '' : 's'} assigned in total.
         <div style="margin-top: 10px; font-size: 13px; color: #475569;">${attachmentNote}</div>
+        ${videosNote}
         ${
           missed.length
             ? `<div style="margin-top: 12px; padding: 10px 14px; background-color: #fef2f2; border-left: 4px solid #dc2626; border-radius: 4px; color: #991b1b;">

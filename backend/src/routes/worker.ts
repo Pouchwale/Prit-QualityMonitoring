@@ -162,6 +162,8 @@ function openState(check: { status: CheckDto['status']; scheduledAt: Date }): { 
       return { canSubmit: false, message: 'An exception was already raised for this check.' }
     case 'MISSED':
       return { canSubmit: false, message: 'This check was missed. The time window is over.' }
+    case 'EXCUSED':
+      return { canSubmit: false, message: 'This check was excused: the machine breakdown was approved.' }
   }
 }
 
@@ -1196,6 +1198,8 @@ workerRouter.get('/checks/:id/record', ownHistory, async (req, res) => {
     values: check.values,
     media: check.media,
     exception: check.exception,
+    // Excused checks: the approved machine breakdown (who approved it and why).
+    breakdown: check.breakdown,
     submittedByName: check.submittedByName
   })
 })

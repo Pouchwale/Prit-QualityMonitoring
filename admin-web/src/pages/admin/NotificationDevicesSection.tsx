@@ -109,8 +109,8 @@ export const NotificationDevicesSection: React.FC = () => {
 
     return (
       <div className="flex flex-col rounded-lg border border-line bg-surface">
-        <div className="flex items-start justify-between gap-3 px-3.5 pt-3.5">
-          <div className="min-w-0">
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-3.5 pt-3.5">
+          <div className="min-w-0 flex-1 basis-56">
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center h-5 px-1.5 rounded bg-accent-soft text-accent-strong ring-1 ring-inset ring-accent-line font-mono text-[13px] font-semibold tracking-wide">
                 {assignment.module}

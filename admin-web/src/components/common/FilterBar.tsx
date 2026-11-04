@@ -114,7 +114,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({ value, onChange, onReset, 
             label="Item Code"
             value={value.itemCode ?? ''}
             suggestions={jobValues.data?.itemCodes ?? []}
-            placeholder="All item codes"
+            placeholder="All"
             onCommit={(itemCode) => set({ itemCode })}
           />
         )}
@@ -123,7 +123,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({ value, onChange, onReset, 
             label="PO No."
             value={value.jobNo ?? ''}
             suggestions={jobValues.data?.jobNos ?? []}
-            placeholder="All PO numbers"
+            placeholder="All"
             onCommit={(jobNo) => set({ jobNo })}
           />
         )}
