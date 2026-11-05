@@ -27,6 +27,7 @@ import {
   dateRange,
   daysLabel,
   isLeave,
+  isTimeRequest,
   requestPath,
   shiftTime
 } from './shared'
@@ -274,12 +275,16 @@ export const LeaveRequestsPage: React.FC<{ mode: 'approval' | 'all'; onCountsCha
                         {isLeave(r) ? (
                           <>
                             <div className="flex items-center gap-1.5 text-ink">
-                              <Pill className="bg-accent-soft text-accent-strong ring-accent-line">Leave</Pill>
+                              {isTimeRequest(r) ? (
+                                <Pill className="bg-due-bg text-due ring-due-line">{r.kind === 'LATE_ENTRY' ? 'Late entry' : 'Early exit'}</Pill>
+                              ) : (
+                                <Pill className="bg-accent-soft text-accent-strong ring-accent-line">Leave</Pill>
+                              )}
                               {r.leaveTypeName}
                             </div>
                             <div className="text-[13px] text-ink-muted mt-0.5">
                               {r.dayPartLabel}
-                              {r.isPaid ? '' : ' · Unpaid'}
+                              {isTimeRequest(r) ? (r.tasksRemovedAt ? ` · ${r.tasksRemoved ?? 0} task${r.tasksRemoved === 1 ? '' : 's'} excused` : '') : r.isPaid ? '' : ' · Unpaid'}
                             </div>
                           </>
                         ) : (

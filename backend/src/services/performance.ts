@@ -98,13 +98,13 @@ function conditions(f: PerformanceFilters): SQL {
   return and(...where)!
 }
 
-const rate = (done: number, assigned: number) => (assigned ? Math.round((done / assigned) * 100) : 100)
+export const rate = (done: number, assigned: number) => (assigned ? Math.round((done / assigned) * 100) : 100)
 
 /**
  * Completion % minus 100: 8 of 10 done is -20, everything done is 0, nothing done is -100, and a
  * worker with no counted checks at all is 0 rather than -100.
  */
-const scoreOf = (done: number, assigned: number) => rate(done, assigned) - 100
+export const scoreOf = (done: number, assigned: number) => rate(done, assigned) - 100
 
 /** One row per worker who had checks in the period, worst score first. */
 export async function workerPerformance(filters: PerformanceFilters) {

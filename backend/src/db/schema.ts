@@ -30,7 +30,8 @@ export const checkStatusEnum = pgEnum('check_status', [
   'EXCEPTION',
   /**
    * Not counted: the worker's machine broke down and a manager approved the breakdown report
-   * (machine_breakdowns). Never open, never due, never in a score; breakdownId says why.
+   * (machine_breakdowns), or an approved Late Entry / Early Exit covers it (leave_requests). Never
+   * open, never due, never in a score; breakdownId or leaveRequestId says why.
    */
   'EXCUSED'
 ])
@@ -493,6 +494,8 @@ export const qualityChecks = pgTable(
     module: qualityModuleEnum('module').notNull(),
     /** EXCUSED checks: the approved machine breakdown that excused this check (its reason and approver). */
     breakdownId: uuid('breakdown_id').references((): AnyPgColumn => machineBreakdowns.id, { onDelete: 'set null' }),
+    /** EXCUSED checks: the approved Late Entry / Early Exit request that excused this check. */
+    leaveRequestId: uuid('leave_request_id').references((): AnyPgColumn => leaveRequests.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
   },
   (t) => [
@@ -794,10 +797,17 @@ export const leaveTypes = pgTable('leave_types', {
   carryForwardMax: doublePrecision('carry_forward_max').notNull().default(0),
   /** Custom: the employee types the leave's own name (e.g. "Marriage leave") when applying. */
   isCustom: boolean('is_custom').notNull().default(false),
+  /**
+   * LEAVE: days off. LATE_ENTRY / EARLY_EXIT: today only, with the arrival or leaving time; once
+   * approved, that day's unfinished tasks before the arrival (after the leaving time) are excused.
+   */
+  kind: text('kind').$type<LeaveKind>().notNull().default('LEAVE'),
   isActive: boolean('is_active').notNull().default(true),
   sortOrder: integer('sort_order').notNull().default(0),
   ...timestamps
 })
+
+export type LeaveKind = 'LEAVE' | 'LATE_ENTRY' | 'EARLY_EXIT'
 
 /** A request's state: waiting, decided, or withdrawn. */
 export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
@@ -820,6 +830,18 @@ export const leaveRequests = pgTable(
     reason: text('reason').notNull(),
     /** The leave's own name the employee entered, for a custom leave type. */
     customType: text('custom_type'),
+    /** Late Entry / Early Exit: the arrival or leaving time the employee entered (HH:MM, plant time). */
+    requestedTime: text('requested_time'),
+    /**
+     * Late Entry / Early Exit: the stretch of the worker's shift it covers, worked out when it is
+     * sent (shift start to arrival; leaving time to shift end). Approved: unfinished tasks in it are
+     * excused and no new ones are made in it.
+     */
+    affectsFrom: timestamp('affects_from', { withTimezone: true }),
+    affectsTo: timestamp('affects_to', { withTimezone: true }),
+    /** When approval excused the tasks (once), and how many. */
+    tasksRemovedAt: timestamp('tasks_removed_at', { withTimezone: true }),
+    tasksRemoved: integer('tasks_removed'),
     attachmentPath: text('attachment_path'),
     attachmentName: text('attachment_name'),
     attachmentType: text('attachment_type'),

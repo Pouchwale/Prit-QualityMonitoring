@@ -331,9 +331,14 @@ export const CheckDetailScreen: React.FC<{ params: { id: string } }> = ({ params
               <>
               <Notice
                 icon="construct-outline"
-                title="Excused – machine breakdown approved"
+                title={check.leaveExcuse ? `Excused – ${check.leaveExcuse.typeName} approved` : 'Excused – machine breakdown approved'}
                 message={
-                  check.breakdown
+                  check.leaveExcuse
+                    ? [
+                        `Approved${check.leaveExcuse.decidedByName ? ` by ${check.leaveExcuse.decidedByName}` : ''}${check.leaveExcuse.decisionComment ? `: ${check.leaveExcuse.decisionComment}` : ''}`,
+                        `${check.leaveExcuse.kind === 'LATE_ENTRY' ? 'Arrival' : 'Leaving'} time: ${check.leaveExcuse.requestedTime ?? '—'} · not counted in the worker’s score`
+                      ].join('\n')
+                    : check.breakdown
                     ? [
                         `Approved${check.breakdown.decidedByName ? ` by ${check.breakdown.decidedByName}` : ''}${check.breakdown.decisionComment ? `: ${check.breakdown.decisionComment}` : ''}`,
                         `Reported: ${check.breakdown.reason}${check.breakdown.remark ? ` (${check.breakdown.remark})` : ''}`,

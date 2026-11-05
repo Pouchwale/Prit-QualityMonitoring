@@ -145,7 +145,7 @@ export async function workableMachineIds(userId: string): Promise<string[]> {
   return rows.map((r) => r.id)
 }
 
-function openState(check: { status: CheckDto['status']; scheduledAt: Date }): { canSubmit: boolean; message: string | null } {
+function openState(check: { status: CheckDto['status']; scheduledAt: Date; leaveExcuse?: CheckDto['leaveExcuse'] }): { canSubmit: boolean; message: string | null } {
   switch (check.status) {
     case 'DUE':
     case 'IN_PROGRESS':
@@ -163,7 +163,7 @@ function openState(check: { status: CheckDto['status']; scheduledAt: Date }): { 
     case 'MISSED':
       return { canSubmit: false, message: 'This check was missed. The time window is over.' }
     case 'EXCUSED':
-      return { canSubmit: false, message: 'This check was excused: the machine breakdown was approved.' }
+      return { canSubmit: false, message: check.leaveExcuse ? `This check was excused: your ${check.leaveExcuse.typeName} was approved.` : 'This check was excused: the machine breakdown was approved.' }
   }
 }
 
@@ -1054,7 +1054,8 @@ workerRouter.get('/plant-status', async (req, res) => {
 workerRouter.get('/checks/today', async (req, res) => {
   const today = startOfDay(new Date())
   await prepareChecksForRead()
-  const checks = await listChecks({ from: today, to: addDays(today, 1), where: await workerScope(req.user!.id) })
+  // Tasks excused by an approved Late Entry / Early Exit are removed from the worker's list (kept for the record).
+  const checks = await listChecks({ from: today, to: addDays(today, 1), where: and(await workerScope(req.user!.id), isNull(qualityChecks.leaveRequestId)) })
   res.json(checks.map(summary))
 })
 

@@ -35,6 +35,7 @@ import {
   workerLeaveOverview,
   type LeaveSettings
 } from '../services/leave'
+import { renderTimeReportPdf, timeRequestReport } from '../services/timeRequestReport'
 
 /** One optional supporting document (PDF or photo), field "attachment". */
 const attachmentUpload = multer({
@@ -57,7 +58,9 @@ const leaveInput = z.object({
   startDate: dateKey,
   endDate: dateKey,
   reason: z.string().trim().min(3, 'Write the reason for the leave').max(1000),
-  customType: z.string().trim().max(60, 'Keep the leave name to 60 characters').optional()
+  customType: z.string().trim().max(60, 'Keep the leave name to 60 characters').optional(),
+  /** Late Entry / Early Exit: the arrival or leaving time, HH:MM (the date is always today, checked by the server). */
+  requestedTime: z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Enter a valid time').optional()
 })
 const shiftInput = z.object({
   requestedShiftId: z.uuid('Choose the shift you want to work'),
@@ -228,6 +231,43 @@ leaveRouter.get('/calendar', view, async (req, res) => {
 leaveRouter.get('/report', view, async (req, res) => {
   const q = z.object({ at: dateKey.optional() }).parse(req.query)
   res.json(await leaveReport(q.at ?? new Date().toISOString().slice(0, 10), await departmentScope(req.user!)))
+})
+
+/**
+ * Late Entry & Early Exit Report: every such request in a period (any status, or one), one worker
+ * or all, one kind or both; a Manager's own department only. The PDF needs Leave export.
+ */
+const timeReportQuery = z.object({
+  from: dateKey,
+  to: dateKey,
+  workerId: z.uuid().optional(),
+  kind: z.enum(['LATE_ENTRY', 'EARLY_EXIT']).optional(),
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED']).optional()
+})
+async function timeReportFor(req: import('express').Request) {
+  const q = timeReportQuery.parse(req.query)
+  if (q.to < q.from) throw badRequest('The end date must be on or after the start date')
+  if ((Date.parse(q.to) - Date.parse(q.from)) / 86_400_000 > 366) throw badRequest('Choose at most one year')
+  const scope = await departmentScope(req.user!)
+  if (q.workerId) await assertWorkerInScope(scope, q.workerId)
+  return timeRequestReport({ ...q, workerIds: await scopedWorkerIds(scope) })
+}
+
+leaveRouter.get('/time-report', view, async (req, res) => {
+  res.json(await timeReportFor(req))
+})
+
+leaveRouter.get('/time-report.pdf', requireModule('leave', 'export'), async (req, res) => {
+  const report = await timeReportFor(req)
+  const pdf = await renderTimeReportPdf(report, `${req.user!.name} (${req.user!.employeeId})`)
+  const name = `Late-Entry-Early-Exit-Report-${report.from.replace(/-/g, '')}${report.to !== report.from ? `-${report.to.replace(/-/g, '')}` : ''}${report.worker ? `-${report.worker.employeeId.replace(/[^\w-]+/g, '_')}` : ''}`
+  await audit(req, 'EXPORT_REPORT', 'Report', name, {
+    newValue: { report: 'Late Entry & Early Exit Report', from: report.from, to: report.to, worker: report.worker?.employeeId ?? 'All', kind: report.kind ?? 'Both', status: report.status ?? 'All', ...report.totals }
+  })
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `attachment; filename="${name}.pdf"`)
+  res.setHeader('Content-Length', pdf.length)
+  res.end(pdf)
 })
 
 // ---- settings and leave types

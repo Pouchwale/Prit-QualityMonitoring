@@ -27,7 +27,8 @@
     "db:seed": "tsx src/db/seed.ts",
     "db:setup": "npm run db:create && npm run db:migrate && npm run db:seed",
     "notify:once": "tsx src/scripts/notify-once.ts",
-    "test:breakdowns": "tsx tests/breakdowns.mts"
+    "test:breakdowns": "tsx tests/breakdowns.mts",
+    "test:late-entry": "tsx tests/late-entry-early-exit.mts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",

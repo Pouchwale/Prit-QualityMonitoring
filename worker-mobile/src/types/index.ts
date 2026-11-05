@@ -94,6 +94,18 @@ export interface CheckSummary {
   kind?: CheckKind
   /** EXCUSED checks: the approved machine breakdown that excused it. */
   breakdown?: CheckBreakdown | null
+  /** EXCUSED checks: the approved Late Entry / Early Exit that excused it. */
+  leaveExcuse?: CheckLeaveExcuse | null
+}
+
+/** The approved Late Entry / Early Exit that excused a check. */
+export interface CheckLeaveExcuse {
+  kind: LeaveKind
+  typeName: string
+  date: string
+  requestedTime: string | null
+  decidedByName: string | null
+  decisionComment: string | null
 }
 
 /** The approved machine breakdown that excused a check. */
@@ -545,6 +557,8 @@ export interface MyWeek {
 
 export type LeaveStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
 export type DayPart = 'FULL' | 'FIRST_HALF' | 'SECOND_HALF'
+/** LEAVE: days off. LATE_ENTRY / EARLY_EXIT: today only, with the arrival or leaving time. */
+export type LeaveKind = 'LEAVE' | 'LATE_ENTRY' | 'EARLY_EXIT'
 
 export interface LeaveTypeOption {
   id: string
@@ -555,6 +569,8 @@ export interface LeaveTypeOption {
   requiresAttachment: boolean
   /** The employee types the leave's own name (Custom Leave). */
   isCustom?: boolean
+  /** Older servers leave it out: LEAVE. */
+  kind?: LeaveKind
   advanceNoticeDays: number
   maxConsecutiveDays: number | null
   /** Days per leave year; null: no limit. */
@@ -593,8 +609,14 @@ export interface MyLeaveRequest extends MyRequestBase {
   leaveTypeName: string
   leaveTypeCode: string
   dayPart: DayPart
+  /** Leave: the day part. Late Entry / Early Exit: "Arrival at 10:30 AM" / "Leaving at 3:00 PM". */
   dayPartLabel: string
   days: number
+  kind?: LeaveKind
+  requestedTime?: string | null
+  /** Approved Late Entry / Early Exit: how many of that day's tasks were excused. */
+  tasksRemovedAt?: string | null
+  tasksRemoved?: number | null
 }
 
 export interface MyShiftChange extends MyRequestBase {
@@ -613,6 +635,8 @@ export interface LeaveOverview {
   shifts: { id: string; name: string; startTime: string; endTime: string }[]
   currentShiftId: string | null
   rules: { maxPastDays: number; maxShiftChangeDays: number; workerCanCancelApproved: boolean }
+  /** The server's date (YYYY-MM-DD): Late Entry / Early Exit are for this day only. */
+  today?: string
 }
 
 // ---------------------------------------------------------------------------- Machine breakdowns (backend services/breakdowns.ts)

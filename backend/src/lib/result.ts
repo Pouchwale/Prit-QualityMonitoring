@@ -25,7 +25,7 @@ export const RESULT_LABEL: Record<CheckResult, string> = {
   COMPLETED: 'Completed',
   MISSED: 'Missed',
   EXCEPTION: 'Exception',
-  EXCUSED: 'Excused (breakdown)'
+  EXCUSED: 'Excused'
 }
 
 type Status = 'PENDING' | 'DUE' | 'IN_PROGRESS' | 'COMPLETED' | 'MISSED' | 'EXCEPTION' | 'EXCUSED'

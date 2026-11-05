@@ -32,6 +32,7 @@ import { countChecks, listChecks } from '../services/checks'
 import { assertCheckInScope, assertWorkInScope, assertWorkerInScope, checkScopeWhere, departmentScope, jobScopeWhere, scopedDepartmentId } from '../services/departmentScope'
 import { buildQualityReport } from '../services/reportData'
 import { buildTraceReport } from '../services/traceReport'
+import { renderScoreReportPdf, scoreReport } from '../services/scoreSummaryReport'
 import { getChecksForCrystalReport, renderCrystalReportPdf } from '../services/crystalReportPdf'
 import { weeklyScores } from '../services/performance'
 
@@ -582,6 +583,36 @@ monitoringRouter.get('/reports/quality-monitoring.pdf', requireModule('reports',
 
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', `attachment; filename="${report.meta.reportId}.pdf"`)
+  res.setHeader('Content-Length', pdf.length)
+  res.end(pdf)
+})
+
+/**
+ * Worker Score Report (Reports → Score Summary): each worker's score with their missed and completed
+ * tasks, for a period and optionally one worker (services/scoreSummaryReport.ts). The screen gets
+ * the task lists for one worker only (`workerId`); the PDF has them for everyone in it and needs
+ * Export Reports as well.
+ */
+async function scoreReportFor(req: Request, details: boolean) {
+  const { from, to } = dateRange(req)
+  const { workerId } = z.object({ workerId: optionalUuid }).parse(req.query)
+  await prepareRange(from, to)
+  const { scope, where } = await scopeFor(req)
+  if (workerId) await assertWorkerInScope(scope, workerId)
+  return scoreReport(from, to, { where, workerId: workerId ?? undefined, details: details || !!workerId })
+}
+
+monitoringRouter.get('/reports/score-summary', requireModule('reports', 'view'), async (req, res) => {
+  res.json(await scoreReportFor(req, false))
+})
+
+monitoringRouter.get('/reports/score-summary.pdf', requireModule('reports', 'export'), async (req, res) => {
+  const report = await scoreReportFor(req, true)
+  const pdf = await renderScoreReportPdf(report, `${req.user!.name} (${req.user!.employeeId})`)
+  const name = `Worker-Score-Report-${report.from.replace(/-/g, '')}${report.to !== report.from ? `-${report.to.replace(/-/g, '')}` : ''}${report.worker ? `-${report.worker.employeeId.replace(/[^\w-]+/g, '_')}` : ''}`
+  await audit(req, 'EXPORT_REPORT', 'Report', name, { newValue: { report: 'Worker Score Report', from: report.from, to: report.to, worker: report.worker?.employeeId ?? 'All', ...report.totals } })
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `attachment; filename="${name}.pdf"`)
   res.setHeader('Content-Length', pdf.length)
   res.end(pdf)
 })

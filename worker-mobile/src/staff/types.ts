@@ -350,6 +350,8 @@ export interface QualityCheck {
   parameterIds?: string[] | null
   /** EXCUSED checks: the approved machine breakdown that excused it (audit). */
   breakdown?: CheckBreakdown | null
+  /** EXCUSED checks: the approved Late Entry / Early Exit that excused it (audit). */
+  leaveExcuse?: { kind: 'LEAVE' | 'LATE_ENTRY' | 'EARLY_EXIT'; typeName: string; date: string; requestedTime: string | null; decidedByName: string | null; decisionComment: string | null } | null
 }
 
 export interface ExceptionRecord extends CheckException {

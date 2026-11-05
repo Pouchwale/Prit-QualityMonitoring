@@ -171,7 +171,9 @@ export const DetailedRecords: React.FC<{ checks: QualityCheck[]; onOpen: (id: st
             : c.result === 'MISSED'
               ? `Missed: not submitted before ${formatDateTime(c.windowEndsAt)}`
               : c.result === 'EXCUSED'
-                ? 'Excused: machine breakdown approved'
+                ? c.leaveExcuse
+                  ? `Excused: ${c.leaveExcuse.typeName} approved`
+                  : 'Excused: machine breakdown approved'
                 : null
           return (
             <Row

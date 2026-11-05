@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { CalendarDays, Check, Clock3, FileText, Paperclip, X } from 'lucide-react'
 import type { LeaveRequest, LeaveStatus, ShiftChangeRequest } from '../../../types'
 import { api, errorText, fetchBlob } from '../../../lib/api'
-import { formatClockRange, formatDateKey, formatDateTime } from '../../../lib/format'
+import { formatClockRange, formatDateKey, formatDateTime, formatTime } from '../../../lib/format'
 import { Button } from '../../../components/common/Button'
 import { Field, FormError, TextArea } from '../../../components/common/Form'
 import { Modal } from '../../../components/common/Modal'
@@ -116,7 +116,32 @@ export const RequestDetailModal: React.FC<{
           {r.workerName} <span className="text-ink-muted">({r.workerEmployeeId})</span>
         </Row>
         {(r.workerDesignation || r.departmentName) && <Row label="Designation">{[r.workerDesignation, r.departmentName].filter(Boolean).join(' · ')}</Row>}
-        {isLeave(r) ? (
+        {isLeave(r) && isTimeRequest(r) ? (
+          <>
+            <Row label="Request type">
+              <span className="font-semibold">{r.leaveTypeName}</span>
+            </Row>
+            <Row label="Date">{formatDateKey(r.startDate)}</Row>
+            <Row label={r.kind === 'LATE_ENTRY' ? 'Arrival time' : 'Leaving time'}>
+              <span className="font-semibold">{r.dayPartLabel.replace(/^(Arrival|Leaving) at /, '')}</span>
+            </Row>
+            {r.affectsFrom && r.affectsTo && (
+              <Row label="Tasks covered">
+                {formatTime(r.affectsFrom)} – {formatTime(r.affectsTo)}
+                <div className="text-[13px] text-ink-muted">
+                  {r.kind === 'LATE_ENTRY' ? 'Unfinished tasks before the arrival time' : 'Unfinished tasks from the leaving time to the end of the shift'}
+                  {r.tasksRemovedAt ? '' : ' are excused when this is approved. Completed tasks are kept.'}
+                </div>
+              </Row>
+            )}
+            {r.tasksRemovedAt && (
+              <Row label="Tasks excused">
+                <span className="font-semibold">{r.tasksRemoved ?? 0}</span>
+                <span className="text-ink-muted"> · {formatDateTime(r.tasksRemovedAt)}</span>
+              </Row>
+            )}
+          </>
+        ) : isLeave(r) ? (
           <>
             <Row label="Leave type">
               {r.leaveTypeName} <span className="text-ink-muted">({r.leaveTypeCode}{r.isPaid ? '' : ', unpaid'})</span>
@@ -196,12 +221,13 @@ export const DecisionModal: React.FC<{
       setSaving(false)
     }
   }
-  const what = kind === 'leave' && isLeave(r) ? `${r.leaveTypeName}, ${daysLabel(r.days)}` : !isLeave(r) ? `to ${r.requestedShiftName}` : ''
+  const timed = isLeave(r) && isTimeRequest(r)
+  const what = timed ? `${r.leaveTypeName}, ${r.dayPartLabel}` : kind === 'leave' && isLeave(r) ? `${r.leaveTypeName}, ${daysLabel(r.days)}` : !isLeave(r) ? `to ${r.requestedShiftName}` : ''
   return (
     <Modal
       isOpen
       onClose={onClose}
-      title={`${approve ? 'Approve' : 'Reject'} ${kind === 'leave' ? 'leave' : 'shift change'}`}
+      title={`${approve ? 'Approve' : 'Reject'} ${timed && isLeave(r) ? r.leaveTypeName : kind === 'leave' ? 'leave' : 'shift change'}`}
       subtitle={`${r.workerName} · ${dateRange(r.startDate, r.endDate)} · ${what}`}
       footer={
         <>
@@ -216,6 +242,13 @@ export const DecisionModal: React.FC<{
     >
       <form id="leave-decision" onSubmit={submit} className="space-y-3">
         <FormError message={error} />
+        {timed && isLeave(r) && (
+          <p className="text-[14px] leading-[20px] text-ink-secondary">
+            {approve
+              ? `${r.workerName}’s unfinished tasks ${r.kind === 'LATE_ENTRY' ? 'before the arrival time' : 'from the leaving time to the end of the shift'}${r.affectsFrom && r.affectsTo ? ` (${formatTime(r.affectsFrom)} – ${formatTime(r.affectsTo)})` : ''} on ${formatDateKey(r.startDate)} become Excused and do not count in the score. No new tasks are given in that time. Completed tasks, other days and other workers are not affected.`
+              : 'Nothing changes: the tasks stay, and missed tasks count in the score as usual.'}
+          </p>
+        )}
         <Field label={approve ? 'Remarks (optional)' : 'Reason for rejection'} required={!approve} hint="Included in the email to the worker and kept in the audit log.">
           <TextArea value={comment} onChange={(e) => setComment(e.target.value)} rows={3} maxLength={1000} autoFocus />
         </Field>
@@ -223,6 +256,9 @@ export const DecisionModal: React.FC<{
     </Modal>
   )
 }
+
+/** Late Entry / Early Exit: today only, with a time; approval excuses tasks. */
+export const isTimeRequest = (r: LeaveRequest) => r.kind === 'LATE_ENTRY' || r.kind === 'EARLY_EXIT'
 
 export const KindIcon: React.FC<{ kind: RequestKind; className?: string }> = ({ kind, className = 'w-4.5 h-4.5' }) =>
   kind === 'leave' ? <CalendarDays className={className} /> : <Clock3 className={className} />

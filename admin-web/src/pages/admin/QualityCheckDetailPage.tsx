@@ -4,7 +4,7 @@ import type { CheckResult, MediaFile, QualityCheck } from '../../types'
 import { mediaUrl } from '../../lib/api'
 import { useApi } from '../../lib/useApi'
 import { useAuth } from '../../lib/auth'
-import { PARAMETER_TYPE_LABEL, formatDateTime, RESULT_HINT, RESULT_LABEL } from '../../lib/format'
+import { PARAMETER_TYPE_LABEL, formatClock, formatDateKey, formatDateTime, RESULT_HINT, RESULT_LABEL } from '../../lib/format'
 import { Button } from '../../components/common/Button'
 import { PageHeader } from '../../components/common/PageHeader'
 import { DataState } from '../../components/common/DataState'
@@ -159,6 +159,25 @@ export const QualityCheckDetailPage: React.FC<QualityCheckDetailPageProps> = ({ 
                 <Info label="Device" value={check.deviceInfo} className="col-span-2" />
               </dl>
             </Card>
+
+            {check.leaveExcuse && (
+              <Card className="printable-card overflow-hidden">
+                <CardHeader
+                  icon={<Clock3 className="w-4 h-4" />}
+                  title={`Excused: ${check.leaveExcuse.typeName}`}
+                  subtitle="Approved by the manager · not counted in the worker's score"
+                  actions={<CheckStatusBadge status="EXCUSED" size="sm" />}
+                  className="bg-subtle/70"
+                />
+                <dl className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3.5 p-4">
+                  <Info label="Date" value={formatDateKey(check.leaveExcuse.date)} />
+                  <Info label={check.leaveExcuse.kind === 'LATE_ENTRY' ? 'Arrival time' : 'Leaving time'} value={check.leaveExcuse.requestedTime ? formatClock(check.leaveExcuse.requestedTime) : null} />
+                  <Info label="Approved by" value={check.leaveExcuse.decidedByName ? `${check.leaveExcuse.decidedByName}, ${formatDateTime(check.leaveExcuse.decidedAt)}` : null} className="col-span-2" />
+                  <Info label="Worker's reason" value={check.leaveExcuse.reason} className="col-span-2" multiline />
+                  <Info label="Approval remarks" value={check.leaveExcuse.decisionComment} className="col-span-2" multiline />
+                </dl>
+              </Card>
+            )}
 
             {check.breakdown && (
               <Card className="printable-card overflow-hidden">

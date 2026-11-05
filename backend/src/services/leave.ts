@@ -2,10 +2,10 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { Request } from 'express'
-import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql, type SQL } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { db, type Transaction } from '../db/client'
-import { departments, leaveRequests, leaveTypes, qualityChecks, settings, shiftChangeRequests, shifts, users, type RequestStatus } from '../db/schema'
+import { departments, leaveRequests, leaveTypes, qualityChecks, settings, shiftChangeRequests, shifts, users, type LeaveKind, type RequestStatus } from '../db/schema'
 import { config } from '../config'
 import { audit } from '../lib/audit'
 import { badRequest, conflict, forbidden, notFound } from '../lib/http'
@@ -30,6 +30,13 @@ import { departmentScope, scopedWorkerIds, workerScopeWhere, type DepartmentScop
  *    shift), so the score is not affected; the worker gets no sign-in reminders. Approved shift
  *    change: on those dates the worker's checks, sign-in and reminders follow the requested shift.
  *    Both through workerDayPlans, read by the check generator and services/workerShifts.ts.
+ *  - Late Entry and Early Exit (leave types of that kind) are for today only, the server's date,
+ *    with the arrival or leaving time. Sending one changes nothing. Approved (once, with the row
+ *    locked): the worker's unfinished tasks of that shift before the arrival time (Late Entry) or
+ *    from the leaving time on (Early Exit) become EXCUSED, linked to the request, and no new task
+ *    is made in that stretch; completed tasks, other days and other workers are never touched, and
+ *    the next day runs as normal. Rejected: nothing changes. Tasks are excused, not deleted, so
+ *    the records stay for the audit trail (the worker's task list no longer shows them).
  *  - Every submission, decision, cancellation and settings change is in the audit log. Emails go
  *    through the report email delivery (status, retries; services/reportDelivery.ts) to the
  *    configured recipients only; the worker also gets a push notification.
@@ -102,6 +109,17 @@ export type DayPart = 'FULL' | 'FIRST_HALF' | 'SECOND_HALF'
 export const DAY_PART_LABEL: Record<DayPart, string> = { FULL: 'Full Day', FIRST_HALF: 'Half Day (First Half)', SECOND_HALF: 'Half Day (Second Half)' }
 
 const todayKey = (now = new Date()) => dateKey(now)
+
+export type { LeaveKind }
+export type TimeKind = 'LATE_ENTRY' | 'EARLY_EXIT'
+/** Late Entry / Early Exit: a time on today, not days off. */
+export const isTimeKind = (kind: string | null | undefined): kind is TimeKind => kind === 'LATE_ENTRY' || kind === 'EARLY_EXIT'
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
+/** "15:00" -> "3:00 PM". */
+export const clock12 = (hhmm: string) => {
+  const [h, m] = hhmm.split(':').map(Number)
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
+}
 const isDateKey = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v) && dateKey(parseDateKey(v)) === v
 
 /** The leave year a date falls in: its first and last day and a label ("2026" or "Apr 2026 – Mar 2027"). */
@@ -156,7 +174,8 @@ export async function balancesFor(workerIds: string[], atKey = todayKey(), s?: L
   const st = s ?? (await getLeaveSettings())
   const year = leaveYearOf(atKey, st.leaveYearStartMonth)
   const [types, rows] = await Promise.all([
-    db.select().from(leaveTypes).orderBy(asc(leaveTypes.sortOrder), asc(leaveTypes.name)),
+    // Late Entry / Early Exit are not days off: no balance.
+    db.select().from(leaveTypes).where(eq(leaveTypes.kind, 'LEAVE')).orderBy(asc(leaveTypes.sortOrder), asc(leaveTypes.name)),
     workerIds.length
       ? db
           .select({ workerId: leaveRequests.workerId, leaveTypeId: leaveRequests.leaveTypeId, startDate: leaveRequests.startDate, days: leaveRequests.days, status: leaveRequests.status })
@@ -228,6 +247,8 @@ export async function workerDayPlans(workerIds: string[] | null, fromKey: string
     db
       .select({ workerId: leaveRequests.workerId, startDate: leaveRequests.startDate, endDate: leaveRequests.endDate, dayPart: leaveRequests.dayPart })
       .from(leaveRequests)
+      // Late Entry / Early Exit are not leave days: approvedTimeCuts() below.
+      .innerJoin(leaveTypes, and(eq(leaveTypes.id, leaveRequests.leaveTypeId), eq(leaveTypes.kind, 'LEAVE')))
       .where(
         and(
           eq(leaveRequests.status, 'APPROVED'),
@@ -290,6 +311,81 @@ export function applyDayPlan(window: { start: Date; end: Date }, plan: DayPlan |
   if (plan.leave === 'FIRST_HALF') start = middle
   if (plan.leave === 'SECOND_HALF') end = middle
   return { start, end }
+}
+
+/**
+ * Approved Late Entry / Early Exit per worker: the stretches of their shift with no tasks (shift
+ * start to arrival; leaving time to shift end), overlapping [from, to). `workerIds` null: everyone.
+ */
+export async function approvedTimeCuts(workerIds: string[] | null, from: Date, to: Date) {
+  const cuts = new Map<string, { from: Date; to: Date }[]>()
+  if (workerIds && !workerIds.length) return cuts
+  const rows = await db
+    .select({ workerId: leaveRequests.workerId, from: leaveRequests.affectsFrom, to: leaveRequests.affectsTo })
+    .from(leaveRequests)
+    .innerJoin(leaveTypes, eq(leaveTypes.id, leaveRequests.leaveTypeId))
+    .where(
+      and(
+        eq(leaveRequests.status, 'APPROVED'),
+        inArray(leaveTypes.kind, ['LATE_ENTRY', 'EARLY_EXIT']),
+        lt(leaveRequests.affectsFrom, to),
+        gt(leaveRequests.affectsTo, from),
+        workerIds ? inArray(leaveRequests.workerId, workerIds) : undefined
+      )
+    )
+  for (const r of rows) {
+    if (!r.from || !r.to) continue
+    cuts.set(r.workerId, [...(cuts.get(r.workerId) ?? []), { from: r.from, to: r.to }])
+  }
+  return cuts
+}
+
+/** Work windows less the cut stretches (a window may be shortened, split or dropped). */
+export function cutWindows<T extends { start: Date; end: Date }>(windows: T[], cuts: { from: Date; to: Date }[] | undefined): T[] {
+  if (!cuts?.length) return windows
+  let out = windows
+  for (const c of cuts) {
+    out = out.flatMap((w) => {
+      if (c.to <= w.start || c.from >= w.end) return [w]
+      const parts: T[] = []
+      if (c.from > w.start) parts.push({ ...w, end: c.from })
+      if (c.to < w.end) parts.push({ ...w, start: c.to })
+      return parts
+    })
+  }
+  return out
+}
+
+/**
+ * Late Entry / Early Exit on `today`: the moment the entered time means and the stretch of the
+ * worker's shift it covers. Late Entry: shift start to the arrival; Early Exit: the leaving time to
+ * the shift end. A night shift that started today and runs past midnight takes an early-morning
+ * time as tomorrow's (leaving at 02:00 from a 22:00-06:00 shift). A worker without a shift: the
+ * calendar day.
+ */
+export async function timeRequestSpan(workerId: string, kind: TimeKind, today: string, hhmm: string, now = new Date()) {
+  const { workerShiftList, shiftBlocksAt } = await import('./workerShifts')
+  const list = await workerShiftList(workerId)
+  const day = parseDateKey(today)
+  let at = atTime(day, hhmm)
+  let block: { start: Date; end: Date } | null = null
+  if (list.length) {
+    const plans = (await workerDayPlans([workerId], dateKey(addDays(day, -1)), dateKey(addDays(day, 3)))).get(workerId)
+    block = shiftBlocksAt(list, at, plans).current
+    const nextAt = addDays(at, 1)
+    const later = shiftBlocksAt(list, nextAt, plans).current
+    if (later && dateKey(later.start) === today && (!block || block.end <= now)) {
+      at = nextAt
+      block = later
+    }
+    if (!block) throw badRequest(`${clock12(hhmm)} is outside your shift today. Enter a time during your shift.`)
+  }
+  const span =
+    kind === 'LATE_ENTRY'
+      ? { from: block?.start ?? startOfDay(at), to: at }
+      : { from: at, to: block?.end ?? startOfDay(addDays(at, 1)) }
+  if (span.to <= span.from) throw badRequest(`${clock12(hhmm)} is when your shift starts: no Late Entry is needed.`)
+  return { at, ...span }
 }
 
 /**
@@ -364,6 +460,7 @@ const leaveColumns = {
   departmentName: departments.name,
   leaveTypeName: leaveTypes.name,
   leaveTypeCode: leaveTypes.code,
+  leaveTypeKind: leaveTypes.kind,
   isPaid: leaveTypes.isPaid,
   decidedByName: deciders.name
 }
@@ -388,7 +485,12 @@ const leaveDto = (r: LeaveRow) => {
   return {
     ...rest,
     hasAttachment: !!attachmentPath,
-    dayPartLabel: DAY_PART_LABEL[r.request.dayPart as DayPart],
+    kind: r.leaveTypeKind,
+    // Late Entry / Early Exit: the time instead of a day part.
+    dayPartLabel:
+      isTimeKind(r.leaveTypeKind) && r.request.requestedTime
+        ? `${r.leaveTypeKind === 'LATE_ENTRY' ? 'Arrival' : 'Leaving'} at ${clock12(r.request.requestedTime)}`
+        : DAY_PART_LABEL[r.request.dayPart as DayPart],
     workerName: r.workerName,
     workerEmployeeId: r.workerEmployeeId,
     workerDesignation: r.workerDesignation,
@@ -508,6 +610,39 @@ export interface LeaveInput {
   startDate: string
   endDate: string
   reason: string
+  /** Late Entry / Early Exit: the arrival or leaving time (HH:MM). */
+  requestedTime?: string | null
+}
+
+/**
+ * Late Entry / Early Exit: today only (the server's date: another date is refused, whatever the
+ * app sends), with a time during the worker's shift; one of each kind a day; not on a day of full
+ * leave. Nothing is changed until it is approved.
+ */
+async function checkTimeRequest(workerId: string, type: typeof leaveTypes.$inferSelect & { kind: TimeKind }, input: LeaveInput, s: LeaveSettings, tx: Transaction | typeof db, excludeId?: string) {
+  const today = todayKey()
+  if (input.startDate !== today || input.endDate !== today) throw badRequest(`${type.name} can only be requested for today (${formatDateKey(today)}).`)
+  if (!input.requestedTime || !HHMM.test(input.requestedTime)) {
+    throw badRequest(`${type.name}: enter the time you ${type.kind === 'LATE_ENTRY' ? 'arrive' : 'leave'}`)
+  }
+  const span = await timeRequestSpan(workerId, type.kind, today, input.requestedTime)
+  const others = await tx
+    .select({ status: leaveRequests.status, dayPart: leaveRequests.dayPart, kind: leaveTypes.kind })
+    .from(leaveRequests)
+    .innerJoin(leaveTypes, eq(leaveTypes.id, leaveRequests.leaveTypeId))
+    .where(
+      and(
+        eq(leaveRequests.workerId, workerId),
+        inArray(leaveRequests.status, ['PENDING', 'APPROVED']),
+        lte(leaveRequests.startDate, today),
+        gte(leaveRequests.endDate, today),
+        excludeId ? ne(leaveRequests.id, excludeId) : undefined
+      )
+    )
+  const same = others.find((o) => o.kind === type.kind)
+  if (same) throw conflict(`You already have ${same.status === 'PENDING' ? 'a pending' : 'an approved'} ${type.name} request for today.`)
+  if (others.some((o) => o.kind === 'LEAVE' && o.dayPart === 'FULL')) throw conflict(`You have leave for the whole of today: no ${type.name} is needed.`)
+  return { type: type as typeof leaveTypes.$inferSelect, days: 0, skipped: 0, settings: s, span: { from: span.from, to: span.to } as { from: Date; to: Date } | null }
 }
 
 /** Checks a leave request against the rules; returns the days it counts. Used to apply and to preview. */
@@ -516,6 +651,7 @@ export async function checkLeave(workerId: string, input: LeaveInput, _hasAttach
   const [type] = await tx.select().from(leaveTypes).where(eq(leaveTypes.id, input.leaveTypeId))
   if (!type || !type.isActive) throw badRequest('Choose a leave type')
   if (!isDateKey(input.startDate) || !isDateKey(input.endDate)) throw badRequest('Choose valid dates')
+  if (isTimeKind(type.kind)) return checkTimeRequest(workerId, { ...type, kind: type.kind }, input, s, tx, excludeId)
   if (input.endDate < input.startDate) throw badRequest('The end date must be on or after the start date')
   if (input.dayPart !== 'FULL') {
     if (!type.allowHalfDay) throw badRequest(`${type.name} cannot be taken as a half day`)
@@ -537,6 +673,8 @@ export async function checkLeave(workerId: string, input: LeaveInput, _hasAttach
   const overlapping = await tx
     .select({ id: leaveRequests.id, startDate: leaveRequests.startDate, endDate: leaveRequests.endDate, dayPart: leaveRequests.dayPart, status: leaveRequests.status })
     .from(leaveRequests)
+    // A Late Entry / Early Exit on a date does not stop leave on it.
+    .innerJoin(leaveTypes, and(eq(leaveTypes.id, leaveRequests.leaveTypeId), eq(leaveTypes.kind, 'LEAVE')))
     .where(
       and(
         eq(leaveRequests.workerId, workerId),
@@ -569,7 +707,7 @@ export async function checkLeave(workerId: string, input: LeaveInput, _hasAttach
       )
     }
   }
-  return { type, days, skipped, settings: s }
+  return { type, days, skipped, settings: s, span: null as { from: Date; to: Date } | null }
 }
 
 export async function applyForLeave(req: Request, worker: Actor, input: LeaveInput, file?: Express.Multer.File) {
@@ -577,14 +715,43 @@ export async function applyForLeave(req: Request, worker: Actor, input: LeaveInp
   try {
     const row = await db.transaction(async (tx) => {
       await lockWorker(tx, worker.id)
-      const { days, type } = await checkLeave(worker.id, input, !!stored, tx)
-      const customType = type.isCustom ? (input.customType ?? '').trim() : ''
-      if (type.isCustom && customType.length < 2) throw badRequest(`${type.name}: enter the name of your leave (e.g. Marriage leave)`)
+      const { days, type, span } = await checkLeave(worker.id, input, !!stored, tx)
+      const timed = isTimeKind(type.kind)
+      const customType = type.isCustom && !timed ? (input.customType ?? '').trim() : ''
+      if (type.isCustom && !timed && customType.length < 2) throw badRequest(`${type.name}: enter the name of your leave (e.g. Marriage leave)`)
       const [row] = await tx
         .insert(leaveRequests)
-        .values({ workerId: worker.id, leaveTypeId: input.leaveTypeId, customType: customType || null, dayPart: input.dayPart, startDate: input.startDate, endDate: input.endDate, days, reason: input.reason, ...(stored ?? {}) })
+        .values({
+          workerId: worker.id,
+          leaveTypeId: input.leaveTypeId,
+          customType: customType || null,
+          dayPart: timed ? 'FULL' : input.dayPart,
+          startDate: input.startDate,
+          endDate: input.endDate,
+          days,
+          reason: input.reason,
+          requestedTime: timed ? input.requestedTime : null,
+          affectsFrom: span?.from ?? null,
+          affectsTo: span?.to ?? null,
+          ...(stored ?? {})
+        })
         .returning()
-      await audit(req, 'SUBMIT_LEAVE', 'LeaveRequest', row.id, { newValue: { worker: `${worker.name} (${worker.employeeId})`, ...input, days, attachment: stored?.attachmentName ?? null } }, tx)
+      const { requestedTime, ...rest } = input
+      await audit(
+        req,
+        'SUBMIT_LEAVE',
+        'LeaveRequest',
+        row.id,
+        {
+          newValue: {
+            worker: `${worker.name} (${worker.employeeId})`,
+            ...rest,
+            ...(timed ? { type: type.name, date: input.startDate, time: requestedTime, covers: { from: span?.from, to: span?.to } } : { days }),
+            attachment: stored?.attachmentName ?? null
+          }
+        },
+        tx
+      )
       return row
     })
     const [dto] = await listLeaveRequests({ ids: [row.id] })
@@ -673,10 +840,13 @@ export async function decideRequest(req: Request, kind: RequestKind, id: string,
     if (row.status !== 'PENDING') throw conflict(`This request is already ${row.status.toLowerCase()}`)
     // Nobody decides their own request.
     if (row.workerId === actor.id) throw forbidden('You cannot decide your own request')
-    if (approve && kind === 'leave') {
+    const leaveRow = kind === 'leave' ? (row as typeof leaveRequests.$inferSelect) : null
+    const [leaveType] = leaveRow ? await tx.select().from(leaveTypes).where(eq(leaveTypes.id, leaveRow.leaveTypeId)) : []
+    const timed = isTimeKind(leaveType?.kind)
+    if (approve && leaveRow && !timed) {
       // The balance is checked again: other leave may have been approved since it was sent.
-      const r = row as typeof leaveRequests.$inferSelect
-      const [type] = await tx.select().from(leaveTypes).where(eq(leaveTypes.id, r.leaveTypeId))
+      const r = leaveRow
+      const type = leaveType
       if (type?.annualQuota !== null && type) {
         const { balances } = await balancesFor([r.workerId], r.startDate)
         const b = balances.get(r.workerId)?.find((x) => x.leaveTypeId === type.id)
@@ -690,17 +860,53 @@ export async function decideRequest(req: Request, kind: RequestKind, id: string,
       .update(table)
       .set({ status: approve ? 'APPROVED' : 'REJECTED', decidedById: actor.id, decidedAt: now, decisionComment: comment, updatedAt: now })
       .where(eq(table.id, id))
+    // Late Entry / Early Exit approved: that shift's unfinished tasks before the arrival (after the
+    // leaving time) are excused, here and only here: the request was PENDING under the row lock,
+    // so this runs once. Completed tasks, other days and other workers are not touched.
+    let removed: string[] | null = null
+    if (approve && timed && leaveRow) {
+      removed =
+        leaveRow.affectsFrom && leaveRow.affectsTo
+          ? (
+              await tx
+                .update(qualityChecks)
+                .set({ status: 'EXCUSED', leaveRequestId: id })
+                .where(
+                  and(
+                    eq(qualityChecks.workerId, leaveRow.workerId),
+                    isNull(qualityChecks.submittedAt),
+                    inArray(qualityChecks.status, ['PENDING', 'DUE', 'MISSED']),
+                    gte(qualityChecks.scheduledAt, leaveRow.affectsFrom),
+                    lt(qualityChecks.scheduledAt, leaveRow.affectsTo)
+                  )
+                )
+                .returning({ code: qualityChecks.code })
+            ).map((c) => c.code)
+          : []
+      await tx.update(leaveRequests).set({ tasksRemovedAt: now, tasksRemoved: removed.length }).where(eq(leaveRequests.id, id))
+    }
     await audit(
       req,
       `${approve ? 'APPROVE' : 'REJECT'}_${kind === 'leave' ? 'LEAVE' : 'SHIFT_CHANGE'}`,
       kind === 'leave' ? 'LeaveRequest' : 'ShiftChangeRequest',
       id,
-      { oldValue: { status: 'PENDING' }, newValue: { status: approve ? 'APPROVED' : 'REJECTED', comment, decidedBy: `${actor.name} (${actor.employeeId})`, at: now.toISOString() } },
+      {
+        oldValue: { status: 'PENDING' },
+        newValue: {
+          status: approve ? 'APPROVED' : 'REJECTED',
+          comment,
+          decidedBy: `${actor.name} (${actor.employeeId})`,
+          at: now.toISOString(),
+          ...(timed && leaveType ? { type: leaveType.name, date: leaveRow?.startDate, time: leaveRow?.requestedTime, ...(removed ? { excusedTasks: removed } : {}) } : {})
+        }
+      },
       tx
     )
-    return row
+    return { ...row, timed }
   })
-  if (approve) await replanChecks(result.workerId, result.startDate, result.endDate)
+  // Late Entry / Early Exit: only that shift's tasks (above); the scheduler skips the stretch from now on.
+  if (approve && result.timed) invalidateCheckGeneration()
+  else if (approve) await replanChecks(result.workerId, result.startDate, result.endDate)
   const dto = kind === 'leave' ? (await listLeaveRequests({ ids: [id] }))[0] : (await listShiftChanges({ ids: [id] }))[0]
   void notifyDecided(kind, dto)
   return dto
@@ -725,14 +931,32 @@ export async function cancelRequest(req: Request, kind: RequestKind, id: string,
     }
     const now = new Date()
     await tx.update(table).set({ status: 'CANCELLED', cancelledById: actor.id, cancelledAt: now, updatedAt: now }).where(eq(table.id, id))
+    // An approved Late Entry / Early Exit cancelled by staff: the tasks it excused count again
+    // (Missed once their time is over, open otherwise).
+    let restored = 0
+    let timed = false
+    if (kind === 'leave') {
+      const [type] = await tx.select({ kind: leaveTypes.kind }).from(leaveTypes).where(eq(leaveTypes.id, (row as typeof leaveRequests.$inferSelect).leaveTypeId))
+      timed = isTimeKind(type?.kind)
+      if (timed && row.status === 'APPROVED') {
+        restored = (
+          await tx
+            .update(qualityChecks)
+            .set({ status: sql`case when ${qualityChecks.windowEndsAt} < now() then 'MISSED'::check_status else 'PENDING'::check_status end`, leaveRequestId: null })
+            .where(and(eq(qualityChecks.leaveRequestId, id), eq(qualityChecks.status, 'EXCUSED')))
+            .returning({ id: qualityChecks.id })
+        ).length
+      }
+    }
     await audit(req, `CANCEL_${kind === 'leave' ? 'LEAVE' : 'SHIFT_CHANGE'}`, kind === 'leave' ? 'LeaveRequest' : 'ShiftChangeRequest', id, {
       oldValue: { status: row.status },
-      newValue: { status: 'CANCELLED', by: `${actor.name} (${actor.employeeId})` }
+      newValue: { status: 'CANCELLED', by: `${actor.name} (${actor.employeeId})`, ...(timed && row.status === 'APPROVED' ? { tasksRestored: restored } : {}) }
     }, tx)
-    return row
+    return { ...row, timed }
   })
   // The days of an approved request are normal work days again.
-  if (row.status === 'APPROVED') await replanChecks(row.workerId, row.startDate, row.endDate)
+  if (row.status === 'APPROVED' && row.timed) invalidateCheckGeneration()
+  else if (row.status === 'APPROVED') await replanChecks(row.workerId, row.startDate, row.endDate)
   return kind === 'leave' ? (await listLeaveRequests({ ids: [id] }))[0] : (await listShiftChanges({ ids: [id] }))[0]
 }
 
@@ -747,7 +971,8 @@ export async function leaveCalendar(fromKey: string, toKey: string, includePendi
     dayStates(parseDateKey(fromKey), parseDateKey(toKey))
   ])
   return {
-    leave: leave.filter((l) => statuses.includes(l.status)),
+    // Late Entry / Early Exit are not days off: not on the leave calendar.
+    leave: leave.filter((l) => statuses.includes(l.status) && !isTimeKind(l.kind)),
     shiftChanges: changes.filter((c) => statuses.includes(c.status)),
     closedDays: days.filter((d) => d.closed).map((d) => ({ date: d.date, label: d.label }))
   }
@@ -828,7 +1053,18 @@ async function sendLeaveEmail(recipients: string[], subject: string, intro: stri
   }).catch((err) => console.error(JSON.stringify({ event: 'leave_email_failed', subject, error: err instanceof Error ? err.message : String(err) })))
 }
 
-const leaveRows = (d: LeaveDto): [string, string][] => [
+const leaveRows = (d: LeaveDto): [string, string][] =>
+  isTimeKind(d.kind)
+    ? [
+        ['Employee Name', d.workerName],
+        ['Employee ID', d.workerEmployeeId],
+        ['Department', d.departmentName ?? '—'],
+        ['Request Type', d.leaveTypeName],
+        ['Date', formatDateKey(d.startDate)],
+        [d.kind === 'LATE_ENTRY' ? 'Arrival Time' : 'Leaving Time', d.requestedTime ? clock12(d.requestedTime) : '—'],
+        ...(d.tasksRemovedAt ? [['Tasks Excused', String(d.tasksRemoved ?? 0)] as [string, string]] : [])
+      ]
+    : [
   ['Employee Name', d.workerName],
   ['Employee ID', d.workerEmployeeId],
   ['Department', d.departmentName ?? '—'],
@@ -837,7 +1073,7 @@ const leaveRows = (d: LeaveDto): [string, string][] => [
   ['From Date', formatDateKey(d.startDate)],
   ['To Date', formatDateKey(d.endDate)],
   ['Total Leave Days', String(d.days)]
-]
+      ]
 const shiftRows = (d: ShiftChangeDto): [string, string][] => [
   ['Employee Name', d.workerName],
   ['Employee ID', d.workerEmployeeId],
@@ -910,7 +1146,11 @@ async function notifyDecided(kind: RequestKind, d: LeaveDto | ShiftChangeDto) {
   await sendToUser(
     d.workerId,
     `${kind === 'leave' ? 'Leave' : 'Shift change'} ${word.toLowerCase()}`,
-    kind === 'leave' ? `${(d as LeaveDto).leaveTypeName}, ${dates}${d.decisionComment ? ` · ${d.decisionComment}` : ''}` : `${(d as ShiftChangeDto).requestedShiftName}, ${dates}${d.decisionComment ? ` · ${d.decisionComment}` : ''}`,
+    kind === 'leave'
+      ? isTimeKind((d as LeaveDto).kind)
+        ? `${(d as LeaveDto).leaveTypeName}, ${(d as LeaveDto).dayPartLabel}${approved ? ` · ${(d as LeaveDto).tasksRemoved ?? 0} task${(d as LeaveDto).tasksRemoved === 1 ? '' : 's'} excused` : ''}${d.decisionComment ? ` · ${d.decisionComment}` : ''}`
+        : `${(d as LeaveDto).leaveTypeName}, ${dates}${d.decisionComment ? ` · ${d.decisionComment}` : ''}`
+      : `${(d as ShiftChangeDto).requestedShiftName}, ${dates}${d.decisionComment ? ` · ${d.decisionComment}` : ''}`,
     { type: 'LEAVE_DECISION', kind, id: d.id, status: d.status }
   ).catch((err) => console.error(JSON.stringify({ event: 'leave_push_failed', id: d.id, error: err instanceof Error ? err.message : String(err) })))
 }
@@ -936,6 +1176,7 @@ export async function workerLeaveOverview(workerId: string) {
       allowHalfDay: t.allowHalfDay,
       requiresAttachment: t.requiresAttachment,
       isCustom: t.isCustom,
+      kind: t.kind,
       advanceNoticeDays: t.advanceNoticeDays,
       maxConsecutiveDays: t.maxConsecutiveDays,
       quota: t.annualQuota
@@ -945,7 +1186,9 @@ export async function workerLeaveOverview(workerId: string) {
     shiftChanges: changes,
     shifts: shiftList,
     currentShiftId: me?.shiftId ?? null,
-    rules: { maxPastDays: s.maxPastDays, maxShiftChangeDays: s.maxShiftChangeDays, workerCanCancelApproved: s.workerCanCancelApproved }
+    rules: { maxPastDays: s.maxPastDays, maxShiftChangeDays: s.maxShiftChangeDays, workerCanCancelApproved: s.workerCanCancelApproved },
+    /** The server's date: Late Entry / Early Exit are for this day only. */
+    today: todayKey()
   }
 }
 

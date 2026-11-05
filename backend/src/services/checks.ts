@@ -7,6 +7,8 @@ import {
   checkExceptions,
   departments,
   jobs,
+  leaveRequests,
+  leaveTypes,
   machineBreakdowns,
   machines,
   media,
@@ -21,6 +23,7 @@ import { readingText } from '../lib/validate'
 const worker = alias(users, 'worker')
 const submitter = alias(users, 'submitter')
 const reviewer = alias(users, 'reviewer')
+const leaveDecider = alias(users, 'leave_decider')
 
 export interface CheckFilters {
   from?: Date
@@ -181,6 +184,18 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
         decidedByName: machineBreakdowns.decidedByName,
         decidedAt: machineBreakdowns.decidedAt,
         decisionComment: machineBreakdowns.decisionComment
+      },
+      /** EXCUSED checks: the approved Late Entry / Early Exit that excused them. */
+      leaveExcuse: {
+        id: leaveRequests.id,
+        kind: leaveTypes.kind,
+        typeName: leaveTypes.name,
+        date: leaveRequests.startDate,
+        requestedTime: leaveRequests.requestedTime,
+        reason: leaveRequests.reason,
+        decidedByName: leaveDecider.name,
+        decidedAt: leaveRequests.decidedAt,
+        decisionComment: leaveRequests.decisionComment
       }
     })
     .from(qualityChecks)
@@ -192,6 +207,9 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
     .leftJoin(submitter, eq(qualityChecks.submittedById, submitter.id))
     .leftJoin(jobs, eq(qualityChecks.jobId, jobs.id))
     .leftJoin(machineBreakdowns, eq(qualityChecks.breakdownId, machineBreakdowns.id))
+    .leftJoin(leaveRequests, eq(qualityChecks.leaveRequestId, leaveRequests.id))
+    .leftJoin(leaveTypes, eq(leaveRequests.leaveTypeId, leaveTypes.id))
+    .leftJoin(leaveDecider, eq(leaveRequests.decidedById, leaveDecider.id))
     .where(buildWhere(filters))
     .orderBy(order === 'asc' ? asc(sortColumn) : desc(sortColumn))
     .limit(limit)
@@ -244,6 +262,8 @@ export async function listChecks(filters: CheckFilters, options: ListOptions = {
         r.check.breakdownId && r.breakdown?.id
           ? (({ photoPath, ...b }) => ({ ...b, photoUrl: photoPath ? signedMediaUrl(photoPath) : null }))(r.breakdown)
           : null,
+      /** Excused checks: the approved Late Entry / Early Exit, its time and who approved it (audit). */
+      leaveExcuse: r.check.leaveRequestId && r.leaveExcuse?.id ? r.leaveExcuse : null,
       itemCode: r.check.itemCode,
       jobNo: r.check.jobNo,
       /** MANUAL when the worker started the check, NOTIFICATION when the scheduler did. */

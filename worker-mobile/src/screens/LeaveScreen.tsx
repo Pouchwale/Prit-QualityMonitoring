@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { View, Text, ScrollView, Pressable, Platform, RefreshControl } from 'react-native'
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { DayPart, LeaveOverview, LeaveStatus, MyLeaveRequest, MyShiftChange } from '../types'
 import { applyForLeave, cancelLeaveRequest, cancelShiftChange, getLeaveOverview, previewLeave, requestShiftChange } from '../services/api'
 import { dateKey, formatDateKey, parseDateKey } from '../utils/dates'
-import { formatClockRange, formatDateTime } from '../utils/datetime'
+import { formatClock, formatClockRange, formatDateTime } from '../utils/datetime'
 import { friendlyMessage } from '../utils/friendlyError'
 import { showDialog, showError, showSuccess } from '../utils/dialog'
 import { useAutoRefresh } from '../hooks/useAutoRefresh'
 import { DatePicker } from '../components/DatePicker'
+import { TimePicker } from '../components/TimePicker'
 import { KeyboardAwareScrollView } from '../utils/keyboard'
 import { ActionBar } from '../components/ui/ActionBar'
 import { Button } from '../components/ui/Button'
@@ -26,7 +28,7 @@ import { TextField } from '../components/ui/TextField'
  */
 
 type Mode = 'home' | 'apply' | 'shift'
-type AnyMine = (MyLeaveRequest & { kind: 'leave' }) | (MyShiftChange & { kind: 'shift' })
+type AnyMine = (Omit<MyLeaveRequest, 'kind'> & { kind: 'leave'; leaveKind?: MyLeaveRequest['kind'] }) | (MyShiftChange & { kind: 'shift' })
 
 const STATUS: Record<LeaveStatus, { label: string; box: string; text: string }> = {
   PENDING: { label: 'Pending', box: 'bg-due-bg', text: 'text-due' },
@@ -103,6 +105,57 @@ const DateField: React.FC<{ label: string; value: string; min?: string; max?: st
   )
 }
 
+/** Late Entry / Early Exit: today only, with a time; the manager's approval excuses tasks. */
+const isTimeKind = (kind?: string | null) => kind === 'LATE_ENTRY' || kind === 'EARLY_EXIT'
+const pad2 = (n: number) => String(n).padStart(2, '0')
+const nowHhmm = () => {
+  const d = new Date()
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+/** A time field: hour, minute and AM/PM on the web, the time wheel on iPhone, the time dialog on Android. */
+const TimeField: React.FC<{ label: string; value: string; onChange: (hhmm: string) => void }> = ({ label, value, onChange }) => {
+  const [open, setOpen] = useState(false)
+  if (Platform.OS === 'web') {
+    return (
+      <View>
+        <Text className="mb-1.5 text-[13px] font-semibold text-ink-muted">{label}</Text>
+        <TimePicker label={label} value={value} onChange={onChange} />
+      </View>
+    )
+  }
+  const press = () => {
+    if (Platform.OS === 'android') {
+      const [h, m] = value.split(':').map(Number)
+      const d = new Date()
+      d.setHours(h, m, 0, 0)
+      DateTimePickerAndroid.open({
+        value: d,
+        mode: 'time',
+        is24Hour: false,
+        onChange: (event, picked) => {
+          if (event.type === 'set' && picked) onChange(`${pad2(picked.getHours())}:${pad2(picked.getMinutes())}`)
+        }
+      })
+    } else setOpen(!open)
+  }
+  return (
+    <View>
+      <Text className="mb-1.5 text-[13px] font-semibold text-ink-muted">{label}</Text>
+      <Pressable
+        onPress={press}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${formatClock(value)}`}
+        className={`h-[52px] flex-row items-center justify-between rounded-xl border px-4 ${open ? 'border-accent bg-surface' : 'border-transparent bg-subtle'}`}
+      >
+        <Text className="text-[17px] text-ink">{formatClock(value)}</Text>
+        <Icon name="time-outline" size={20} color="muted" />
+      </Pressable>
+      {open && Platform.OS === 'ios' ? <TimePicker label={label} value={value} onChange={onChange} /> : null}
+    </View>
+  )
+}
+
 // ---------------------------------------------------------------------------- Apply for leave
 
 const ApplyLeave: React.FC<{ data: LeaveOverview; onDone: () => void; onBack: () => void }> = ({ data, onDone, onBack }) => {
@@ -113,11 +166,16 @@ const ApplyLeave: React.FC<{ data: LeaveOverview; onDone: () => void; onBack: ()
   const [end, setEnd] = useState(today)
   const [reason, setReason] = useState('')
   const [customType, setCustomType] = useState('')
+  const [time, setTime] = useState(nowHhmm)
   const [preview, setPreview] = useState<{ days: number; skipped: number } | { error: string } | null>(null)
   const [sending, setSending] = useState(false)
   const type = data.types.find((t) => t.id === typeId)
   const balance = data.balances.find((b) => b.leaveTypeId === typeId)
   const half = dayPart !== 'FULL'
+  // Late Entry / Early Exit: always today (the server's date), with a time.
+  const timed = isTimeKind(type?.kind)
+  const serverToday = data.today ?? today
+  const late = type?.kind === 'LATE_ENTRY'
   const earliest = dateKey(new Date(Date.now() - data.rules.maxPastDays * 86_400_000))
 
   // Half days: one date. A type without half days goes back to a full day.
@@ -131,7 +189,10 @@ const ApplyLeave: React.FC<{ data: LeaveOverview; onDone: () => void; onBack: ()
 
   // What the server would count (and whether it would refuse), while the form is filled in.
   useEffect(() => {
-    if (!typeId) return
+    if (!typeId || timed) {
+      setPreview(null)
+      return
+    }
     let live = true
     const t = setTimeout(() => {
       previewLeave({ leaveTypeId: typeId, dayPart, startDate: start, endDate: half ? start : end })
@@ -142,10 +203,27 @@ const ApplyLeave: React.FC<{ data: LeaveOverview; onDone: () => void; onBack: ()
       live = false
       clearTimeout(t)
     }
-  }, [typeId, dayPart, start, end, half])
+  }, [typeId, dayPart, start, end, half, timed])
 
   const submit = async () => {
     if (!type) return
+    if (timed) {
+      if (reason.trim().length < 3) return showDialog('Write a reason', `Tell your manager why you ${late ? 'are arriving late' : 'need to leave early'}.`, [], 'warning')
+      setSending(true)
+      try {
+        const saved = await applyForLeave({ leaveTypeId: type.id, dayPart: 'FULL', startDate: serverToday, endDate: serverToday, reason: reason.trim(), requestedTime: time }, null)
+        showSuccess(
+          `${type.name} sent`,
+          `${saved.dayPartLabel}, today. Your manager approves or rejects it; your tasks stay as they are until then. You get a notification with the decision.`,
+          onDone
+        )
+      } catch (err) {
+        showError(err, { title: 'Request not sent' })
+      } finally {
+        setSending(false)
+      }
+      return
+    }
     if (type.isCustom && customType.trim().length < 2) return showDialog('Enter the leave name', 'Type what kind of leave you need, e.g. Marriage leave.', [], 'warning')
     if (reason.trim().length < 3) return showDialog('Write a reason', 'Tell your supervisor why you need the leave.', [], 'warning')
     setSending(true)
@@ -182,8 +260,12 @@ const ApplyLeave: React.FC<{ data: LeaveOverview; onDone: () => void; onBack: ()
               return (
                 <Chip
                   key={t.id}
-                  label={t.isCustom ? t.name : `${t.name} (${t.code})`}
-                  detail={[b ? (b.remaining === null ? 'No limit' : `${num(b.remaining)} left`) : null, t.isPaid ? null : 'Unpaid', t.isCustom ? 'Enter your own leave name' : null].filter(Boolean).join(' · ')}
+                  label={t.isCustom || isTimeKind(t.kind) ? t.name : `${t.name} (${t.code})`}
+                  detail={
+                    isTimeKind(t.kind)
+                      ? `Today only · enter the time you ${t.kind === 'LATE_ENTRY' ? 'arrive' : 'leave'}`
+                      : [b ? (b.remaining === null ? 'No limit' : `${num(b.remaining)} left`) : null, t.isPaid ? null : 'Unpaid', t.isCustom ? 'Enter your own leave name' : null].filter(Boolean).join(' · ')
+                  }
                   selected={typeId === t.id}
                   onPress={() => setTypeId(t.id)}
                 />
@@ -192,6 +274,24 @@ const ApplyLeave: React.FC<{ data: LeaveOverview; onDone: () => void; onBack: ()
           </View>
         </View>
 
+        {timed ? (
+          <View className="gap-4">
+            <View>
+              <Text className="mb-1.5 text-[13px] font-semibold text-ink-muted">Date</Text>
+              <View className="h-[52px] flex-row items-center justify-between rounded-xl bg-subtle px-4" accessible accessibilityLabel={`Date: today, ${formatDateKey(serverToday)}`}>
+                <Text className="text-[17px] text-ink">Today, {formatDateKey(serverToday)}</Text>
+                <Icon name="lock-closed-outline" size={18} color="muted" />
+              </View>
+            </View>
+            <TimeField label={late ? 'Arrival time' : 'Leaving time'} value={time} onChange={setTime} />
+            <Text className="text-[15px] leading-[21px] text-ink-secondary">
+              {late
+                ? 'If your manager approves, your missed tasks from the start of your shift until this time are removed. Tasks after it count as usual.'
+                : 'Your tasks stay active until your manager approves. Then your unfinished tasks from this time to the end of your shift are removed. Tomorrow your tasks run as normal.'}
+            </Text>
+          </View>
+        ) : (
+          <>
         <View>
           <FieldLabel label="Duration" />
           <View className="flex-row flex-wrap gap-2" accessibilityRole="radiogroup">
@@ -225,7 +325,10 @@ const ApplyLeave: React.FC<{ data: LeaveOverview; onDone: () => void; onBack: ()
           ) : null}
         </View>
 
-        {type?.isCustom ? (
+          </>
+        )}
+
+        {type?.isCustom && !timed ? (
           <View>
             <FieldLabel label="Leave name" hint="Your own type of leave; it goes to your supervisor for approval." />
             <TextField value={customType} onChangeText={setCustomType} maxLength={60} placeholder="e.g. Marriage leave" />
@@ -234,12 +337,12 @@ const ApplyLeave: React.FC<{ data: LeaveOverview; onDone: () => void; onBack: ()
 
         <View>
           <FieldLabel label="Reason" />
-          <TextField value={reason} onChangeText={setReason} multiline maxLength={1000} placeholder="Why you need the leave" />
+          <TextField value={reason} onChangeText={setReason} multiline maxLength={1000} placeholder={timed ? (late ? 'Why you are arriving late' : 'Why you need to leave early') : 'Why you need the leave'} />
         </View>
 
       </KeyboardAwareScrollView>
       <ActionBar>
-        <Button label="Apply for Leave" icon="paper-plane-outline" onPress={submit} loading={sending} disabled={!!preview && 'error' in preview} />
+        <Button label={timed && type ? `Send ${type.name} Request` : 'Apply for Leave'} icon="paper-plane-outline" onPress={submit} loading={sending} disabled={!timed && !!preview && 'error' in preview} />
       </ActionBar>
     </View>
   )
@@ -322,11 +425,11 @@ const RequestRow: React.FC<{ r: AnyMine; onPress: () => void }> = ({ r, onPress 
     </View>
     <View className="ml-3 flex-1">
       <Text className="text-[16px] font-semibold text-ink" numberOfLines={1}>
-        {r.kind === 'leave' ? `${r.leaveTypeName}${r.dayPart === 'FULL' ? '' : r.dayPart === 'FIRST_HALF' ? ' · 1st half' : ' · 2nd half'}` : `Shift: ${r.requestedShiftName}`}
+        {r.kind === 'leave' ? `${r.leaveTypeName}${isTimeKind(r.leaveKind) || r.dayPart === 'FULL' ? '' : r.dayPart === 'FIRST_HALF' ? ' · 1st half' : ' · 2nd half'}` : `Shift: ${r.requestedShiftName}`}
       </Text>
       <Text className="text-[14px] text-ink-muted" numberOfLines={1}>
         {range(r.startDate, r.endDate)}
-        {r.kind === 'leave' ? ` · ${days(r.days)}` : ''}
+        {r.kind === 'leave' ? (isTimeKind(r.leaveKind) ? ` · ${r.dayPartLabel}` : ` · ${days(r.days)}`) : ''}
       </Text>
     </View>
     <StatusPill status={r.status} />
@@ -363,7 +466,7 @@ export const LeaveScreen: React.FC<{ refreshKey?: number; onFormChange?: (open: 
   const all: AnyMine[] = useMemo(
     () =>
       data
-        ? [...data.leave.map((l) => ({ ...l, kind: 'leave' as const })), ...data.shiftChanges.map((s) => ({ ...s, kind: 'shift' as const }))].sort((a, b) =>
+        ? [...data.leave.map((l) => ({ ...l, leaveKind: l.kind, kind: 'leave' as const })), ...data.shiftChanges.map((s) => ({ ...s, kind: 'shift' as const }))].sort((a, b) =>
             b.createdAt.localeCompare(a.createdAt)
           )
         : [],
@@ -395,8 +498,9 @@ export const LeaveScreen: React.FC<{ refreshKey?: number; onFormChange?: (open: 
 
   const open = (r: AnyMine) => {
     const lines = [
-      r.kind === 'leave' ? `${r.leaveTypeName} (${r.leaveTypeCode}) · ${r.dayPartLabel}` : `${r.currentShiftName ?? 'Your shift'} → ${r.requestedShiftName} (${shiftTime(r.requestedShiftTime)})`,
-      `${range(r.startDate, r.endDate)}${r.kind === 'leave' ? ` · ${days(r.days)}` : ''}`,
+      r.kind === 'leave' ? (isTimeKind(r.leaveKind) ? `${r.leaveTypeName} · ${r.dayPartLabel}` : `${r.leaveTypeName} (${r.leaveTypeCode}) · ${r.dayPartLabel}`) : `${r.currentShiftName ?? 'Your shift'} → ${r.requestedShiftName} (${shiftTime(r.requestedShiftTime)})`,
+      `${range(r.startDate, r.endDate)}${r.kind === 'leave' && !isTimeKind(r.leaveKind) ? ` · ${days(r.days)}` : ''}`,
+      r.kind === 'leave' && isTimeKind(r.leaveKind) && r.tasksRemovedAt ? `Tasks removed: ${r.tasksRemoved ?? 0}` : null,
       `Status: ${STATUS[r.status].label}${r.decidedByName ? ` by ${r.decidedByName}` : ''}${r.decidedAt ? `, ${formatDateTime(r.decidedAt)}` : ''}`,
       r.decisionComment ? `Remarks: ${r.decisionComment}` : null,
       `Reason: ${r.reason}`,

@@ -235,13 +235,15 @@ export const LeaveSettingsPage: React.FC = () => {
                       </td>
                       <td className="num whitespace-nowrap">{t.annualQuota === null ? 'No limit' : `${t.annualQuota} days`}</td>
                       <td className="text-ink-secondary">
-                        {[
+                        {(t.kind === 'LATE_ENTRY' || t.kind === 'EARLY_EXIT'
+                          ? [`Today only, with the ${t.kind === 'LATE_ENTRY' ? 'arrival' : 'leaving'} time`, `approval excuses the unfinished tasks ${t.kind === 'LATE_ENTRY' ? 'before arrival' : 'after leaving'}`]
+                          : [
                           t.isPaid ? 'Paid' : 'Unpaid',
                           t.allowHalfDay ? 'half days' : 'full days only',
                           t.isCustom && 'employee enters the leave name',
                           t.advanceNoticeDays ? `${t.advanceNoticeDays} days' notice` : null,
                           t.maxConsecutiveDays !== null ? `at most ${t.maxConsecutiveDays} days at a time` : null
-                        ]
+                        ])
                           .filter(Boolean)
                           .join(' · ')}
                       </td>

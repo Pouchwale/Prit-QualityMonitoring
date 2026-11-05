@@ -803,7 +803,7 @@ function sendWithFile<T>(path: string, fields: Record<string, string>, file: Pic
   })
 }
 
-export const applyForLeave = (fields: { leaveTypeId: string; dayPart: DayPart; startDate: string; endDate: string; reason: string; customType?: string }, file: PickedFile | null) =>
+export const applyForLeave = (fields: { leaveTypeId: string; dayPart: DayPart; startDate: string; endDate: string; reason: string; customType?: string; requestedTime?: string }, file: PickedFile | null) =>
   sendWithFile<MyLeaveRequest>('/api/worker/leave/requests', Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined)) as Record<string, string>, file)
 
 export const requestShiftChange = (fields: { requestedShiftId: string; startDate: string; endDate: string; reason: string }, file: PickedFile | null) =>

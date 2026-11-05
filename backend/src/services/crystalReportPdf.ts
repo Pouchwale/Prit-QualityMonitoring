@@ -396,7 +396,7 @@ function statusStyle(status: string) {
     case 'MISSED':
       return { label: 'Missed', color: C.fail, bg: C.failBg }
     case 'EXCUSED':
-      return { label: 'Excused (breakdown)', color: C.muted, bg: C.headBg }
+      return { label: 'Excused', color: C.muted, bg: C.headBg }
     default:
       return { label: humanize(status), color: C.muted, bg: C.headBg }
   }

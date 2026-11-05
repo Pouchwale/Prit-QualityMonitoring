@@ -7,7 +7,7 @@ import { machineOffBetween, purgeClosedDays, reopenedToday } from './plantCalend
 import { generateJobIntervalChecks } from './jobMonitoring'
 import { checkTypeInDepartment } from './checkTypeScope'
 import { keepChecksOutOfBreaks, loadBreaks, outsideBreak } from './workerBreaks'
-import { applyDayPlan, workerDayPlans } from './leave'
+import { applyDayPlan, approvedTimeCuts, cutWindows, workerDayPlans } from './leave'
 import { applyApprovedBreakdowns } from './breakdownWindow'
 
 /**
@@ -236,6 +236,8 @@ export async function planChecks(now: Date, options: { ignoreOpen?: boolean; mar
   // Approved leave and shift changes (services/leave.ts): no checks while a worker is on leave
   // (half a day: that half of the shift); on a shift change, the checks follow the requested shift.
   const plans = await workerDayPlans(null, dateKey(addDays(startOfDay(now), -2)), dateKey(addDays(startOfDay(now), 10)))
+  // Approved Late Entry / Early Exit: no checks before the arrival / after the leaving time, that shift only.
+  const timeCuts = await approvedTimeCuts(null, addDays(startOfDay(now), -2), addDays(startOfDay(now), 10))
 
   const inserts: (typeof qualityChecks.$inferInsert)[] = []
   for (const { schedule, shift, activityDepartmentId, activityModule, activityGraceMinutes } of rows) {
@@ -266,7 +268,7 @@ export async function planChecks(now: Date, options: { ignoreOpen?: boolean; mar
 
     let created = false
     const workerPlans = targetWorkerId ? plans.get(targetWorkerId) : undefined
-    const windows: Occurrence[] = workerPlans
+    const planned: Occurrence[] = workerPlans
       ? occurrences(schedule, shift, now)
           .flatMap((o) => {
             const plan = workerPlans.get(dateKey(o.start))
@@ -276,6 +278,7 @@ export async function planChecks(now: Date, options: { ignoreOpen?: boolean; mar
           })
           .sort((a, b) => a.start.getTime() - b.start.getTime())
       : occurrences(schedule, shift, now)
+    const windows = cutWindows(planned, targetWorkerId ? timeCuts.get(targetWorkerId) : undefined)
     for (const occurrence of windows) {
       if (occurrence.end <= now) continue
 

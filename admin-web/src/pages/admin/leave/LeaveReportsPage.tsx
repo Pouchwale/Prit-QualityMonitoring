@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { BarChart3, ChevronLeft, ChevronRight, Download, Tag, Users } from 'lucide-react'
+import { AlarmClock, BarChart3, ChevronLeft, ChevronRight, Download, Tag, Users, Wallet } from 'lucide-react'
 import type { LeaveReportData } from '../../../types'
 import { useApi } from '../../../lib/useApi'
 import { useAuth } from '../../../lib/auth'
@@ -10,12 +10,31 @@ import { PageHeader } from '../../../components/common/PageHeader'
 import { Card, EmptyState } from '../../../components/ui/Card'
 import { StatCard } from '../../../components/ui/StatCard'
 import { IconButton, ResultCount, SearchInput, Toolbar, ToolbarSpacer } from '../../../components/ui/Toolbar'
+import { TimeRequestReport } from './TimeRequestReport'
 
 const num = (n: number | null) => (n === null ? '∞' : Number.isInteger(n) ? String(n) : n.toFixed(1))
 
-/** Every worker's leave balance per type for a leave year: allocated, used, pending and remaining. */
+const Tab: React.FC<{ active: boolean; onClick: () => void; icon: React.ReactNode; children: React.ReactNode }> = ({ active, onClick, icon, children }) => (
+  <button
+    type="button"
+    role="tab"
+    aria-selected={active}
+    onClick={onClick}
+    className={`relative inline-flex items-center gap-1.5 h-10 lg:h-9 px-3 text-[14.5px] font-medium whitespace-nowrap transition-colors ${active ? 'text-accent-strong' : 'text-ink-muted hover:text-ink'}`}
+  >
+    <span aria-hidden>{icon}</span>
+    {children}
+    {active && <span className="absolute left-2 right-2 -bottom-px h-[2px] rounded-full bg-accent" aria-hidden />}
+  </button>
+)
+
+/**
+ * Leave Reports: every worker's leave balance per type for a leave year (allocated, used, pending,
+ * remaining), and every Late Entry / Early Exit request with a PDF download.
+ */
 export const LeaveReportsPage: React.FC = () => {
   const { can } = useAuth()
+  const [tab, setTab] = useState<'balances' | 'time'>(() => (new URLSearchParams(window.location.search).get('tab') === 'time' ? 'time' : 'balances'))
   const [yearOffset, setYearOffset] = useState(0)
   const at = useMemo(() => {
     const d = new Date()
@@ -72,10 +91,24 @@ export const LeaveReportsPage: React.FC = () => {
       <PageHeader
         icon={<BarChart3 className="w-4.5 h-4.5" />}
         title="Leave Reports"
-        description={data ? `Leave year ${data.year.label}` : 'Leave balances'}
-        info="Allocated = the yearly quota plus days carried forward. Used = approved leave in this leave year; Pending = requests waiting for a decision. Set quotas and the leave year in Leave Settings."
+        description={tab === 'time' ? 'Late Entry and Early Exit records' : data ? `Leave year ${data.year.label}` : 'Leave balances'}
+        info={
+          tab === 'time'
+            ? 'Every Late Entry and Early Exit request in the chosen dates, whatever its status. Late by = arrival time less the shift start; early by = shift end less the leaving time. Download the PDF for the full report.'
+            : 'Allocated = the yearly quota plus days carried forward. Used = approved leave in this leave year; Pending = requests waiting for a decision. Set quotas and the leave year in Leave Settings.'
+        }
+        tabs={
+          <div role="tablist" aria-label="Leave report views" className="scroll-hint flex items-center gap-1 border-b border-line max-w-full overflow-x-auto -mb-px">
+            <Tab active={tab === 'balances'} onClick={() => setTab('balances')} icon={<Wallet className="w-3.5 h-3.5" />}>
+              Leave Balances
+            </Tab>
+            <Tab active={tab === 'time'} onClick={() => setTab('time')} icon={<AlarmClock className="w-3.5 h-3.5" />}>
+              Late Entry &amp; Early Exit
+            </Tab>
+          </div>
+        }
         actions={
-          can('leave', 'export') ? (
+          tab === 'balances' && can('leave', 'export') ? (
             <Button size="sm" variant="outline" icon={<Download className="w-3.5 h-3.5" />} onClick={exportCsv} disabled={!rows.length}>
               Export CSV
             </Button>
@@ -83,6 +116,10 @@ export const LeaveReportsPage: React.FC = () => {
         }
       />
 
+      {tab === 'time' ? (
+        <TimeRequestReport canExport={can('leave', 'export')} />
+      ) : (
+        <>
       {totals.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {totals.map((t) => (
@@ -160,6 +197,8 @@ export const LeaveReportsPage: React.FC = () => {
           )}
         </DataState>
       </Card>
+        </>
+      )}
     </div>
   )
 }

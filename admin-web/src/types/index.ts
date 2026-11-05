@@ -127,6 +127,19 @@ export interface CheckBreakdown {
   decisionComment: string | null
 }
 
+/** The approved Late Entry / Early Exit that excused a check (EXCUSED): never counted or scored. */
+export interface CheckLeaveExcuse {
+  id: string
+  kind: LeaveKind
+  typeName: string
+  date: string
+  requestedTime: string | null
+  reason: string
+  decidedByName: string | null
+  decidedAt: string | null
+  decisionComment: string | null
+}
+
 export type BreakdownStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
 
 /** A worker's machine breakdown report (backend/src/services/breakdowns.ts). */
@@ -495,6 +508,8 @@ export interface QualityCheck {
   exception: CheckException | null
   /** EXCUSED checks: the approved machine breakdown, its reason and who approved it. */
   breakdown?: CheckBreakdown | null
+  /** EXCUSED checks: the approved Late Entry / Early Exit that covered them. */
+  leaveExcuse?: CheckLeaveExcuse | null
   /** SCHEDULED (shift schedule) or a job check (older servers leave it out). */
   kind?: CheckKind
   /** Job checks: the parameters this check asks for. */
@@ -998,6 +1013,8 @@ export interface LeaveType {
   carryForwardMax: number
   /** The employee types the leave's own name when applying (Custom Leave). */
   isCustom: boolean
+  /** LEAVE: days off. LATE_ENTRY / EARLY_EXIT: today only, with a time (older servers leave it out). */
+  kind?: LeaveKind
   isActive: boolean
   sortOrder: number
 }
@@ -1023,14 +1040,26 @@ interface RequestBase {
   departmentName: string | null
 }
 
+export type LeaveKind = 'LEAVE' | 'LATE_ENTRY' | 'EARLY_EXIT'
+
 export interface LeaveRequest extends RequestBase {
   leaveTypeId: string
   leaveTypeName: string
   leaveTypeCode: string
   isPaid: boolean
   dayPart: DayPart
+  /** Leave: the day part. Late Entry / Early Exit: "Arrival at 10:30 AM" / "Leaving at 3:00 PM". */
   dayPartLabel: string
   days: number
+  kind?: LeaveKind
+  /** Late Entry / Early Exit: the time entered (HH:MM). */
+  requestedTime?: string | null
+  /** Late Entry / Early Exit: the stretch of the shift whose tasks approval excuses. */
+  affectsFrom?: string | null
+  affectsTo?: string | null
+  /** When approval excused the tasks, and how many. */
+  tasksRemovedAt?: string | null
+  tasksRemoved?: number | null
 }
 
 export interface ShiftChangeRequest extends RequestBase {

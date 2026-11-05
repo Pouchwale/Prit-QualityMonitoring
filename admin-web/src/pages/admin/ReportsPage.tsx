@@ -16,6 +16,7 @@ import {
   Printer,
   RefreshCw,
   RotateCcw,
+  Trophy,
   Users,
   XCircle
 } from 'lucide-react'
@@ -36,6 +37,7 @@ import { ChartLegend, DonutChart, ProgressBar, STATUS_SERIES, StackedBarChart, t
 import { IconButton, Segmented } from '../../components/ui/Toolbar'
 import { DetailedRecords, TraceChanges, TraceGroupTable, TraceSummary, TraceWorkers } from './reports/TraceSections'
 import { ReportSharingSection } from './reports/ReportSharingSection'
+import { ScoreSummarySection } from './reports/ScoreSummarySection'
 import { PdfPreview } from '../../components/common/PdfPreview'
 import { itemCodeOf, jobNoOf } from './reports/checkFields'
 
@@ -201,8 +203,11 @@ export const ReportsPage: React.FC = () => {
     setFilters(next)
   }
   const [downloading, setDownloading] = useState(false)
-  // ?tab=sharing (e.g. from the report email failure popup) opens Report Sharing.
-  const [activeTab, setActiveTab] = useState<'reports' | 'sharing'>(() => (new URLSearchParams(window.location.search).get('tab') === 'sharing' ? 'sharing' : 'reports'))
+  // ?tab=sharing (e.g. from the report email failure popup) opens Report Sharing; ?tab=score the Score Summary.
+  const [activeTab, setActiveTab] = useState<'reports' | 'score' | 'sharing'>(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab')
+    return tab === 'sharing' || tab === 'score' ? tab : 'reports'
+  })
   const notify = useToast()
   // PDF, CSV and print need the Export Reports module (the server checks the PDF as well).
   const canExport = useAuth().can('reports', 'export')
@@ -433,7 +438,7 @@ export const ReportsPage: React.FC = () => {
               : 'Summaries of scheduled quality checks for any period. Pick the dates and filters to narrow the report.'
           }
           actions={
-            <>
+            activeTab === 'reports' && <>
               <IconButton
                 label="Refresh"
                 size="md"
@@ -485,6 +490,9 @@ export const ReportsPage: React.FC = () => {
             <div role="tablist" aria-label="Report views" className="scroll-hint flex items-center gap-1 border-b border-line max-w-full overflow-x-auto -mb-px">
               <ViewTab active={activeTab === 'reports'} onClick={() => setActiveTab('reports')} icon={<BarChart3 className="w-3.5 h-3.5" />}>
                 Reports & Analytics
+              </ViewTab>
+              <ViewTab active={activeTab === 'score'} onClick={() => setActiveTab('score')} icon={<Trophy className="w-3.5 h-3.5" />}>
+                Score Summary
               </ViewTab>
               <ViewTab active={activeTab === 'sharing'} onClick={() => setActiveTab('sharing')} icon={<Mail className="w-3.5 h-3.5" />}>
                 Report Sharing & Email
@@ -559,6 +567,10 @@ export const ReportsPage: React.FC = () => {
             )}
           </section>
 
+          {activeTab === 'score' ? (
+            <ScoreSummarySection from={filters.from} to={filters.to} period={period} canExport={canExport} />
+          ) : (
+          <>
           <FilterBar
             value={filters}
             onChange={setFilters}
@@ -696,6 +708,8 @@ export const ReportsPage: React.FC = () => {
               </div>
             )}
           </DataState>
+          </>
+          )}
         </>
       )}
       <PdfPreview
